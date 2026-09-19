@@ -103,6 +103,25 @@ export function computeVisionPolygon(
   return circlePoints;
 }
 
+/**
+ * Determines whether a 2D point is inside a polygon using ray casting algorithm.
+ */
+export function isPointInPolygon(
+  point: { x: number; y: number },
+  polygon: Array<{ x: number; y: number }>
+): boolean {
+  if (!polygon || polygon.length < 3) return false;
+  const { x, y } = point;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // CANVAS 2D RENDERING PIPELINE
 // ═════════════════════════════════════════════════════════════════════════════
@@ -177,6 +196,115 @@ export function renderDynamicLighting(
 
   ctx.restore();
 }
+
+export interface VisionPolygonResult {
+  source: VisionSource;
+  polygon: Array<{ x: number; y: number }>;
+}
+
+/**
+ * Renders two-stage player Fog of War:
+ * - Unexplored territory: pitch-black opaque shroud (rgba(5, 7, 15, 0.98))
+ * - Explored territory: dim memory fog (rgba(5, 7, 15, 0.72))
+ * - Active player line-of-sight: brightly illuminated with atmospheric lighting
+ */
+export function renderExploredFogOfWar(
+  ctx: CanvasRenderingContext2D,
+  viewBounds: { x: number; y: number; width: number; height: number },
+  visionSources: VisionSource[],
+  walls: WallSegment[],
+  doors: DoorPrimitive[],
+  exploredCells: Set<string> | string[],
+  gridSize: number,
+  unexploredDarkness = 0.98,
+  dimFogDarkness = 0.72
+): VisionPolygonResult[] {
+  const exploredSet = Array.isArray(exploredCells) ? new Set(exploredCells) : exploredCells;
+
+  // 1. Compute polygons for all active vision sources
+  const visionResults: VisionPolygonResult[] = [];
+  for (const source of visionSources) {
+    const poly = computeVisionPolygon({ x: source.x, y: source.y }, source.radius, walls, doors);
+    if (poly.length >= 3) {
+      visionResults.push({ source, polygon: poly });
+    }
+  }
+
+  ctx.save();
+
+  // 2. Identify visible grid bounds
+  const startCol = Math.floor(viewBounds.x / gridSize) - 1;
+  const startRow = Math.floor(viewBounds.y / gridSize) - 1;
+  const endCol = Math.ceil((viewBounds.x + viewBounds.width) / gridSize) + 1;
+  const endRow = Math.ceil((viewBounds.y + viewBounds.height) / gridSize) + 1;
+
+  // 3. Draw unexplored shroud vs explored memory cells
+  for (let c = startCol; c <= endCol; c++) {
+    for (let r = startRow; r <= endRow; r++) {
+      const key = `${c},${r}`;
+      const isExplored = exploredSet.has(key);
+      const cellX = c * gridSize;
+      const cellY = r * gridSize;
+
+      if (!isExplored) {
+        // Unexplored: completely shrouded in dark void
+        ctx.fillStyle = `rgba(5, 7, 15, ${unexploredDarkness})`;
+        ctx.fillRect(cellX, cellY, gridSize, gridSize);
+      } else {
+        // Explored memory: dim fog
+        ctx.fillStyle = `rgba(5, 7, 15, ${dimFogDarkness})`;
+        ctx.fillRect(cellX, cellY, gridSize, gridSize);
+      }
+    }
+  }
+
+  // 4. Punch out active line of sight for each player vision cone
+  for (const { source, polygon } of visionResults) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(polygon[0].x, polygon[0].y);
+    for (let i = 1; i < polygon.length; i++) {
+      ctx.lineTo(polygon[i].x, polygon[i].y);
+    }
+    ctx.closePath();
+    ctx.clip();
+
+    // Clear fog over active vision polygon
+    ctx.globalCompositeOperation = 'destination-out';
+    const grad = ctx.createRadialGradient(
+      source.x, source.y, 0,
+      source.x, source.y, source.radius
+    );
+    grad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+    grad.addColorStop(0.75, 'rgba(0, 0, 0, 0.9)');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(source.x, source.y, source.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ambient warm torchlight tint
+    ctx.globalCompositeOperation = 'source-over';
+    const tintGrad = ctx.createRadialGradient(
+      source.x, source.y, 0,
+      source.x, source.y, source.radius
+    );
+    const tintColor = source.color || 'rgba(251, 191, 36, 0.16)';
+    tintGrad.addColorStop(0, tintColor);
+    tintGrad.addColorStop(0.8, 'rgba(251, 191, 36, 0.04)');
+    tintGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = tintGrad;
+    ctx.beginPath();
+    ctx.arc(source.x, source.y, source.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  ctx.restore();
+  return visionResults;
+}
+
 
 /**
  * Renders Dungeon Scrawl wall line segments onto canvas.

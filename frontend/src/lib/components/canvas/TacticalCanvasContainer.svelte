@@ -7,6 +7,18 @@
   import { parseWatabouGeoJson, hitTestBuildingParcel, assignParcelEntity, type WatabouCityMap, type BuildingParcel, type SettlementEntityType } from '../../canvas/parsers/watabouParser';
   import { renderDynamicLighting, renderWallSegments, renderDoors, renderWatabouDistricts, type VisionSource } from '../../canvas/LightShadowRenderer';
   import MapImportModal from './MapImportModal.svelte';
+  import { canvasStore, type CanvasToken, type SpellAoeTemplate, type SpellAoeType } from '../../../stores/canvasStore.svelte';
+  import {
+    renderAoeTemplateOnCanvas,
+    renderRulerOnCanvas,
+    calculateGridDistanceFeet,
+  } from '../map/MeasurementTool';
+  import {
+    renderConditionRingsOnCanvas,
+    renderTurnReticleOnCanvas,
+  } from '../map/TokenOverlay';
+  import GeneratorDrawer from '../map/GeneratorDrawer.svelte';
+  import { importDungeonScrawlFile } from '../../importers/dungeonScrawlImporter';
 
   export interface MapToken {
     id: string;
@@ -50,6 +62,12 @@
   let dynamicLightingEnabled = $state(true);
   let wallVisibilityEnabled = $state(true);
 
+  // ── Tactical Operational Tools ─────────────────────────────────────────────
+  let activeTool = $state<'select' | 'ruler' | 'circle' | 'cone' | 'cube' | 'line'>('select');
+  let aoePublic = $state(true);
+  let rulerStart = $state<{ gx: number; gy: number } | null>(null);
+  let animTime = $state(0);
+
   // ── Viewport transform ─────────────────────────────────────────────────────
   let vpX    = $state(0);   // pan offset px
   let vpY    = $state(0);
@@ -71,6 +89,10 @@
   let spawnHp        = $state(20);
   let spawnGx        = $state(0);
   let spawnGy        = $state(0);
+
+  // ── Generator Drawer ───────────────────────────────────────────────────────
+  let showGeneratorDrawer = $state(false);
+  let dsImportFeedback = $state<string | null>(null);
 
   // ── Render loop ────────────────────────────────────────────────────────────
   let rafId = 0;
@@ -167,6 +189,16 @@
       ctx.fillRect(hoveredCell.gx * gridSize, hoveredCell.gy * gridSize, gridSize, gridSize);
     }
 
+    // Public & Private Spell AOE Overlays
+    for (const aoe of canvasStore.aoeTemplates) {
+      renderAoeTemplateOnCanvas(ctx, aoe, gridSize);
+    }
+
+    // Active Vector Ruler Measurement
+    if (canvasStore.ruler) {
+      renderRulerOnCanvas(ctx, canvasStore.ruler, gridSize);
+    }
+
     // Drag ghost
     if (draggingToken && dragCurrentGrid) {
       ctx.globalAlpha = 0.4;
@@ -178,6 +210,17 @@
       ctx.globalAlpha = 1;
     }
 
+    // Active Turn Reticle (Rendered beneath active token)
+    if (canvasStore.activeTokenId) {
+      const activeTok = tokens.find(t => t.id === canvasStore.activeTokenId);
+      if (activeTok) {
+        const cx = (activeTok.x + 0.5) * gridSize;
+        const cy = (activeTok.y + 0.5) * gridSize;
+        const radius = (gridSize * 0.45);
+        renderTurnReticleOnCanvas(ctx, cx, cy, radius, animTime);
+      }
+    }
+
     // Tokens
     for (const tok of tokens) {
       if (draggingToken?.id === tok.id) continue; // skip — drawn as ghost
@@ -185,6 +228,7 @@
     }
 
     ctx.restore();
+    animTime = performance.now() / 1000;
     rafId = requestAnimationFrame(render);
   }
 
@@ -193,6 +237,34 @@
     const x = tok.x * gridSize + pad;
     const y = tok.y * gridSize + pad;
     const size = gridSize - pad * 2;
+    const cx = x + size / 2;
+    const cy = y + size / 2;
+    const radius = size / 2;
+
+    const storeTok = canvasStore.tokens.find(t => t.id === tok.id);
+
+    // Condition Rings
+    if (storeTok && storeTok.conditions && storeTok.conditions.length > 0) {
+      renderConditionRingsOnCanvas(c, cx, cy, radius, storeTok.conditions, animTime);
+    }
+
+    // Black Orb Sealed State
+    if (storeTok?.isOrbSealed) {
+      c.save();
+      c.beginPath();
+      c.arc(cx, cy, radius, 0, Math.PI * 2);
+      c.fillStyle = '#1e1b4b';
+      c.fill();
+      c.strokeStyle = '#a855f7';
+      c.lineWidth = 2.5 / vpZoom;
+      c.stroke();
+      c.font = `bold ${Math.max(12, gridSize * 0.28)}px sans-serif`;
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText('🔮', cx, cy);
+      c.restore();
+      return;
+    }
 
     // Token body
     c.fillStyle = tok.color;
@@ -219,7 +291,7 @@
     c.font = `bold ${Math.max(8, gridSize * 0.18)}px sans-serif`;
     c.textAlign = 'center';
     c.textBaseline = 'middle';
-    c.fillText(tok.name.slice(0, 2).toUpperCase(), x + size / 2, y + size * 0.44, size - 4);
+    c.fillText(tok.name.slice(0, 2).toUpperCase(), cx, y + size * 0.44, size - 4);
   }
 
   // ── Coordinate helpers ─────────────────────────────────────────────────────
@@ -261,6 +333,7 @@
     // Zoom toward cursor
     vpX = e.clientX - canvasEl!.getBoundingClientRect().left - wx * vpZoom;
     vpY = e.clientY - canvasEl!.getBoundingClientRect().top  - wy * vpZoom;
+    canvasStore.setDmViewport({ x: vpX, y: vpY, zoom: vpZoom });
   }
 
   function handleMouseDown(e: MouseEvent) {
@@ -270,18 +343,69 @@
       panStart = { x: e.clientX, y: e.clientY, ox: vpX, oy: vpY };
       return;
     }
-    // Left click = drag token, toggle door, or inspect building parcel
+
+    // Left click = tool action, drag token, toggle door, or inspect building parcel
     if (e.button === 0) {
       const { wx, wy } = screenToWorld(e.clientX, e.clientY);
+      const { gx, gy } = worldToGrid(wx, wy);
 
-      // 1. Check door click hit-test
-      const clickedDoor = hitTestDoor(doors, wx, wy, 18 / vpZoom);
-      if (clickedDoor) {
-        doors = toggleDoorState(doors, clickedDoor.id);
+      // 1. Vector Ruler Measurement
+      if (activeTool === 'ruler') {
+        rulerStart = { gx, gy };
+        canvasStore.setRuler({
+          id: `ruler-${Date.now()}`,
+          startX: gx,
+          startY: gy,
+          endX: gx,
+          endY: gy,
+          distanceFeet: 0,
+          isPublic: aoePublic,
+          color: '#38bdf8',
+        });
         return;
       }
 
-      // 2. Check Watabou building parcel hit-test
+      // 2. Spell AOE Template Placement
+      if (['circle', 'cone', 'cube', 'line'].includes(activeTool)) {
+        const sizeMap: Record<string, number> = { circle: 20, cone: 15, cube: 20, line: 30 };
+        const labelMap: Record<string, string> = {
+          circle: 'Sphere (20 ft)',
+          cone: 'Cone (15 ft)',
+          cube: 'Cube (20 ft)',
+          line: 'Line (30 ft)',
+        };
+        const colorMap: Record<string, string> = {
+          circle: 'rgba(239, 68, 68, 0.35)',
+          cone: 'rgba(245, 158, 11, 0.35)',
+          cube: 'rgba(168, 85, 247, 0.35)',
+          line: 'rgba(56, 189, 248, 0.35)',
+        };
+        const template: SpellAoeTemplate = {
+          id: `aoe-${Date.now()}`,
+          type: activeTool as SpellAoeType,
+          originX: gx,
+          originY: gy,
+          targetX: gx + (activeTool === 'cone' || activeTool === 'line' ? 3 : 0),
+          targetY: gy,
+          sizeFeet: sizeMap[activeTool] || 20,
+          color: colorMap[activeTool] || 'rgba(239, 68, 68, 0.35)',
+          label: labelMap[activeTool] || 'Spell AOE',
+          isPublic: aoePublic,
+        };
+        canvasStore.addAoeTemplate(template);
+        activeTool = 'select'; // Revert to select after placement
+        return;
+      }
+
+      // 3. Door click hit-test
+      const clickedDoor = hitTestDoor(doors, wx, wy, 18 / vpZoom);
+      if (clickedDoor) {
+        doors = toggleDoorState(doors, clickedDoor.id);
+        canvasStore.toggleDoor(clickedDoor.id);
+        return;
+      }
+
+      // 4. Watabou building parcel hit-test
       if (cityMap) {
         const clickedParcel = hitTestBuildingParcel(cityMap.buildings, wx, wy);
         if (clickedParcel) {
@@ -291,13 +415,15 @@
         }
       }
 
-      // 3. Token drag
-      const { gx, gy } = worldToGrid(wx, wy);
+      // 5. Token drag and active turn reticle selection
       const tok = tokenAt(gx, gy);
       if (tok) {
         draggingToken = tok;
         dragOffsetGrid = { dx: gx - tok.x, dy: gy - tok.y };
         dragCurrentGrid = { gx: tok.x, gy: tok.y };
+        canvasStore.setActiveToken(tok.id);
+      } else {
+        canvasStore.setActiveToken(null);
       }
     }
   }
@@ -311,6 +437,22 @@
     if (isPanning) {
       vpX = panStart.ox + (e.clientX - panStart.x);
       vpY = panStart.oy + (e.clientY - panStart.y);
+      canvasStore.setDmViewport({ x: vpX, y: vpY, zoom: vpZoom });
+      return;
+    }
+
+    if (activeTool === 'ruler' && rulerStart) {
+      const { distanceFeet } = calculateGridDistanceFeet(rulerStart, { gx, gy });
+      canvasStore.setRuler({
+        id: 'active-ruler',
+        startX: rulerStart.gx,
+        startY: rulerStart.gy,
+        endX: gx,
+        endY: gy,
+        distanceFeet,
+        isPublic: aoePublic,
+        color: '#38bdf8',
+      });
       return;
     }
 
@@ -322,11 +464,16 @@
   function handleMouseUp(e: MouseEvent) {
     if (isPanning) { isPanning = false; return; }
 
+    if (activeTool === 'ruler') {
+      rulerStart = null;
+    }
+
     if (draggingToken && dragCurrentGrid) {
       const { gx, gy } = dragCurrentGrid;
       tokens = tokens.map(t =>
         t.id === draggingToken!.id ? { ...t, x: gx, y: gy } : t
       );
+      canvasStore.moveToken(draggingToken.id, gx, gy);
       onTokenMove?.(draggingToken.id, gx, gy);
     }
     draggingToken = null;
@@ -399,11 +546,19 @@
     const file = files[0];
     const name = file.name.toLowerCase();
 
-    // 1. Dungeon Scrawl vector map (.ds, .uvtt)
+    // 1. Dungeon Scrawl vector map (.ds, .uvtt, or .json DS format)
     if (name.endsWith('.ds') || name.endsWith('.uvtt')) {
-      const text = await file.text();
-      const parsed = parseDungeonScrawl(text, gridSize);
-      handleLoadDungeonMap(parsed);
+      const result = await importDungeonScrawlFile(file, gridSize);
+      if (result.success) {
+        const text = await file.text();
+        const parsed = parseDungeonScrawl(text, gridSize);
+        handleLoadDungeonMap(parsed);
+        dsImportFeedback = `✓ Loaded "${result.name}" — ${result.wallsCount} walls, ${result.doorsCount} doors`;
+        setTimeout(() => { dsImportFeedback = null; }, 3500);
+      } else {
+        dsImportFeedback = `⚠ Failed: ${result.error}`;
+        setTimeout(() => { dsImportFeedback = null; }, 3500);
+      }
       return;
     }
 
@@ -520,6 +675,15 @@
     </button>
 
     <button
+      onclick={() => { showGeneratorDrawer = true; }}
+      class="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold rounded transition-colors flex items-center gap-1 shadow-sm"
+      title="Open Cartography Workbench (Watabou, Azgaar, One Page Dungeon)"
+    >
+      <span>🗺️</span>
+      <span>Generators</span>
+    </button>
+
+    <button
       onclick={() => { dynamicLightingEnabled = !dynamicLightingEnabled; }}
       class="px-2.5 py-1 text-xs font-semibold rounded transition-colors flex items-center gap-1 border {dynamicLightingEnabled ? 'bg-amber-950/60 border-amber-500/50 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'}"
       title="Toggle 2D raycasting dynamic light & shadow projection"
@@ -536,6 +700,92 @@
       <span>🧱</span>
       <span>Walls {wallVisibilityEnabled ? 'ON' : 'OFF'}</span>
     </button>
+
+    <!-- Viewport Decoupling & Projector Controls -->
+    <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5">
+      <button
+        onclick={() => canvasStore.toggleLockProjectorPan()}
+        class="px-2 py-1 text-xs font-semibold rounded transition-colors flex items-center gap-1 {canvasStore.lockProjectorPan
+          ? 'bg-amber-950/70 border border-amber-500/60 text-amber-300 shadow'
+          : 'text-slate-400 hover:text-slate-200'}"
+        title="When locked, panning the DM battle mat does NOT alter the public TV camera"
+      >
+        <span>{canvasStore.lockProjectorPan ? '🔒 TV Decoupled' : '🎥 TV Mirrored'}</span>
+      </button>
+
+      <a
+        href="/projector"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="px-2 py-1 text-xs font-semibold text-indigo-300 hover:text-indigo-200 hover:bg-slate-800/80 rounded transition-colors flex items-center gap-1"
+        title="Launch Decoupled Player Projector Window (HDMI / Second Display)"
+      >
+        <span>📺</span>
+        <span>Open Projector</span>
+      </a>
+    </div>
+
+    <!-- Measurement & Spell AOE Tools -->
+    <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5">
+      <button
+        onclick={() => activeTool = 'select'}
+        class="px-2 py-1 rounded text-xs transition-colors {activeTool === 'select' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'}"
+        title="Select / Move Token"
+      >
+        🖱️
+      </button>
+      <button
+        onclick={() => activeTool = 'ruler'}
+        class="px-2 py-1 rounded text-xs transition-colors flex items-center gap-1 {activeTool === 'ruler' ? 'bg-sky-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'}"
+        title="Vector Distance Ruler (5ft Snapping)"
+      >
+        <span>📏</span>
+        <span>Ruler</span>
+      </button>
+      <button
+        onclick={() => activeTool = 'circle'}
+        class="px-2 py-1 rounded text-xs transition-colors {activeTool === 'circle' ? 'bg-rose-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'}"
+        title="Sphere / Circle Template (20ft Radius)"
+      >
+        ⭕ 20ft
+      </button>
+      <button
+        onclick={() => activeTool = 'cone'}
+        class="px-2 py-1 rounded text-xs transition-colors {activeTool === 'cone' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'}"
+        title="Cone Template (15ft Spread)"
+      >
+        🔺 15ft
+      </button>
+      <button
+        onclick={() => activeTool = 'cube'}
+        class="px-2 py-1 rounded text-xs transition-colors {activeTool === 'cube' ? 'bg-purple-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'}"
+        title="Cube Template (20ft Side)"
+      >
+        ⬛ 20ft
+      </button>
+      <button
+        onclick={() => activeTool = 'line'}
+        class="px-2 py-1 rounded text-xs transition-colors {activeTool === 'line' ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'}"
+        title="Line Template (30ft Length, 5ft Width)"
+      >
+        ⚡ 30ft
+      </button>
+
+      {#if canvasStore.aoeTemplates.length > 0 || canvasStore.ruler}
+        <button
+          onclick={() => { canvasStore.clearAoeTemplates(); canvasStore.setRuler(null); }}
+          class="px-2 py-1 text-slate-500 hover:text-rose-400 text-xs transition-colors"
+          title="Clear all active AOE and measurement overlays"
+        >
+          ✕ Clear
+        </button>
+      {/if}
+
+      <label class="flex items-center gap-1 pl-1 pr-2 text-[10px] text-slate-400 cursor-pointer" title="Make placed templates visible on public projector">
+        <input type="checkbox" bind:checked={aoePublic} class="rounded accent-indigo-500 text-xs" />
+        <span>Public TV</span>
+      </label>
+    </div>
 
     {#if walls.length > 0 || doors.length > 0}
       <div class="flex items-center gap-1.5 px-2 py-0.5 bg-indigo-950/50 border border-indigo-700/40 rounded text-[11px] text-indigo-300">
@@ -682,4 +932,20 @@
     onSaveParcelEntity={handleSaveParcelEntity}
     onCloseParcelInspector={() => { selectedParcel = null; }}
   />
+
+  <!-- ── Cartography Generator Drawer ──────────────────────────────────────── -->
+  <GeneratorDrawer
+    bind:isOpen={showGeneratorDrawer}
+    onOpenCalibration={() => {
+      // Dispatch grid calibration overlay event so TacticalCanvasContainer can respond
+      window.dispatchEvent(new CustomEvent('vtt:open-grid-calibration'));
+    }}
+  />
+
+  <!-- DS Import Feedback Toast -->
+  {#if dsImportFeedback}
+    <div class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-slate-900 border border-emerald-700/60 text-emerald-300 text-xs font-mono font-bold rounded-xl shadow-xl pointer-events-none animate-pulse">
+      {dsImportFeedback}
+    </div>
+  {/if}
 </div>

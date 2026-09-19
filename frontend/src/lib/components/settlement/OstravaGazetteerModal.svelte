@@ -43,7 +43,7 @@
     }
   }
 
-  let demographics = $derived<SettlementDemographics | null>(() => {
+  let demographics = $derived.by<SettlementDemographics | null>(() => {
     if (!profile?.demographics_json) return null;
     try {
       return JSON.parse(profile.demographics_json);
@@ -52,7 +52,7 @@
     }
   });
 
-  let underRuins = $derived<PrecursorUnderRuins | null>(() => {
+  let underRuins = $derived.by<PrecursorUnderRuins | null>(() => {
     if (!profile?.precursor_under_ruins_json) return null;
     try {
       return JSON.parse(profile.precursor_under_ruins_json);
@@ -61,7 +61,7 @@
     }
   });
 
-  let economics = $derived<EconomicEnforcement | null>(() => {
+  let economics = $derived.by<EconomicEnforcement | null>(() => {
     if (!profile?.economic_enforcement_json) return null;
     try {
       return JSON.parse(profile.economic_enforcement_json);
@@ -70,7 +70,7 @@
     }
   });
 
-  let laws = $derived<MunicipalLaws | null>(() => {
+  let laws = $derived.by<MunicipalLaws | null>(() => {
     if (!profile?.municipal_laws_json) return null;
     try {
       return JSON.parse(profile.municipal_laws_json);

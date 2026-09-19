@@ -1,8 +1,17 @@
 <script lang="ts">
   // EncounterDashboard.svelte — Combat tracker with Preparation/Active mode toggle and local encounter saves
 
+  import { onMount } from 'svelte';
   import { audioEngine } from '../../audio/AudioEngine';
   import type { ActiveCombatant, Encounter, MonsterStatBlock, CombatMode, SavedEncounter } from '../../../types/combat';
+  import {
+    calculateTriStatInitiative,
+    applyHpMutationWithExhaustionCheck,
+    calculateEncounterThreat,
+    EXHAUSTION_PENALTIES,
+  } from '../../../stores/sessionStore';
+  import { canvasStore } from '../../../stores/canvasStore.svelte';
+  import HarvestCalculatorModal from '../harvest/HarvestCalculatorModal.svelte';
 
   const STORAGE_KEY = 'vtt_encounters';
   const CONDITIONS = ['Blinded','Charmed','Deafened','Frightened','Grappled',
@@ -30,6 +39,39 @@
   );
   let combatants = $derived<ActiveCombatant[]>(
     activeEncounterId ? (allEncounters[activeEncounterId]?.combatants ?? []) : []
+  );
+
+  let roster = $state<any[]>([]);
+  let isHarvestModalOpen = $state(false);
+  let harvestCombatant = $state<ActiveCombatant | null>(null);
+
+  function openHarvest(comb: ActiveCombatant) {
+    harvestCombatant = comb;
+    isHarvestModalOpen = true;
+  }
+
+  function loadRoster() {
+    try {
+      const raw = localStorage.getItem('vtt_party_roster');
+      if (raw) roster = JSON.parse(raw);
+    } catch {
+      roster = [];
+    }
+  }
+
+  onMount(() => {
+    loadRoster();
+    const handleRosterUpdate = () => loadRoster();
+    window.addEventListener('vtt:roster-updated', handleRosterUpdate);
+    window.addEventListener('vtt:black-orb-toggle', handleRosterUpdate);
+    return () => {
+      window.removeEventListener('vtt:roster-updated', handleRosterUpdate);
+      window.removeEventListener('vtt:black-orb-toggle', handleRosterUpdate);
+    };
+  });
+
+  let encounterThreat = $derived(
+    calculateEncounterThreat(roster, combatants)
   );
 
   function mutateCombatants(id: string, fn: (c: ActiveCombatant) => ActiveCombatant) {
@@ -127,21 +169,53 @@
       ...allEncounters,
       [activeEncounterId]: {
         ...allEncounters[activeEncounterId],
-        combatants: combatants.map(c => ({ ...c, initiative: Math.ceil(Math.random() * 20) })),
+        combatants: combatants.map(c => {
+          const scores = c.scores || { dex: 14, int: 10, wis: 10 };
+          const tri = calculateTriStatInitiative(scores);
+          const roll = Math.ceil(Math.random() * 20);
+          return {
+            ...c,
+            initiative: roll + tri.bonus,
+            init_stat: tri.bestStat,
+          };
+        }),
       },
     };
     saveAll(allEncounters);
   }
 
-  // ── HP & Conditions ────────────────────────────────────────────────────────
+  // ── HP & Conditions (Aleamos Anti-Heal-Scumming Automation) ─────────────────
   let hpDeltaInput = $state<Record<string, string>>({});
 
   function applyHpDelta(id: string) {
     const raw = hpDeltaInput[id] ?? '';
     const delta = parseInt(raw, 10);
     if (isNaN(delta)) return;
-    mutateCombatants(id, c => ({ ...c, hp_current: Math.max(0, Math.min(c.hp_max + c.temp_hp, c.hp_current + delta)) }));
+    mutateCombatants(id, c => {
+      const currentExhaustion = c.exhaustion_level ?? 0;
+      const { nextHp, nextExhaustion, exhaustionTriggered } = applyHpMutationWithExhaustionCheck(
+        c.hp_current,
+        delta,
+        c.hp_max,
+        currentExhaustion
+      );
+      const nextConditions = [...c.conditions];
+      if (exhaustionTriggered && !nextConditions.some(cond => cond.startsWith('Exhaustion'))) {
+        nextConditions.push(`Exhaustion ${nextExhaustion}`);
+      } else if (nextExhaustion > currentExhaustion) {
+        const idx = nextConditions.findIndex(cond => cond.startsWith('Exhaustion'));
+        if (idx >= 0) nextConditions[idx] = `Exhaustion ${nextExhaustion}`;
+        else nextConditions.push(`Exhaustion ${nextExhaustion}`);
+      }
+      return {
+        ...c,
+        hp_current: nextHp,
+        exhaustion_level: nextExhaustion,
+        conditions: nextConditions,
+      };
+    });
     if (delta < 0) audioEngine.triggerSfx('sfx-sword');
+    else audioEngine.triggerSfx('sfx-rest');
     hpDeltaInput = { ...hpDeltaInput, [id]: '' };
   }
 
@@ -201,6 +275,36 @@
   }
 
   let expandedCondId = $state<string | null>(null);
+
+  function selectCombatant(comb: ActiveCombatant) {
+    const tok = canvasStore.tokens.find(
+      t => t.id === comb.id || t.name.toLowerCase() === comb.name.toLowerCase()
+    );
+    if (tok) {
+      canvasStore.setActiveToken(tok.id);
+      canvasStore.centerOnToken(tok.id, 'both');
+    } else {
+      canvasStore.setActiveToken(comb.id);
+    }
+  }
+
+  // Synchronize active combat turn to canvas turn reticle
+  $effect(() => {
+    if (encounter && sortedCombatants.length > 0) {
+      const activeComb = sortedCombatants[encounter.current_turn_index];
+      if (activeComb) {
+        const tok = canvasStore.tokens.find(
+          t => t.id === activeComb.id || t.name.toLowerCase() === activeComb.name.toLowerCase()
+        );
+        if (tok) {
+          canvasStore.setActiveToken(tok.id);
+          if (encounter.is_active) {
+            canvasStore.centerOnToken(tok.id, 'both');
+          }
+        }
+      }
+    }
+  });
 </script>
 
 <div class="h-full flex flex-col overflow-hidden bg-slate-950">
@@ -227,6 +331,20 @@
     {#if activeEncounterId}
       <button onclick={() => deleteEncounter(activeEncounterId!)} class="px-2.5 py-1.5 bg-rose-950/60 hover:bg-rose-900/70 text-rose-400 text-xs font-semibold rounded-lg transition-colors">🗑</button>
     {/if}
+
+    <!-- Live Encounter Threat & Party CR Indicator -->
+    <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono">
+      <span class="text-slate-500 font-bold">Party CR:</span>
+      <span class="text-amber-300 font-black">{encounterThreat.partyEffectiveCr}</span>
+      <span class="text-slate-700">|</span>
+      <span class="px-1.5 py-0.5 rounded text-[10px] font-black uppercase {
+        encounterThreat.threatLevel === 'Deadly' ? 'bg-rose-950 text-rose-300 border border-rose-700/60' :
+        encounterThreat.threatLevel === 'Hard' ? 'bg-orange-950 text-orange-300 border border-orange-700/60' :
+        encounterThreat.threatLevel === 'Medium' ? 'bg-amber-950 text-amber-300 border border-amber-700/60' :
+        encounterThreat.threatLevel === 'Easy' ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60' :
+        'bg-slate-800 text-slate-400'
+      }">{encounterThreat.threatLevel}</span>
+    </div>
 
     <!-- Mode toggle -->
     <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5">
@@ -323,19 +441,36 @@
 
       {#each sortedCombatants as comb, idx (comb.id)}
         {@const isActive = combatMode === 'active' && encounter?.current_turn_index === idx}
-        <div class="rounded-xl border transition-all overflow-hidden {isActive ? 'border-rose-500 bg-rose-950/20 shadow-md shadow-rose-700/10' : 'border-slate-800 bg-slate-900'}">
+        {@const isSelected = canvasStore.activeTokenId === comb.id || canvasStore.tokens.some(t => t.id === canvasStore.activeTokenId && (t.name.toLowerCase() === comb.name.toLowerCase() || t.id === comb.id))}
+        <div
+          role="button"
+          tabindex="0"
+          onclick={() => selectCombatant(comb)}
+          onkeydown={(e) => { if (e.key === 'Enter') selectCombatant(comb); }}
+          class="rounded-xl border transition-all overflow-hidden cursor-pointer {isActive ? 'border-rose-500 bg-rose-950/20 shadow-md shadow-rose-700/10' : isSelected ? 'border-amber-500/70 bg-amber-950/10 shadow-sm' : 'border-slate-800 bg-slate-900 hover:border-slate-700'}"
+        >
           <!-- Main row -->
           <div class="flex items-center gap-2 px-3 py-2.5">
-            <!-- Initiative badge -->
-            <div class="w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-xs font-black border
+            <!-- Initiative badge with Tri-Stat power indicator -->
+            <div class="w-9 h-9 shrink-0 rounded-lg flex flex-col items-center justify-center border
               {isActive ? 'bg-rose-700 text-white border-rose-600' : 'bg-slate-800 text-slate-300 border-slate-700'}"
-            >{comb.initiative}</div>
+            >
+              <span class="text-xs font-black font-mono leading-none">{comb.initiative}</span>
+              {#if comb.init_stat}
+                <span class="text-[8px] font-bold text-slate-400 uppercase leading-none mt-0.5">{comb.init_stat}</span>
+              {/if}
+            </div>
 
             <!-- Name + type -->
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
                 {#if isActive}<div class="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse"></div>{/if}
                 <span class="text-sm font-bold truncate {comb.is_monster ? 'text-rose-300' : 'text-amber-300'}">{comb.name}</span>
+                {#if comb.exhaustion_level && comb.exhaustion_level > 0}
+                  <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-950 text-rose-300 border border-rose-800/60 flex items-center gap-0.5" title={EXHAUSTION_PENALTIES[comb.exhaustion_level]}>
+                    <span>⚠️</span> Exh {comb.exhaustion_level}
+                  </span>
+                {/if}
               </div>
               <div class="flex items-center gap-2 mt-0.5">
                 <span class="text-[10px] font-mono text-slate-500">AC {comb.ac}</span>
@@ -369,6 +504,18 @@
               <button onclick={() => applyHpDelta(comb.id)} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded transition-colors font-bold">✓</button>
             </div>
 
+            <!-- Harvest button for defeated monsters -->
+            {#if comb.is_monster && comb.hp_current <= 0}
+              <button
+                type="button"
+                onclick={(e) => { e.stopPropagation(); openHarvest(comb); }}
+                class="px-2 py-1 bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-700/80 rounded text-[10px] font-black flex items-center gap-1 transition-all animate-pulse shadow-sm shadow-rose-900/50"
+                title="Field dress and extract monster essences / viscera"
+              >
+                <span>🥩</span> Harvest
+              </button>
+            {/if}
+
             <!-- Expand / remove -->
             <button onclick={() => expandedCondId = expandedCondId === comb.id ? null : comb.id} class="p-1.5 text-slate-500 hover:text-slate-300 text-xs transition-colors" title="Conditions">{expandedCondId === comb.id ? '▲' : '▼'}</button>
             <button onclick={() => removeCombatant(comb.id)} class="p-1.5 text-slate-600 hover:text-rose-400 text-xs transition-colors" title="Remove">✕</button>
@@ -389,4 +536,6 @@
       {/each}
     </div>
   {/if}
+
+  <HarvestCalculatorModal bind:isOpen={isHarvestModalOpen} combatant={harvestCombatant} />
 </div>

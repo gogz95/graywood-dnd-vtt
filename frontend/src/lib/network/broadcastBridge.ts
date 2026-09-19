@@ -4,6 +4,13 @@
 import { writable, get } from 'svelte/store';
 import { sendWsEvent } from '../../stores/websocketStore';
 import { dispatchSoundEvent } from '../audio/soundboardBridge';
+import { sessionStore } from '../../stores/sessionStore';
+import type {
+  TradeOfferPayload,
+  TradeAcceptPayload,
+  TradeDeclinePayload,
+  TradeAuditLogPayload,
+} from '../types/item';
 
 export type HandoutTheme = 'bounty' | 'proclamation' | 'journal' | 'contract' | 'classic';
 export type WaxSealType = 'wax_red' | 'wax_gold' | 'imperial_black' | 'none';
@@ -37,6 +44,10 @@ const STORAGE_ACTIVE_BROADCAST_KEY = 'vtt_active_broadcast_handout';
 // ── Svelte Store for Received Player Handouts ─────────────────────────────────
 export const activePlayerHandoutStore = writable<PlayerBroadcastPayload | null>(null);
 
+// ── Svelte Stores for Peer-to-Peer Trading Handshake ───────────────────────────
+export const activeTradeOfferStore = writable<TradeOfferPayload | null>(null);
+export const tradeAuditLogsStore = writable<TradeAuditLogPayload[]>([]);
+
 // Initialize from storage on browser boot
 if (typeof window !== 'undefined') {
   try {
@@ -56,6 +67,36 @@ if (typeof window !== 'undefined') {
 
   window.addEventListener('vtt:handout-dismiss', () => {
     activePlayerHandoutStore.set(null);
+  });
+
+  // Peer Trade Listeners
+  window.addEventListener('vtt:trade-offer', (e: Event) => {
+    const offer = (e as CustomEvent<TradeOfferPayload>).detail;
+    if (offer) {
+      activeTradeOfferStore.set(offer);
+      dispatchSoundEvent('turn_bell');
+    }
+  });
+
+  window.addEventListener('vtt:trade-accept', (e: Event) => {
+    const detail = (e as CustomEvent<TradeAcceptPayload>).detail;
+    if (detail && get(activeTradeOfferStore)?.trade_id === detail.trade_id) {
+      activeTradeOfferStore.set(null);
+    }
+  });
+
+  window.addEventListener('vtt:trade-decline', (e: Event) => {
+    const detail = (e as CustomEvent<TradeDeclinePayload>).detail;
+    if (detail && get(activeTradeOfferStore)?.trade_id === detail.trade_id) {
+      activeTradeOfferStore.set(null);
+    }
+  });
+
+  window.addEventListener('vtt:trade-audit', (e: Event) => {
+    const audit = (e as CustomEvent<TradeAuditLogPayload>).detail;
+    if (audit) {
+      tradeAuditLogsStore.update((logs) => [audit, ...logs].slice(0, 50));
+    }
   });
 }
 
@@ -122,3 +163,152 @@ export function dismissHandoutFromParty(handoutId?: string): void {
 
   activePlayerHandoutStore.set(null);
 }
+
+/**
+ * Dispatches an official trade audit log across the WebSocket server and to the DM Copilot dock.
+ */
+export function dispatchTradeAudit(audit: TradeAuditLogPayload): void {
+  sendWsEvent(audit);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('vtt:trade-audit', { detail: audit }));
+  }
+
+  tradeAuditLogsStore.update((curr) => [audit, ...curr].slice(0, 50));
+}
+
+/**
+ * Initiates a peer-to-peer trade offer across the WebSocket bridge and alerts DM Copilot.
+ */
+export function sendTradeOffer(
+  offerData: Omit<TradeOfferPayload, 'trade_id' | 'timestamp'> & {
+    trade_id?: string;
+    timestamp?: number;
+  }
+): TradeOfferPayload {
+  const trade_id = offerData.trade_id || `trade-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const timestamp = offerData.timestamp || Date.now();
+
+  const fullOffer: TradeOfferPayload = {
+    ...offerData,
+    trade_id,
+    timestamp,
+  };
+
+  // 1. Dispatch over WebSocket server
+  sendWsEvent(fullOffer);
+
+  // 2. Dispatch audit log for DM Copilot dock
+  dispatchTradeAudit({
+    trade_id: fullOffer.trade_id,
+    sender_id: fullOffer.sender_id,
+    sender_name: fullOffer.sender_name,
+    receiver_id: fullOffer.receiver_id,
+    receiver_name: fullOffer.receiver_name,
+    item_id: fullOffer.item.id,
+    item_name: fullOffer.item.name,
+    quantity: fullOffer.quantity,
+    status: 'OFFERED',
+    timestamp,
+    notes: fullOffer.notes || `Offered ${fullOffer.quantity}x ${fullOffer.item.name}`,
+  });
+
+  return fullOffer;
+}
+
+/**
+ * Accepts an incoming peer-to-peer trade, atomically executing inventory transfer
+ * and notifying the DM Copilot dock.
+ */
+export function acceptTradeOffer(offer: TradeOfferPayload): { success: boolean; error?: string } {
+  // 1. Execute atomic state transfer in sessionStore
+  const transferResult = sessionStore.executePeerTrade(
+    offer.sender_id,
+    offer.receiver_id,
+    offer.item.id,
+    offer.quantity
+  );
+
+  if (!transferResult.success) {
+    console.error('Peer trade execution failed:', transferResult.error);
+    return transferResult;
+  }
+
+  // 2. Emit WebSocket handshake confirmation
+  const acceptPayload: TradeAcceptPayload = {
+    trade_id: offer.trade_id,
+    sender_id: offer.sender_id,
+    sender_name: offer.sender_name,
+    receiver_id: offer.receiver_id,
+    receiver_name: offer.receiver_name,
+    item_id: offer.item.id,
+    item_name: offer.item.name,
+    quantity: offer.quantity,
+    timestamp: Date.now(),
+  };
+
+  sendWsEvent({
+    type: 'TRADE_ACCEPT',
+    ...acceptPayload,
+  });
+
+  // 3. Dispatch DM audit log
+  dispatchTradeAudit({
+    trade_id: offer.trade_id,
+    sender_id: offer.sender_id,
+    sender_name: offer.sender_name,
+    receiver_id: offer.receiver_id,
+    receiver_name: offer.receiver_name,
+    item_id: offer.item.id,
+    item_name: offer.item.name,
+    quantity: offer.quantity,
+    status: 'ACCEPTED',
+    timestamp: Date.now(),
+    notes: 'Atomic transfer confirmed with complete metadata preservation',
+  });
+
+  // 4. Auditory confirmation & clear local active offer
+  dispatchSoundEvent('turn_bell');
+  activeTradeOfferStore.set(null);
+
+  return { success: true };
+}
+
+/**
+ * Rejects or cancels an incoming peer-to-peer trade and notifies DM Copilot.
+ */
+export function declineTradeOffer(offer: TradeOfferPayload, reason: string = 'Declined by recipient'): void {
+  const declinePayload: TradeDeclinePayload = {
+    trade_id: offer.trade_id,
+    sender_id: offer.sender_id,
+    sender_name: offer.sender_name,
+    receiver_id: offer.receiver_id,
+    receiver_name: offer.receiver_name,
+    item_id: offer.item.id,
+    item_name: offer.item.name,
+    timestamp: Date.now(),
+    reason,
+  };
+
+  sendWsEvent({
+    type: 'TRADE_DECLINE',
+    ...declinePayload,
+  });
+
+  dispatchTradeAudit({
+    trade_id: offer.trade_id,
+    sender_id: offer.sender_id,
+    sender_name: offer.sender_name,
+    receiver_id: offer.receiver_id,
+    receiver_name: offer.receiver_name,
+    item_id: offer.item.id,
+    item_name: offer.item.name,
+    quantity: offer.quantity,
+    status: 'DECLINED',
+    timestamp: Date.now(),
+    notes: reason,
+  });
+
+  activeTradeOfferStore.set(null);
+}
+

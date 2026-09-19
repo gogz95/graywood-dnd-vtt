@@ -1,8 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { currencyStore, inventoryStore } from '../../../stores/characterStore';
-  import { sessionStore, type PartyStashItem } from '../../../stores/sessionStore';
+  import {
+    sessionStore,
+    partyStashStore,
+    type PartyStashItem,
+    calculateTriStatInitiative,
+    applyHpMutationWithExhaustionCheck,
+    calculatePartyEffectiveCr,
+    EXHAUSTION_PENALTIES
+  } from '../../../stores/sessionStore';
   import { audioEngine } from '../../audio/AudioEngine';
+  import { canvasStore } from '../../../stores/canvasStore.svelte';
+  import { sendWsEvent } from '../../../stores/websocketStore';
 
   export interface PartyMember {
     id: string;
@@ -18,6 +28,14 @@
     isOnline: boolean;
     isNpc: boolean;
     conditions: string[];
+    exhaustion?: number;
+    isOrbSealed?: boolean;
+    str?: number;
+    dex?: number;
+    con?: number;
+    int?: number;
+    wis?: number;
+    cha?: number;
   }
 
   const STORAGE_ROSTER_KEY = 'vtt_party_roster';
@@ -35,14 +53,34 @@
     'Monk', 'Paladin', 'Ranger', 'Rogue', 'Sorcerer', 'Warlock', 'Wizard', 'NPC'
   ];
 
+  function genPin(): string {
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const array = new Uint32Array(1);
+      crypto.getRandomValues(array);
+      return (1000 + (array[0] % 9000)).toString();
+    }
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  }
+
   function loadRoster(): PartyMember[] {
     try {
       const raw = localStorage.getItem(STORAGE_ROSTER_KEY);
-      if (raw) return JSON.parse(raw) as PartyMember[];
+      if (raw) {
+        const parsed = JSON.parse(raw) as PartyMember[];
+        // Sanitize any legacy placeholder test credentials ('1234', '2345', etc.)
+        const sanitized = parsed.map(m => {
+          if (!m.pin || m.pin === '1234' || m.pin === '2345' || m.pin === '3456' || m.pin === '4567' || m.pin === '0000') {
+            return { ...m, pin: genPin() };
+          }
+          return m;
+        });
+        localStorage.setItem(STORAGE_ROSTER_KEY, JSON.stringify(sanitized));
+        return sanitized;
+      }
     } catch {
       // Fallback
     }
-    return [
+    const freshRoster: PartyMember[] = [
       {
         id: 'pc-1',
         name: 'Valen Shadowborn',
@@ -53,7 +91,7 @@
         hpMax: 38,
         ac: 16,
         passivePerception: 14,
-        pin: '1234',
+        pin: genPin(),
         isOnline: true,
         isNpc: false,
         conditions: []
@@ -68,7 +106,7 @@
         hpMax: 28,
         ac: 13,
         passivePerception: 12,
-        pin: '2345',
+        pin: genPin(),
         isOnline: false,
         isNpc: false,
         conditions: []
@@ -83,7 +121,7 @@
         hpMax: 52,
         ac: 18,
         passivePerception: 11,
-        pin: '3456',
+        pin: genPin(),
         isOnline: true,
         isNpc: false,
         conditions: ['Poisoned']
@@ -98,16 +136,19 @@
         hpMax: 42,
         ac: 17,
         passivePerception: 13,
-        pin: '4567',
+        pin: genPin(),
         isOnline: false,
         isNpc: false,
         conditions: []
       }
     ];
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_ROSTER_KEY, JSON.stringify(freshRoster));
+    }
+    return freshRoster;
   }
 
   function genId() { return `pc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
-  function genPin() { return String(Math.floor(1000 + Math.random() * 9000)); }
 
   // ── Reactive State ────────────────────────────────────────────────────────
   let roster = $state<PartyMember[]>(loadRoster());
@@ -263,6 +304,29 @@
     }
   }
 
+  // ── Aleamos Black Orb Extraction Protocol ──────────────────────────────────
+  let activePartyMembers = $derived(roster.filter(m => !m.isOrbSealed && !m.isNpc));
+  let partyEffectiveCr = $derived(
+    calculatePartyEffectiveCr(roster).effectiveCr
+  );
+
+  function toggleBlackOrbStow(memberId: string) {
+    const member = roster.find(m => m.id === memberId);
+    if (!member) return;
+
+    const willBeSealed = !member.isOrbSealed;
+
+    if (willBeSealed) {
+      sessionStore.stowCharacterIntoBlackOrb(member.id, member.name, member.pin);
+    } else {
+      sessionStore.releaseCharacterFromBlackOrb(member.id, member.name, member.pin);
+    }
+
+    // Update local roster state
+    roster = roster.map(m => m.id === memberId ? { ...m, isOrbSealed: willBeSealed } : m);
+    audioEngine.triggerSfx(willBeSealed ? 'sfx-secret' : 'sfx-bell');
+  }
+
   function generateNewPin(id: string) {
     const pin = genPin();
     roster = roster.map(m => m.id === id ? { ...m, pin } : m);
@@ -281,9 +345,30 @@
   function adjustHp(id: string, delta: number) {
     roster = roster.map(m => {
       if (m.id !== id) return m;
-      const nextHp = Math.max(0, Math.min(m.hpMax, m.hpCurrent + delta));
-      return { ...m, hpCurrent: nextHp };
+      const currentExhaustion = m.exhaustion ?? 0;
+      const { nextHp, nextExhaustion, exhaustionTriggered } = applyHpMutationWithExhaustionCheck(
+        m.hpCurrent,
+        delta,
+        m.hpMax,
+        currentExhaustion
+      );
+      const nextConditions = [...m.conditions];
+      if (exhaustionTriggered && !nextConditions.some(c => c.startsWith('Exhaustion'))) {
+        nextConditions.push(`Exhaustion ${nextExhaustion}`);
+      } else if (nextExhaustion > currentExhaustion) {
+        const idx = nextConditions.findIndex(c => c.startsWith('Exhaustion'));
+        if (idx >= 0) nextConditions[idx] = `Exhaustion ${nextExhaustion}`;
+        else nextConditions.push(`Exhaustion ${nextExhaustion}`);
+      }
+      return {
+        ...m,
+        hpCurrent: nextHp,
+        exhaustion: nextExhaustion,
+        conditions: nextConditions,
+      };
     });
+    if (delta < 0) audioEngine.triggerSfx('sfx-sword');
+    else audioEngine.triggerSfx('sfx-rest');
   }
 
   function toggleCondition(memberId: string, condition: string) {
@@ -319,6 +404,12 @@
   function removeStashItem(id: string) {
     sessionStore.removePartyStashItem(id);
     stashItems = [...sessionStore.getPartyStash()];
+  }
+
+  function preserveStashItem(id: string) {
+    partyStashStore.update(curr => curr.map(item => item.id === id ? { ...item, isPreserved: true } : item));
+    stashItems = [...sessionStore.getPartyStash()];
+    audioEngine.triggerSfx('sfx-rest');
   }
 
   onMount(() => {
@@ -371,6 +462,31 @@
       >
         <span>🪙</span> Economy &amp; Stash {isEconomyOpen ? '▲' : '▼'}
       </button>
+
+      <!-- Downtime Subsystem Quick Jump Shortcuts -->
+      <div class="hidden lg:flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5">
+        <button
+          onclick={() => window.dispatchEvent(new CustomEvent('vtt:switch-tab', { detail: { tab: 'alchemy' } }))}
+          class="px-2 py-1 hover:bg-slate-800 text-slate-300 rounded text-xs font-semibold flex items-center gap-1 transition-colors"
+          title="Open Alchemy Lab & 28-Essence Matrix"
+        >
+          <span>⚗️</span> Alchemy
+        </button>
+        <button
+          onclick={() => window.dispatchEvent(new CustomEvent('vtt:switch-tab', { detail: { tab: 'guild' } }))}
+          class="px-2 py-1 hover:bg-slate-800 text-slate-300 rounded text-xs font-semibold flex items-center gap-1 transition-colors"
+          title="Open Guild Notice Board"
+        >
+          <span>📋</span> Guild
+        </button>
+        <button
+          onclick={() => window.dispatchEvent(new CustomEvent('vtt:switch-tab', { detail: { tab: 'stronghold' } }))}
+          class="px-2 py-1 hover:bg-slate-800 text-slate-300 rounded text-xs font-semibold flex items-center gap-1 transition-colors"
+          title="Open Stronghold Dashboard"
+        >
+          <span>🏰</span> Stronghold
+        </button>
+      </div>
     </div>
   </div>
 
@@ -487,14 +603,34 @@
             {#each stashItems as item (item.id)}
               <div class="bg-slate-950/80 border border-slate-800 rounded-lg p-2 flex items-center justify-between gap-2 text-xs">
                 <div class="min-w-0">
-                  <span class="font-semibold text-slate-200 block truncate">{item.name}</span>
+                  <div class="flex items-center gap-1.5">
+                    <span class="font-semibold text-slate-200 block truncate">{item.name}</span>
+                    {#if item.isSpoiled}
+                      <span class="px-1 py-0.2 rounded text-[8px] font-black bg-rose-950 text-rose-300 border border-rose-800/60">SPOILED</span>
+                    {:else if item.isPreserved}
+                      <span class="px-1 py-0.2 rounded text-[8px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800/60">PRESERVED</span>
+                    {:else if item.harvestedAtHour}
+                      <span class="px-1 py-0.2 rounded text-[8px] font-bold bg-amber-950 text-amber-300 border border-amber-800/60">24H DECAY</span>
+                    {/if}
+                  </div>
                   <span class="text-[10px] text-slate-500">Qty: {item.quantity} · {item.weight} lbs ({item.category})</span>
                 </div>
-                <button
-                  onclick={() => removeStashItem(item.id)}
-                  class="text-slate-600 hover:text-rose-400 text-xs p-1"
-                  title="Remove from Stash"
-                >✕</button>
+                <div class="flex items-center gap-1 shrink-0">
+                  {#if !item.isPreserved && !item.isSpoiled && item.harvestedAtHour}
+                    <button
+                      onclick={() => preserveStashItem(item.id)}
+                      class="text-[9px] px-1.5 py-0.5 bg-cyan-950 hover:bg-cyan-900 text-cyan-300 rounded border border-cyan-800/50 font-bold transition-colors"
+                      title="Apply preservation salting/oil (stops 24-hour decay)"
+                    >
+                      ❄️ Preserve
+                    </button>
+                  {/if}
+                  <button
+                    onclick={() => removeStashItem(item.id)}
+                    class="text-slate-600 hover:text-rose-400 text-xs p-1"
+                    title="Remove from Stash"
+                  >✕</button>
+                </div>
               </div>
             {/each}
           </div>
@@ -506,6 +642,16 @@
   <!-- ═══════════════════════════════════════════════════════════════════════
        ACTIVE ROSTER GRID
   ════════════════════════════════════════════════════════════════════════════ -->
+  <div class="px-5 py-2.5 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between text-xs text-slate-400">
+    <div class="flex items-center gap-3">
+      <span class="font-bold text-slate-300">Active Party: {activePartyMembers.length} / {roster.length}</span>
+      <span class="px-2.5 py-0.5 rounded-full bg-indigo-950/80 border border-indigo-500/40 font-mono font-bold text-indigo-300 text-[11px]">
+        Party Encounter CR: {partyEffectiveCr}
+      </span>
+    </div>
+    <span class="text-[10px] text-slate-500 hidden sm:inline">Temporal Black Orb extraction recalculates CR automatically</span>
+  </div>
+
   <div class="flex-1 overflow-y-auto p-5">
     {#if roster.length === 0}
       <div class="text-center py-20 space-y-3 text-slate-500">
@@ -517,6 +663,11 @@
       <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {#each roster as member (member.id)}
           {@const hpPercent = Math.max(0, Math.min(100, (member.hpCurrent / member.hpMax) * 100))}
+          {@const tri = calculateTriStatInitiative({
+            dex: member.dex ?? (member.class.includes('Rogue') ? 18 : 12),
+            int: member.int ?? (member.class.includes('Wizard') ? 18 : 10),
+            wis: member.wis ?? (member.class.includes('Cleric') ? 18 : 12),
+          })}
           <div class="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-4 flex flex-col justify-between gap-4 shadow-lg transition-all relative overflow-hidden group">
 
             <!-- Card Header -->
@@ -526,6 +677,9 @@
                   <span class="text-base font-black text-slate-100 truncate">{member.name}</span>
                   {#if member.isNpc}
                     <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-amber-950/60 text-amber-400 border border-amber-800/40">NPC</span>
+                  {/if}
+                  {#if member.isOrbSealed}
+                    <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-purple-950 text-purple-300 border border-purple-800/70 animate-pulse shadow-sm shadow-purple-900/50">🔮 In Black Orb</span>
                   {/if}
                 </div>
                 <p class="text-xs text-slate-400 mt-0.5">
@@ -544,15 +698,19 @@
               </button>
             </div>
 
-            <!-- Stats Badge Trio (AC, Passive Perception, Speed/Level) -->
-            <div class="grid grid-cols-2 gap-2">
+            <!-- Stats Badge Trio (AC, Passive Perception, Tri-Stat Initiative) -->
+            <div class="grid grid-cols-3 gap-2">
               <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-2 text-center">
                 <span class="text-[9px] uppercase font-bold text-slate-500 block">Armor Class</span>
-                <span class="text-base font-mono font-black text-indigo-300">🛡️ {member.ac}</span>
+                <span class="text-sm font-mono font-black text-indigo-300">🛡️ {member.ac}</span>
               </div>
               <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-2 text-center">
-                <span class="text-[9px] uppercase font-bold text-slate-500 block">Passive Percep.</span>
-                <span class="text-base font-mono font-black text-amber-300">👁️ {member.passivePerception}</span>
+                <span class="text-[9px] uppercase font-bold text-slate-500 block">Perception</span>
+                <span class="text-sm font-mono font-black text-amber-300">👁️ {member.passivePerception}</span>
+              </div>
+              <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-2 text-center">
+                <span class="text-[9px] uppercase font-bold text-slate-500 block">Tri-Stat Init</span>
+                <span class="text-sm font-mono font-black text-emerald-300">⚡ {tri.label}</span>
               </div>
             </div>
 
@@ -594,6 +752,21 @@
                 >+5</button>
               </div>
             </div>
+
+            <!-- Aleamos 0-HP Exhaustion Trigger Badge -->
+            {#if member.exhaustion && member.exhaustion > 0}
+              <div class="p-2 rounded-xl bg-rose-950/70 border border-rose-800/60 space-y-0.5">
+                <div class="flex items-center justify-between text-[11px]">
+                  <span class="font-bold text-rose-300 flex items-center gap-1">
+                    <span>⚠️</span> Exhaustion Tier {member.exhaustion}/6
+                  </span>
+                  <span class="text-[9px] font-mono text-rose-400">Anti-Heal-Scumming</span>
+                </div>
+                <p class="text-[10px] text-rose-200 leading-tight">
+                  {EXHAUSTION_PENALTIES[member.exhaustion] || 'Severe physical strain.'}
+                </p>
+              </div>
+            {/if}
 
             <!-- Status Conditions -->
             <div class="space-y-1.5">
@@ -655,6 +828,18 @@
                 </button>
               </div>
             </div>
+
+            <!-- Aleamos Black Orb Extraction Protocol Button -->
+            <button
+              onclick={() => toggleBlackOrbStow(member.id)}
+              class="w-full py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 {member.isOrbSealed
+                ? 'bg-purple-950/80 hover:bg-purple-900 border-purple-500/70 text-purple-200 shadow-md shadow-purple-950/50'
+                : 'bg-slate-950/60 hover:bg-purple-950/40 border-slate-800 hover:border-purple-800/60 text-slate-300 hover:text-purple-200'}"
+              title={member.isOrbSealed ? 'Release character from Black Orb back into active world' : 'Stow absent player into temporal amnesia Black Orb (1-lb wondrous item)'}
+            >
+              <span>🔮</span>
+              <span>{member.isOrbSealed ? 'Release from Black Orb' : 'Stow into Black Orb'}</span>
+            </button>
 
           </div>
         {/each}

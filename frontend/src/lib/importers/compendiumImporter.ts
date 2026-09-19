@@ -52,8 +52,9 @@ export interface CompendiumEntity {
 }
 
 const DB_NAME = 'vtt_compendium_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'compendium_store';
+const CUSTOM_ITEMS_STORE = 'custom_items';
 
 function openCompendiumDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -72,6 +73,12 @@ function openCompendiumDb(): Promise<IDBDatabase> {
         store.createIndex('type', 'type', { unique: false });
         store.createIndex('cr', 'cr', { unique: false });
         store.createIndex('level', 'level', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(CUSTOM_ITEMS_STORE)) {
+        const customStore = db.createObjectStore(CUSTOM_ITEMS_STORE, { keyPath: 'id' });
+        customStore.createIndex('name', 'name', { unique: false });
+        customStore.createIndex('type', 'type', { unique: false });
+        customStore.createIndex('rarity', 'rarity', { unique: false });
       }
     };
 

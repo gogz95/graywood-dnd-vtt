@@ -12,6 +12,13 @@ export interface ActiveCombatant {
   monster_compendium_id: string | null;
   multiattack_profile: string | null;
   conditions: string[];
+  exhaustion_level?: number;
+  init_stat?: 'DEX' | 'INT' | 'WIS';
+  scores?: {
+    dex: number;
+    int: number;
+    wis: number;
+  };
 }
 
 export interface Encounter {

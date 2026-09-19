@@ -1,6 +1,4 @@
-<script lang="ts">
-  // PartyManager.svelte — DM-side party roster with full CRUD + PIN management
-
+<script module lang="ts">
   export interface PartyMember {
     id: string;
     name: string;
@@ -15,21 +13,48 @@
     isOnline: boolean;
     isNpc: boolean;
   }
+</script>
+
+<script lang="ts">
+  // PartyManager.svelte — DM-side party roster with full CRUD + PIN management
 
   const STORAGE_KEY = 'vtt_party_roster';
   const LAN_IP_KEY  = 'vtt_lan_ip';
 
+  function genPin(): string {
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const array = new Uint32Array(1);
+      crypto.getRandomValues(array);
+      return (1000 + (array[0] % 9000)).toString();
+    }
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  }
+
   function loadRoster(): PartyMember[] {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw) as PartyMember[];
+      if (raw) {
+        const parsed = JSON.parse(raw) as PartyMember[];
+        const sanitized = parsed.map(m => {
+          if (!m.pin || m.pin === '1234' || m.pin === '2345' || m.pin === '3456' || m.pin === '4567' || m.pin === '0000') {
+            return { ...m, pin: genPin() };
+          }
+          return m;
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+        return sanitized;
+      }
     } catch { /* corrupt storage — reset */ }
-    return [
-      { id: 'pc-1', name: 'Valen Shadowborn',  playerName: 'Player 1', class: 'Rogue',   level: 5, hpCurrent: 38, hpMax: 38, ac: 16, passivePerception: 14, pin: '1234', isOnline: false, isNpc: false },
-      { id: 'pc-2', name: 'Eldrin Starfall',   playerName: 'Player 2', class: 'Wizard',  level: 5, hpCurrent: 28, hpMax: 28, ac: 13, passivePerception: 12, pin: '2345', isOnline: false, isNpc: false },
-      { id: 'pc-3', name: 'Kareth Stonefist',  playerName: 'Player 3', class: 'Fighter', level: 5, hpCurrent: 52, hpMax: 52, ac: 18, passivePerception: 11, pin: '3456', isOnline: false, isNpc: false },
-      { id: 'pc-4', name: 'Althea Dawnseeker', playerName: 'Player 4', class: 'Cleric',  level: 5, hpCurrent: 42, hpMax: 42, ac: 17, passivePerception: 13, pin: '4567', isOnline: false, isNpc: false },
+    const freshRoster: PartyMember[] = [
+      { id: 'pc-1', name: 'Valen Shadowborn',  playerName: 'Player 1', class: 'Rogue',   level: 5, hpCurrent: 38, hpMax: 38, ac: 16, passivePerception: 14, pin: genPin(), isOnline: false, isNpc: false },
+      { id: 'pc-2', name: 'Eldrin Starfall',   playerName: 'Player 2', class: 'Wizard',  level: 5, hpCurrent: 28, hpMax: 28, ac: 13, passivePerception: 12, pin: genPin(), isOnline: false, isNpc: false },
+      { id: 'pc-3', name: 'Kareth Stonefist',  playerName: 'Player 3', class: 'Fighter', level: 5, hpCurrent: 52, hpMax: 52, ac: 18, passivePerception: 11, pin: genPin(), isOnline: false, isNpc: false },
+      { id: 'pc-4', name: 'Althea Dawnseeker', playerName: 'Player 4', class: 'Cleric',  level: 5, hpCurrent: 42, hpMax: 42, ac: 17, passivePerception: 13, pin: genPin(), isOnline: false, isNpc: false },
     ];
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(freshRoster));
+    }
+    return freshRoster;
   }
 
   function saveRoster(r: PartyMember[]) {
@@ -37,7 +62,6 @@
   }
 
   function genId() { return `pc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
-  function genPin() { return String(Math.floor(1000 + Math.random() * 9000)); }
 
   let roster   = $state<PartyMember[]>(loadRoster());
   let lanIp    = $state(localStorage.getItem(LAN_IP_KEY) ?? '192.168.1.100');
@@ -281,7 +305,7 @@
         <div class="space-y-1">
           <label class="font-semibold text-slate-400 uppercase tracking-wider">4-Digit PIN</label>
           <div class="flex gap-1.5">
-            <input type="text" maxlength="4" bind:value={form.pin} class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-indigo-500" placeholder="1234" />
+            <input type="text" maxlength="4" bind:value={form.pin} class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-indigo-500" placeholder="####" />
             <button onclick={() => form.pin = genPin()} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition-colors">🎲</button>
           </div>
         </div>

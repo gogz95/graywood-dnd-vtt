@@ -101,7 +101,10 @@ Escort party guarantees safe transit.
   console.log('========================================');
 }
 
-runTests().catch(err => {
-  console.error('Test failed with error:', err);
-  throw err;
+import { describe, it } from 'vitest';
+
+describe('Parchment Handout Designer & Broadcast Bridge', () => {
+  it('passes all handout sanitization, dismissal, and markdown extension tests', async () => {
+    await runTests();
+  });
 });

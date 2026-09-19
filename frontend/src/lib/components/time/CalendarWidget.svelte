@@ -1,5 +1,8 @@
 <script lang="ts">
-  // CalendarWidget.svelte — Fully configurable campaign calendar, offline-first via localStorage
+  import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
+  import { getCalendarTotalHours, auditPartyStashDecay } from '../../harvest/harvestEngine';
+  import { partyStashStore } from '../../../stores/sessionStore';
 
   interface MonthDef { name: string; days: number; }
   interface CalendarConfig {
@@ -63,9 +66,36 @@
 
   let timeString = $derived(formatTime(config));
 
+  function checkStashDecay() {
+    try {
+      const totalHours = getCalendarTotalHours(config);
+      const currentStash = get(partyStashStore);
+      const { updatedItems, newlySpoiledCount } = auditPartyStashDecay(currentStash, totalHours);
+      if (newlySpoiledCount > 0) {
+        partyStashStore.set(updatedItems);
+        flash(`⚠️ ${newlySpoiledCount} organic organ(s) spoiled!`);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  onMount(() => {
+    checkStashDecay();
+    const handleTimeAdvanced = (e: Event) => {
+      config = load();
+      checkStashDecay();
+    };
+    window.addEventListener('vtt:calendar-time-advanced', handleTimeAdvanced);
+    return () => {
+      window.removeEventListener('vtt:calendar-time-advanced', handleTimeAdvanced);
+    };
+  });
+
   $effect(() => {
     save(config);
     onTimeChange?.(timeString);
+    checkStashDecay();
   });
 
   function formatTime(c: CalendarConfig): string {
@@ -90,6 +120,7 @@
 
     if (daysToAdd > 0) advanceDays(daysToAdd);
 
+    checkStashDecay();
     flash(`+${minutes >= 60 ? (minutes / 60) + ' hr' : minutes + ' min'}`);
   }
 

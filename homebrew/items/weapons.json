@@ -1,0 +1,98 @@
+[
+  {
+    "id": "raw-wpn-broadsword",
+    "name": "Broadsword",
+    "type": "Weapon",
+    "costGp": 15,
+    "weightLbs": 3.0,
+    "rarity": "Common",
+    "description": "A versatile double-edged blade with a sturdy crossguard, designed for both slashing sweeps and thrusts.",
+    "properties": ["Versatile (1d10)"],
+    "damage": "1d8",
+    "damageType": "slashing"
+  },
+  {
+    "id": "raw-wpn-shortbow",
+    "name": "Shortbow",
+    "type": "Weapon",
+    "costGp": 25,
+    "weightLbs": 2.0,
+    "rarity": "Common",
+    "description": "A compact yew recurve bow favored by scouts, skirmishers, and horse archers.",
+    "properties": ["Ammunition (range 80/320)", "Two-Handed"],
+    "damage": "1d6",
+    "damageType": "piercing"
+  },
+  {
+    "id": "raw-wpn-dagger",
+    "name": "Dagger",
+    "type": "Weapon",
+    "costGp": 2,
+    "weightLbs": 1.0,
+    "rarity": "Common",
+    "description": "A keen utility blade easily concealed beneath a traveler's cloak or sleeve.",
+    "properties": ["Finesse", "Light", "Thrown (range 20/60)"],
+    "damage": "1d4",
+    "damageType": "piercing"
+  },
+  {
+    "id": "raw-wpn-halberd",
+    "name": "Halberd",
+    "type": "Weapon",
+    "costGp": 20,
+    "weightLbs": 6.0,
+    "rarity": "Common",
+    "description": "A polearm combining an axe blade and spear point mounted atop a long ash shaft.",
+    "properties": ["Heavy", "Reach", "Two-Handed"],
+    "damage": "1d10",
+    "damageType": "slashing"
+  },
+  {
+    "id": "raw-wpn-heavy-crossbow",
+    "name": "Heavy Crossbow",
+    "type": "Weapon",
+    "costGp": 50,
+    "weightLbs": 18.0,
+    "rarity": "Common",
+    "description": "A steel-limbed spanning crossbow that looses heavy bolts capable of piercing plate armor.",
+    "properties": ["Ammunition (range 100/400)", "Heavy", "Loading", "Two-Handed"],
+    "damage": "1d10",
+    "damageType": "piercing"
+  },
+  {
+    "id": "raw-wpn-greatsword",
+    "name": "Greatsword",
+    "type": "Weapon",
+    "costGp": 50,
+    "weightLbs": 6.0,
+    "rarity": "Common",
+    "description": "A massive two-handed sword with long quillons, capable of cleaving ranks of infantry.",
+    "properties": ["Heavy", "Two-Handed"],
+    "damage": "2d6",
+    "damageType": "slashing"
+  },
+  {
+    "id": "raw-wpn-rapier",
+    "name": "Rapier",
+    "type": "Weapon",
+    "costGp": 25,
+    "weightLbs": 2.0,
+    "rarity": "Common",
+    "description": "A slender, sharply pointed sword optimized for precision thrusting and elegant dueling.",
+    "properties": ["Finesse"],
+    "damage": "1d8",
+    "damageType": "piercing"
+  },
+  {
+    "id": "raw-wpn-quarterstaff",
+    "name": "Quarterstaff",
+    "type": "Weapon",
+    "costGp": 1,
+    "weightLbs": 4.0,
+    "rarity": "Common",
+    "description": "A seasoned length of hardwood shod with iron caps, balancing reach and bludgeoning leverage.",
+    "properties": ["Versatile (1d8)"],
+    "damage": "1d6",
+    "damageType": "bludgeoning"
+  }
+]

@@ -225,7 +225,10 @@ Spellcasters such as wizards and clerics, as well as many monsters, have access 
   console.log('========================================');
 }
 
-runAllTests().catch((err) => {
-  console.error('Test Suite Failed:', err);
-  throw err;
+import { describe, it } from 'vitest';
+
+describe('AudioEngine, Roster & Compendium Integration', () => {
+  it('passes all audio engine, document chunker, compendium importer, and session store tests', async () => {
+    await runAllTests();
+  });
 });

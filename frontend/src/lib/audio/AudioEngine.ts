@@ -25,11 +25,13 @@ export class AudioEngine {
   // Master -> Bus chains
   private masterGain: GainNode | null = null;
   private ambienceGain: GainNode | null = null;
+  private combatMusicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
 
   // Volume levels (0.0 - 1.0)
   private masterVol = 0.8;
   private ambienceVol = 0.7;
+  private combatMusicVol = 0.75;
   private sfxVol = 0.8;
 
   // Currently playing ambience source
@@ -79,10 +81,14 @@ export class AudioEngine {
     this.ambienceGain = this.ctx.createGain();
     this.ambienceGain.gain.setValueAtTime(this.ambienceVol, this.ctx.currentTime);
 
+    this.combatMusicGain = this.ctx.createGain();
+    this.combatMusicGain.gain.setValueAtTime(this.combatMusicVol, this.ctx.currentTime);
+
     this.sfxGain = this.ctx.createGain();
     this.sfxGain.gain.setValueAtTime(this.sfxVol, this.ctx.currentTime);
 
     this.ambienceGain.connect(this.masterGain);
+    this.combatMusicGain.connect(this.masterGain);
     this.sfxGain.connect(this.masterGain);
     this.masterGain.connect(this.ctx.destination);
   }
@@ -93,6 +99,7 @@ export class AudioEngine {
 
   getMasterVolume(): number { return this.masterVol; }
   getAmbienceVolume(): number { return this.ambienceVol; }
+  getCombatMusicVolume(): number { return this.combatMusicVol; }
   getSfxVolume(): number { return this.sfxVol; }
 
   setMasterVolume(v: number): void {
@@ -106,6 +113,13 @@ export class AudioEngine {
     this.ambienceVol = Math.max(0, Math.min(1, v));
     if (this.ambienceGain && this.ctx) {
       this.ambienceGain.gain.linearRampToValueAtTime(this.ambienceVol, this.ctx.currentTime + 0.05);
+    }
+  }
+
+  setCombatMusicVolume(v: number): void {
+    this.combatMusicVol = Math.max(0, Math.min(1, v));
+    if (this.combatMusicGain && this.ctx) {
+      this.combatMusicGain.gain.linearRampToValueAtTime(this.combatMusicVol, this.ctx.currentTime + 0.05);
     }
   }
 
@@ -550,6 +564,112 @@ export class AudioEngine {
       return;
     }
 
+    // Natural 20 / Critical Success Fanfare: Radiant brass major chord with sparkling shimmer
+    if (sfxId === 'sfx-nat20' || sfxId === 'sfx-crit' || sfxId === 'sfx-critical') {
+      const fanfare = [587.33, 739.99, 880.00, 1174.66]; // D5, F#5, A5, D6
+      fanfare.forEach((freq, i) => {
+        const noteTime = now + i * 0.06;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, noteTime);
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(3200, noteTime);
+        filter.frequency.exponentialRampToValueAtTime(1000, noteTime + 1.2);
+
+        g.gain.setValueAtTime(0.001, noteTime);
+        g.gain.linearRampToValueAtTime(0.3, noteTime + 0.03);
+        g.gain.exponentialRampToValueAtTime(0.0001, noteTime + 1.8);
+
+        osc.connect(filter);
+        filter.connect(g);
+        g.connect(this.sfxGain!);
+        osc.start(noteTime);
+        osc.stop(noteTime + 1.85);
+      });
+      return;
+    }
+
+    // Natural 1 / Critical Fumble Stinger: Discordant minor descent with gritty distortion
+    if (sfxId === 'sfx-nat1' || sfxId === 'sfx-fumble' || sfxId === 'sfx-failure') {
+      const fumbleTones = [466.16, 440.00, 415.30, 311.13]; // Bb4 -> A4 -> Ab4 -> Eb4
+      fumbleTones.forEach((freq, i) => {
+        const noteTime = now + i * 0.12;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, noteTime);
+        osc.frequency.linearRampToValueAtTime(freq * 0.9, noteTime + 0.3);
+
+        g.gain.setValueAtTime(0.28, noteTime);
+        g.gain.exponentialRampToValueAtTime(0.001, noteTime + 0.35);
+
+        osc.connect(g);
+        g.connect(this.sfxGain!);
+        osc.start(noteTime);
+        osc.stop(noteTime + 0.38);
+      });
+      return;
+    }
+
+    // Monster Roar: Low frequency throat oscillation with noise modulation
+    if (sfxId === 'sfx-roar' || sfxId.includes('roar') || sfxId.includes('monster')) {
+      const osc = ctx.createOscillator();
+      const filter = ctx.createBiquadFilter();
+      const g = ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(95, now);
+      osc.frequency.linearRampToValueAtTime(140, now + 0.3);
+      osc.frequency.exponentialRampToValueAtTime(45, now + 1.2);
+
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(320, now);
+      filter.Q.setValueAtTime(3.0, now);
+
+      g.gain.setValueAtTime(0.01, now);
+      g.gain.linearRampToValueAtTime(0.48, now + 0.15);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
+
+      osc.connect(filter);
+      filter.connect(g);
+      g.connect(this.sfxGain!);
+
+      osc.start(now);
+      osc.stop(now + 1.35);
+      return;
+    }
+
+    // Metallic Weapon Clash: High frequency transient with ringing overtone
+    if (sfxId === 'sfx-clash' || sfxId.includes('clash')) {
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const g = ctx.createGain();
+
+      osc1.type = 'triangle';
+      osc1.frequency.setValueAtTime(2400, now);
+      osc1.frequency.exponentialRampToValueAtTime(800, now + 0.1);
+
+      osc2.type = 'square';
+      osc2.frequency.setValueAtTime(1480, now);
+      osc2.frequency.exponentialRampToValueAtTime(600, now + 0.15);
+
+      g.gain.setValueAtTime(0.35, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+
+      osc1.connect(g);
+      osc2.connect(g);
+      g.connect(this.sfxGain!);
+
+      osc1.start(now);
+      osc2.start(now);
+      osc1.stop(now + 0.5);
+      osc2.stop(now + 0.5);
+      return;
+    }
+
     // Generic ping
     const fallbackOsc = ctx.createOscillator();
     const fallbackGain = ctx.createGain();
@@ -607,5 +727,9 @@ audioEngine.addSfxButton({ id: 'sfx-door',   label: 'Door Creak',      hotkey: 3
 audioEngine.addSfxButton({ id: 'sfx-rest',   label: 'Short Rest Chime',hotkey: 4, url: null, procedural: true });
 audioEngine.addSfxButton({ id: 'sfx-combat', label: 'Combat Alert',    hotkey: 5, url: null, procedural: true });
 audioEngine.addSfxButton({ id: 'sfx-secret', label: 'Secret Chime',    hotkey: 6, url: null, procedural: true });
-audioEngine.addSfxButton({ id: 'sfx-sword',  label: 'Sword Strike',    hotkey: 7, url: null, procedural: true });
-audioEngine.addSfxButton({ id: 'sfx-spell',  label: 'Spell Surge',     hotkey: 8, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-nat20',  label: 'Nat 20 Fanfare',  hotkey: 7, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-nat1',   label: 'Nat 1 Stinger',   hotkey: 8, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-roar',   label: 'Monster Roar',    hotkey: 9, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-clash',  label: 'Blade Clash',     hotkey: null, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-sword',  label: 'Sword Strike',    hotkey: null, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-spell',  label: 'Spell Surge',     hotkey: null, url: null, procedural: true });

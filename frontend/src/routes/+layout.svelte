@@ -14,9 +14,10 @@
   import HandoutStudioView from '../lib/components/handouts/HandoutStudioView.svelte';
   import PlayerHandoutModal from '../lib/components/handouts/PlayerHandoutModal.svelte';
   import Sidebar, { type DmTab } from '../lib/components/navigation/Sidebar.svelte';
-  import AudioDrawer        from '../lib/components/audio/AudioDrawer.svelte';
+  import SoundboardDrawer   from '../lib/components/audio/SoundboardDrawer.svelte';
   import SettingsModal      from '../lib/components/settings/SettingsModal.svelte';
   import { initAutoSaver, type CampaignBundle } from '../lib/utils/campaignPersistence';
+  import { autoLoadFirstRunSeeds } from '../lib/db/seedLoader';
   import { registerGlobalDropZone, type DroppedAsset } from '../lib/utils/assetDrop';
 
   // ── View state ─────────────────────────────────────────────────────────────
@@ -71,6 +72,9 @@
     window.addEventListener('vtt:toggle-audio', handleToggleAudio);
 
     stopAutoSaver = initAutoSaver();
+
+    // First-run: auto-seed IndexedDB compendium with vanilla 5e SRD data
+    autoLoadFirstRunSeeds().catch(console.warn);
 
     dropCleanup = registerGlobalDropZone((asset: DroppedAsset) => {
       lastDrop = asset.fileName;
@@ -359,7 +363,7 @@
   {/if}
 
   <!-- Modals & Drawers -->
-  <AudioDrawer bind:isOpen={audioOpen} />
+  <SoundboardDrawer bind:isOpen={audioOpen} />
   <SettingsModal bind:isOpen={settingsOpen} />
   <PlayerHandoutModal />
 </div>

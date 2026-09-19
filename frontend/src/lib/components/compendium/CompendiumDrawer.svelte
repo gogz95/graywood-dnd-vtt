@@ -9,6 +9,24 @@
   } from '../../importers/compendiumImporter';
   import { sessionStore } from '../../../stores/sessionStore';
   import { audioEngine } from '../../audio/AudioEngine';
+  import CreateItemModal from './CreateItemModal.svelte';
+  import { getCustomItems } from '../../stores/compendiumStore';
+  import type { CustomItemDefinition } from '../../types/item';
+  import {
+    activeCampaignRulesetStore,
+    resetToDefault5e,
+    resetToAleamos
+  } from '../../stores/campaignRulesetStore';
+  import {
+    weaponsSeed,
+    armorSeed,
+    reagentsSeed
+  } from '../../homebrew/seeds';
+  import {
+    ingestHomebrewDataset,
+    convertAdaptedToCompendiumEntity
+  } from '../../rules/homebrewIngestionEngine';
+  import type { Raw5eItem } from '../../types/srdHomebrew';
 
   let { isOpen = $bindable(false) }: { isOpen?: boolean } = $props();
 
@@ -17,6 +35,7 @@
   let entities = $state<CompendiumEntity[]>([]);
   let isLoading = $state(false);
   let showImportModal = $state(false);
+  let showCreateItemModal = $state(false);
   let importFeedback = $state<string | null>(null);
   let selectedEntity = $state<CompendiumEntity | null>(null);
   let actionToast = $state<string | null>(null);
@@ -153,13 +172,33 @@
   async function loadAllEntities() {
     isLoading = true;
     try {
-      const imported = await getCompendiumEntities();
-      entities = [...SRD_SEEDS, ...imported];
+      const [imported, custom] = await Promise.all([
+        getCompendiumEntities(),
+        getCustomItems().catch(() => [])
+      ]);
+      const normalizedCustom: CompendiumEntity[] = custom.map(c => ({
+        id: c.id,
+        name: c.name,
+        type: 'item',
+        category: c.category,
+        rarity: c.rarity,
+        cost: c.costGp ? `${c.costGp} gp` : undefined,
+        weight: c.weight,
+        description: `${c.description}${c.maxRp ? ` | RP: ${c.currentRp ?? c.maxRp}/${c.maxRp}` : ''}${c.essenceTag ? ` | Essence: ${c.essenceTag}` : ''}`,
+        source: 'imported',
+      }));
+      entities = [...SRD_SEEDS, ...normalizedCustom, ...imported];
     } catch {
       entities = [...SRD_SEEDS];
     } finally {
       isLoading = false;
     }
+  }
+
+  function handleCustomItemCreated(item: CustomItemDefinition) {
+    actionToast = `Forged & Dispatched ${item.name}!`;
+    setTimeout(() => { actionToast = null; }, 3500);
+    loadAllEntities();
   }
 
   onMount(() => {
@@ -234,6 +273,33 @@
     setTimeout(() => { actionToast = null; }, 3000);
   }
 
+  async function handleIngestRepositoryHomebrew(type: 'weapons' | 'armor' | 'reagents' | 'all') {
+    let itemsToIngest: Raw5eItem[] = [];
+    if (type === 'weapons' || type === 'all') {
+      itemsToIngest = itemsToIngest.concat(weaponsSeed as unknown as Raw5eItem[]);
+    }
+    if (type === 'armor' || type === 'all') {
+      itemsToIngest = itemsToIngest.concat(armorSeed as unknown as Raw5eItem[]);
+    }
+    if (type === 'reagents' || type === 'all') {
+      itemsToIngest = itemsToIngest.concat(reagentsSeed as unknown as Raw5eItem[]);
+    }
+
+    const currentRuleset = $activeCampaignRulesetStore;
+    const { items: adaptedItems } = ingestHomebrewDataset({ items: itemsToIngest }, currentRuleset);
+
+    const compendiumEntities = adaptedItems.map(convertAdaptedToCompendiumEntity);
+    const res = await importCompendiumJson(compendiumEntities);
+
+    audioEngine.triggerSfx('sfx-secret');
+    importFeedback = `Adapted & imported ${res.added} items into compendium under "${currentRuleset.name}" ruleset!`;
+    actionToast = `Ingested ${res.added} homebrew items [${currentRuleset.name}]`;
+    await loadAllEntities();
+    setTimeout(() => {
+      actionToast = null;
+    }, 4000);
+  }
+
   async function handleDeleteEntity(id: string) {
     await deleteCompendiumEntity(id);
     await loadAllEntities();
@@ -254,11 +320,22 @@
         <div class="flex items-center gap-3">
           <div class="w-9 h-9 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-lg">🏛️</div>
           <div>
-            <h2 class="text-base font-black text-slate-100 uppercase tracking-wide">5e SRD Compendium</h2>
+            <div class="flex items-center gap-2">
+              <h2 class="text-base font-black text-slate-100 uppercase tracking-wide">5e SRD Compendium</h2>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border {$activeCampaignRulesetStore.isHomebrewActive ? 'bg-amber-950/80 text-amber-300 border-amber-700/50' : 'bg-slate-800 text-slate-300 border-slate-700'}">
+                {$activeCampaignRulesetStore.name}
+              </span>
+            </div>
             <p class="text-[11px] text-slate-400">Database of Monsters, Spells, and Equipment with Instant Dispatch</p>
           </div>
         </div>
         <div class="flex items-center gap-2">
+          <button
+            onclick={() => showCreateItemModal = true}
+            class="px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 text-xs font-black rounded-lg shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
+          >
+            <span>⚒️</span> + New Item
+          </button>
           <button
             onclick={() => showImportModal = true}
             class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5"
@@ -517,27 +594,144 @@
     class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4"
     onclick={(e) => { if (e.target === e.currentTarget) showImportModal = false; }}
   >
-    <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+    <div class="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-        <h3 class="text-base font-bold text-slate-100">Batch Import 5e Compendium JSON</h3>
+        <div>
+          <h3 class="text-base font-bold text-slate-100">Compendium Ingestion & Ruleset Adaptation</h3>
+          <p class="text-[11px] text-slate-400">Import custom JSON or dynamically adapt clean repository datasets at runtime</p>
+        </div>
         <button onclick={() => showImportModal = false} class="text-slate-500 hover:text-slate-300 text-sm">✕</button>
       </div>
 
-      <p class="text-xs text-slate-400">
-        Upload standard 5e SRD, Open5e, or 5e-bits JSON files (single stat blocks or full datasets of monsters, spells, and equipment).
-      </p>
+      <!-- Campaign Ruleset Configuration Selector -->
+      <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-200 uppercase tracking-wide">Active Campaign Ruleset</span>
+          <div class="flex items-center gap-2">
+            <button
+              onclick={() => resetToDefault5e()}
+              class="px-2.5 py-1 text-xs rounded-lg font-semibold transition-all {!$activeCampaignRulesetStore.isHomebrewActive ? 'bg-indigo-600 text-white shadow' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}"
+            >
+              Standard 5e (RAW)
+            </button>
+            <button
+              onclick={() => resetToAleamos()}
+              class="px-2.5 py-1 text-xs rounded-lg font-semibold transition-all {$activeCampaignRulesetStore.isHomebrewActive ? 'bg-amber-600 text-slate-950 shadow font-black' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}"
+            >
+              Aleamos Archipelago
+            </button>
+          </div>
+        </div>
 
-      <label class="block w-full py-10 border-2 border-dashed border-slate-700 hover:border-indigo-500 rounded-xl text-center cursor-pointer bg-slate-950/40 transition-all">
-        <span class="text-3xl block mb-2">📂</span>
-        <span class="text-xs font-bold text-slate-300 block">Click or Drop JSON Data File</span>
-        <span class="text-[10px] text-slate-500 block mt-0.5">Supports .json datasets</span>
-        <input
-          type="file"
-          accept=".json"
-          class="hidden"
-          onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleFileUpload(f); }}
-        />
-      </label>
+        <!-- Feature Flag Chips -->
+        <div class="grid grid-cols-2 gap-1.5 pt-1 text-[11px]">
+          <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-800/80 flex items-center justify-between">
+            <span class="text-slate-300">🪙 Concord Currencies</span>
+            <span class="font-bold {$activeCampaignRulesetStore.features.enableCustomCurrencies ? 'text-amber-400' : 'text-slate-600'}">
+              {$activeCampaignRulesetStore.features.enableCustomCurrencies ? 'Active' : 'Off'}
+            </span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-800/80 flex items-center justify-between">
+            <span class="text-slate-300">⚖️ 10% Assay Clipping Fee</span>
+            <span class="font-bold {$activeCampaignRulesetStore.features.enableCurrencyAssayFee ? 'text-amber-400' : 'text-slate-600'}">
+              {$activeCampaignRulesetStore.features.enableCurrencyAssayFee ? 'Active' : 'Off'}
+            </span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-800/80 flex items-center justify-between">
+            <span class="text-slate-300">🛡️ Durability & RP Sunder</span>
+            <span class="font-bold {$activeCampaignRulesetStore.features.enableDurabilityRp ? 'text-amber-400' : 'text-slate-600'}">
+              {$activeCampaignRulesetStore.features.enableDurabilityRp ? 'Active' : 'Off'}
+            </span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-800/80 flex items-center justify-between">
+            <span class="text-slate-300">⏳ 24h Organ Decay</span>
+            <span class="font-bold {$activeCampaignRulesetStore.features.enableOrganDecayTimer ? 'text-amber-400' : 'text-slate-600'}">
+              {$activeCampaignRulesetStore.features.enableOrganDecayTimer ? 'Active' : 'Off'}
+            </span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-800/80 flex items-center justify-between">
+            <span class="text-slate-300">🧪 28-Essence Matrix</span>
+            <span class="font-bold {$activeCampaignRulesetStore.features.enableElementalEssenceMatrix ? 'text-amber-400' : 'text-slate-600'}">
+              {$activeCampaignRulesetStore.features.enableElementalEssenceMatrix ? 'Active' : 'Off'}
+            </span>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-800/80 flex items-center justify-between">
+            <span class="text-slate-300">📜 Regional Dialects</span>
+            <span class="font-bold {$activeCampaignRulesetStore.features.enableRegionalDialects ? 'text-amber-400' : 'text-slate-600'}">
+              {$activeCampaignRulesetStore.features.enableRegionalDialects ? 'Active' : 'Off'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick-Ingest Clean Repository Datasets -->
+      <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <div>
+            <h4 class="text-xs font-bold text-slate-200">Repository Seeds (`homebrew/items/`)</h4>
+            <p class="text-[10px] text-slate-400">Vanilla 5e data transformed dynamically on ingestion</p>
+          </div>
+          <button
+            onclick={() => handleIngestRepositoryHomebrew('all')}
+            class="px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-xs font-black rounded-lg shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
+          >
+            ⚡ Ingest All (24 Items)
+          </button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            onclick={() => handleIngestRepositoryHomebrew('weapons')}
+            class="p-2.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 text-left transition-all group"
+          >
+            <div class="flex items-center justify-between">
+              <span class="text-lg">⚔️</span>
+              <span class="text-[10px] font-bold text-slate-400 group-hover:text-indigo-400">8 Items</span>
+            </div>
+            <div class="text-xs font-bold text-slate-200 mt-1">Weapons</div>
+            <div class="text-[10px] text-slate-500">Broadsword, Halberd...</div>
+          </button>
+
+          <button
+            onclick={() => handleIngestRepositoryHomebrew('armor')}
+            class="p-2.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 text-left transition-all group"
+          >
+            <div class="flex items-center justify-between">
+              <span class="text-lg">🛡️</span>
+              <span class="text-[10px] font-bold text-slate-400 group-hover:text-indigo-400">8 Items</span>
+            </div>
+            <div class="text-xs font-bold text-slate-200 mt-1">Armor</div>
+            <div class="text-[10px] text-slate-500">Plate, Chain Mail...</div>
+          </button>
+
+          <button
+            onclick={() => handleIngestRepositoryHomebrew('reagents')}
+            class="p-2.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 text-left transition-all group"
+          >
+            <div class="flex items-center justify-between">
+              <span class="text-lg">🧪</span>
+              <span class="text-[10px] font-bold text-slate-400 group-hover:text-indigo-400">8 Items</span>
+            </div>
+            <div class="text-xs font-bold text-slate-200 mt-1">Reagents</div>
+            <div class="text-[10px] text-slate-500">Venom, Blood, Core...</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- File Drop Area -->
+      <div>
+        <label class="block w-full py-6 border-2 border-dashed border-slate-700 hover:border-indigo-500 rounded-xl text-center cursor-pointer bg-slate-950/40 transition-all">
+          <span class="text-2xl block mb-1">📂</span>
+          <span class="text-xs font-bold text-slate-300 block">Click or Drop Custom JSON Dataset</span>
+          <span class="text-[10px] text-slate-500 block mt-0.5">Supports SRD, Open5e, and Homebrew files</span>
+          <input
+            type="file"
+            accept=".json"
+            class="hidden"
+            onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleFileUpload(f); }}
+          />
+        </label>
+      </div>
 
       {#if importFeedback}
         <div class="p-3 rounded-lg text-xs font-semibold {importFeedback.startsWith('Error') ? 'bg-rose-950/80 text-rose-300 border border-rose-800/40' : 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/40'}">
@@ -556,3 +750,10 @@
     </div>
   </div>
 {/if}
+
+<!-- DM Manual Custom Item Creation Modal -->
+<CreateItemModal
+  bind:isOpen={showCreateItemModal}
+  onItemCreated={handleCustomItemCreated}
+/>
+

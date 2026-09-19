@@ -1,0 +1,90 @@
+[
+  {
+    "id": "raw-rea-wyvern-venom",
+    "name": "Wyvern Venom Gland",
+    "type": "Reagent",
+    "costGp": 100,
+    "weightLbs": 2.0,
+    "rarity": "Uncommon",
+    "description": "An intact poison reservoir harvested from the stinger barb of a wyvern.",
+    "isPerishable": true,
+    "properties": ["Harvested Organ", "Toxic Secretion"]
+  },
+  {
+    "id": "raw-rea-basilisk-eye",
+    "name": "Basilisk Eye",
+    "type": "Reagent",
+    "costGp": 150,
+    "weightLbs": 0.5,
+    "rarity": "Rare",
+    "description": "A crystalline petrifying ocular bulb carefully extracted from a slain basilisk.",
+    "isPerishable": true,
+    "properties": ["Harvested Organ", "Petrification Mineral"]
+  },
+  {
+    "id": "raw-rea-troll-blood",
+    "name": "Troll Blood Vial",
+    "type": "Reagent",
+    "costGp": 50,
+    "weightLbs": 1.0,
+    "rarity": "Uncommon",
+    "description": "Thick, sluggishly pulsating venous blood that coagulates rapidly in open air.",
+    "isPerishable": true,
+    "properties": ["Regenerative Fluid", "Biological Essence"]
+  },
+  {
+    "id": "raw-rea-cave-fisher",
+    "name": "Cave Fisher Filament",
+    "type": "Reagent",
+    "costGp": 40,
+    "weightLbs": 1.0,
+    "rarity": "Common",
+    "description": "Extremely tensile silk coated in sticky subterranean resin, harvested from subterranean arthropods.",
+    "isPerishable": true,
+    "properties": ["Adhesive Filament", "Fibrous Reagent"]
+  },
+  {
+    "id": "raw-rea-fire-beetle",
+    "name": "Fire Beetle Luminescent Gland",
+    "type": "Reagent",
+    "costGp": 30,
+    "weightLbs": 0.5,
+    "rarity": "Common",
+    "description": "A glowing abdominal gland that emits steady illumination for several days after harvesting.",
+    "isPerishable": true,
+    "properties": ["Phosphorescent Organ", "Pyric Organ"]
+  },
+  {
+    "id": "raw-rea-remorhaz-core",
+    "name": "Remorhaz Thermal Core",
+    "type": "Reagent",
+    "costGp": 450,
+    "weightLbs": 5.0,
+    "rarity": "Very Rare",
+    "description": "An intensely superheated internal furnace nodule extracted from an arctic predator.",
+    "isPerishable": true,
+    "properties": ["Thermal Catalyst", "Elemental Reagent"]
+  },
+  {
+    "id": "raw-rea-mandrake-root",
+    "name": "Fresh Mandrake Root",
+    "type": "Reagent",
+    "costGp": 15,
+    "weightLbs": 0.8,
+    "rarity": "Common",
+    "description": "A humanoid-shaped botanical root with mild narcotic and restorative alchemical properties.",
+    "isPerishable": true,
+    "properties": ["Botanical Reagent", "Restorative Herb"]
+  },
+  {
+    "id": "raw-rea-direwolf-pelt",
+    "name": "Dire Wolf Winter Pelt",
+    "type": "Reagent",
+    "costGp": 25,
+    "weightLbs": 8.0,
+    "rarity": "Common",
+    "description": "A thick, coarse pelt from a mature dire wolf, prized for rugged cold-weather garments.",
+    "isPerishable": false,
+    "properties": ["Tanned Hide", "Insulating Fur"]
+  }
+]

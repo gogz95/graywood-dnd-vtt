@@ -22,6 +22,33 @@ export const currencyStore = writable<CurrencyPouch>({
 export const tokenStore = writable<string | null>(null);
 export const isClaimingStore = writable<boolean>(false);
 export const claimErrorStore = writable<string | null>(null);
+export const exhaustionStore = writable<number>(0);
+
+export interface SpellSlotTracker {
+  level: number;
+  total: number;
+  used: number;
+}
+
+export interface ClassResource {
+  id: string;
+  name: string;
+  total: number;
+  used: number;
+  resetOn: 'short' | 'long';
+}
+
+export const spellSlotsStore = writable<SpellSlotTracker[]>([
+  { level: 1, total: 4, used: 1 },
+  { level: 2, total: 3, used: 0 },
+  { level: 3, total: 2, used: 1 },
+]);
+
+export const classResourcesStore = writable<ClassResource[]>([
+  { id: 'res-rage', name: 'Rage / Focus', total: 3, used: 1, resetOn: 'long' },
+  { id: 'res-surge', name: 'Action Surge', total: 1, used: 0, resetOn: 'short' },
+  { id: 'res-second-wind', name: 'Second Wind', total: 1, used: 1, resetOn: 'short' },
+]);
 
 const STORAGE_CHAR_ID_KEY = 'vtt_claimed_character_id';
 const STORAGE_PIN_KEY = 'vtt_claimed_pin';
@@ -182,6 +209,11 @@ export async function mutateHp(newHp: number, tempHp?: number): Promise<void> {
 
   const clampedHp = Math.max(0, Math.min(newHp, current.max_hp));
   const finalTempHp = tempHp !== undefined ? Math.max(0, tempHp) : current.temp_hp;
+
+  // Aleamos 0-HP Exhaustion Trigger ("Anti-Heal-Scumming")
+  if (current.current_hp > 0 && clampedHp === 0) {
+    exhaustionStore.update((lvl) => Math.min(6, lvl + 1));
+  }
 
   // Optimistic local update
   characterStore.update((c) => (c ? { ...c, current_hp: clampedHp, temp_hp: finalTempHp } : null));

@@ -10,6 +10,7 @@ export type WsEvent =
       character_id: string;
       current_hp: number;
       temp_hp: number;
+      exhaustion_level?: number;
     }
   | {
       type: 'BLACK_ORB_TOGGLE';
@@ -19,9 +20,11 @@ export type WsEvent =
   | {
       type: 'DICE_ROLL';
       character_id: string;
+      character_name?: string;
       formula: string;
       result: number;
       is_critical: boolean;
+      breakdown?: string;
     }
   | {
       type: 'SYSTEM_MESSAGE';
@@ -48,4 +51,94 @@ export type WsEvent =
   | {
       type: 'HANDOUT_DISMISS';
       handout_id?: string;
+    }
+  | {
+      type: 'DM_WHISPER';
+      id: string;
+      target_character_id?: string;
+      target_pin?: string;
+      sender_name: string;
+      message: string;
+      timestamp: number;
+    }
+  | {
+      type: 'COMBAT_INITIATIVE_UPDATE';
+      encounter_id: string;
+      round: number;
+      current_turn_index: number;
+      combatants: Array<{
+        id: string;
+        name: string;
+        initiative: number;
+        is_active: boolean;
+        is_on_deck: boolean;
+        is_hidden?: boolean;
+        is_player?: boolean;
+        hp_percent?: number;
+      }>;
+    }
+  | {
+      type: 'AUTH_REQUEST';
+      pin: string;
+    }
+  | {
+      type: 'AUTH_SUCCESS';
+      character_id: string;
+      character_name?: string;
+    }
+  | {
+      type: 'AUTH_FAILURE';
+      message: string;
+    }
+  | {
+      type: 'TRADE_OFFER';
+      trade_id: string;
+      sender_id: string;
+      sender_name: string;
+      receiver_id: string;
+      receiver_name: string;
+      item: any;
+      quantity: number;
+      timestamp: number;
+      notes?: string;
+    }
+  | {
+      type: 'TRADE_ACCEPT';
+      trade_id: string;
+      sender_id: string;
+      sender_name: string;
+      receiver_id: string;
+      receiver_name: string;
+      item_id: string;
+      item_name: string;
+      quantity: number;
+      timestamp: number;
+    }
+  | {
+      type: 'TRADE_DECLINE';
+      trade_id: string;
+      sender_id: string;
+      sender_name: string;
+      receiver_id: string;
+      receiver_name: string;
+      item_id: string;
+      item_name: string;
+      timestamp: number;
+      reason?: string;
+    }
+  | {
+      type: 'TRADE_AUDIT_LOG';
+      trade_id: string;
+      sender_id: string;
+      sender_name: string;
+      receiver_id: string;
+      receiver_name: string;
+      item_id: string;
+      item_name: string;
+      quantity: number;
+      status: 'OFFERED' | 'ACCEPTED' | 'DECLINED';
+      timestamp: number;
+      notes?: string;
     };
+
+

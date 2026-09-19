@@ -23,6 +23,8 @@
   } from '../../economy/valuationEngine';
   import { spawnCombatantToken } from '../../ipc/tauriBridge';
   import { dispatchSoundEvent } from '../../audio/soundboardBridge';
+  import { audioEngine } from '../../audio/AudioEngine';
+  import { sendWsEvent } from '../../../stores/websocketStore';
 
   // ── Sub-view Tabs ──────────────────────────────────────────────────────────
   type LoreSubView = 'wiki' | 'manifests' | 'pricing';
@@ -233,13 +235,12 @@
     // 2. Also register combatant via IPC bridge if running Tauri/REST
     try {
       await spawnCombatantToken({
-        monster_id: activeEntity.id,
-        name: activeEntity.name,
-        cr: typeof activeEntity.attributes.cr === 'number' ? activeEntity.attributes.cr : 1,
-        hp,
-        ac: typeof activeEntity.attributes.ac === 'number' ? activeEntity.attributes.ac : 14,
-        x: 100,
-        y: 100,
+        encounter_id: 'active',
+        monster_compendium_id: activeEntity.id,
+        custom_name: activeEntity.name,
+        initiative: Math.floor(Math.random() * 20) + 1,
+        canvas_x: 100,
+        canvas_y: 100,
       });
     } catch {
       // Offline / standalone browser canvas mode
@@ -248,6 +249,54 @@
     dispatchSoundEvent('turn_bell');
     spawnSuccessNotice = `Spawned "${activeEntity.name}" [HP ${hp}] onto the Battle Mat!`;
     setTimeout(() => { spawnSuccessNotice = null; }, 3500);
+  }
+
+  // ── Secret Lore Dispatch to Player ─────────────────────────────────────────
+  let showWhisperMenu = $state(false);
+  let whisperNotice = $state<string | null>(null);
+
+  function getConnectedPartyList(): Array<{ name: string; pin: string; class: string }> {
+    if (typeof localStorage === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem('vtt_party_roster');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.map((p: any) => ({ name: p.name, pin: p.pin, class: p.class })) : [];
+      }
+    } catch {
+      // fallback
+    }
+    return [
+      { name: 'Valen Shadowstep', pin: '1234', class: 'Rogue' },
+      { name: 'Sister Nicole', pin: '5678', class: 'Cleric' },
+      { name: 'Kaelen Flamebearer', pin: '4321', class: 'Wizard' },
+    ];
+  }
+
+  function handleWhisperLore(playerPin?: string, playerName?: string) {
+    if (!activeEntity) return;
+
+    const whisperPayload = {
+      id: `lore-whisper-${Date.now()}`,
+      sender: 'DM Lore Archive',
+      target_pin: playerPin,
+      message: `📜 **${activeEntity.name} (${activeEntity.type})**\n\n${activeEntity.summary}\n\n${activeEntity.bodyMarkdown.slice(0, 350)}${activeEntity.bodyMarkdown.length > 350 ? '...' : ''}`,
+      timestamp: Date.now(),
+    };
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('vtt:dm-whisper', { detail: whisperPayload }));
+    }
+
+    sendWsEvent({
+      type: 'DM_WHISPER',
+      payload: whisperPayload,
+    });
+
+    audioEngine.triggerSfx('sfx-secret');
+    whisperNotice = `Whispered lore entry to ${playerName || 'All Connected Players'}!`;
+    showWhisperMenu = false;
+    setTimeout(() => { whisperNotice = null; }, 3500);
   }
 
   // ── Trade Manifest Generator State ─────────────────────────────────────────
@@ -494,6 +543,42 @@
                   <span>⚔️</span>
                   <span>Spawn Token</span>
                 </button>
+
+                <!-- Secret Lore Dispatch Dropdown -->
+                <div class="relative">
+                  <button
+                    onclick={() => showWhisperMenu = !showWhisperMenu}
+                    class="px-3 py-1.5 bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-700/50 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow"
+                    title="Send secret lore entry directly to player mobile inbox"
+                  >
+                    <span>📜</span>
+                    <span>Whisper Entry ▾</span>
+                  </button>
+
+                  {#if showWhisperMenu}
+                    <div class="absolute right-0 mt-1 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 p-1.5 space-y-1">
+                      <div class="px-2 py-1 text-[10px] uppercase font-bold text-slate-400 border-b border-slate-800">
+                        Select Recipient
+                      </div>
+                      <button
+                        onclick={() => handleWhisperLore(undefined, 'Broadcast to Party')}
+                        class="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-indigo-950/70 hover:text-indigo-200 text-slate-300 font-semibold transition-colors flex items-center justify-between"
+                      >
+                        <span>📢 Broadcast to All</span>
+                        <span class="text-[10px] text-slate-500 font-mono">Party</span>
+                      </button>
+                      {#each getConnectedPartyList() as member}
+                        <button
+                          onclick={() => handleWhisperLore(member.pin, member.name)}
+                          class="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-800 text-slate-300 transition-colors flex items-center justify-between"
+                        >
+                          <span class="truncate font-medium">{member.name}</span>
+                          <span class="text-[10px] text-indigo-400 font-mono">PIN {member.pin}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
 
                 {#if !isEditing}
                   <button

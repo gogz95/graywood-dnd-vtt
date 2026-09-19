@@ -178,7 +178,10 @@ async function runTests() {
   console.log('========================================');
 }
 
-runTests().catch(err => {
-  console.error('Test failed with error:', err);
-  throw err;
+import { describe, it } from 'vitest';
+
+describe('Relational Lore Graph & Valuation Engine', () => {
+  it('passes all valuation engine, manifest generation, and cargo stash tests', async () => {
+    await runTests();
+  });
 });

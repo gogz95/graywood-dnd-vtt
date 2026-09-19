@@ -126,7 +126,10 @@ async function runTests() {
   console.log('========================================');
 }
 
-runTests().catch(err => {
-  console.error('Test failed with error:', err);
-  throw err;
+import { describe, it } from 'vitest';
+
+describe('Dungeon Scrawl & Watabou Parser Verification', () => {
+  it('passes all parser, raycast visibility, and PixiJS generation tests', async () => {
+    await runTests();
+  });
 });

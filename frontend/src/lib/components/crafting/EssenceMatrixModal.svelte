@@ -85,7 +85,7 @@
   // Crafting Math Engine (Strict full formula implementation):
   // Base cost: 10 points for the 1st ingredient, 15 points for each additional ingredient.
   // Stability Check: Breaches exceeding 25 total ingredient points require an owned Stronghold Alchemical Laboratory facility.
-  let evaluation = $derived<CraftingEvaluation>(() => {
+  let evaluation = $derived.by<CraftingEvaluation>(() => {
     const count = activeSlottedEssences.length;
     const totalPoints = count === 0 ? 0 : 10 + (count - 1) * 15;
     const requiresLab = totalPoints > 25;

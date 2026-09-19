@@ -1,8 +1,4 @@
-<script lang="ts">
-  import { currencyStore, executeAssayConversion } from '../../../stores/characterStore';
-  import { dispatchSoundEvent } from '../../audio/soundboardBridge';
-  import Icons from '../../../components/Icons.svelte';
-
+<script module lang="ts">
   export interface AssayTransactionRecord {
     id: string;
     timestamp: number;
@@ -11,6 +7,12 @@
     tariffFeeRetained: number;
     portReceiptCode: string;
   }
+</script>
+
+<script lang="ts">
+  import { currencyStore, executeAssayConversion } from '../../../stores/characterStore';
+  import { dispatchSoundEvent } from '../../audio/soundboardBridge';
+  import Icons from '../../../components/Icons.svelte';
 
   let isDrawerOpen = $state(false);
   let showLedger = $state(false);

@@ -1,0 +1,110 @@
+[
+  {
+    "id": "srd-goblin",
+    "name": "Goblin",
+    "size": "Small",
+    "type": "humanoid (goblinoid)",
+    "cr": 0.25,
+    "hp": 7,
+    "ac": 15,
+    "languages": ["Common", "Goblin"],
+    "traits": [
+      {
+        "name": "Nimble Escape",
+        "desc": "The goblin can take the Disengage or Hide action as a bonus action on each of its turns."
+      }
+    ],
+    "actions": [
+      {
+        "name": "Scimitar",
+        "desc": "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 5 (1d6 + 2) slashing damage."
+      },
+      {
+        "name": "Shortbow",
+        "desc": "Ranged Weapon Attack: +4 to hit, range 80/320 ft., one target. Hit: 5 (1d6 + 2) piercing damage."
+      }
+    ]
+  },
+  {
+    "id": "srd-orc",
+    "name": "Orc",
+    "size": "Medium",
+    "type": "humanoid (orc)",
+    "cr": 0.5,
+    "hp": 15,
+    "ac": 13,
+    "languages": ["Common", "Orc"],
+    "traits": [
+      {
+        "name": "Aggressive",
+        "desc": "As a bonus action, the orc can move up to its speed toward a hostile creature that it can see."
+      }
+    ],
+    "actions": [
+      {
+        "name": "Greataxe",
+        "desc": "Melee Weapon Attack: +5 to hit, reach 5 ft., one target. Hit: 9 (1d12 + 3) slashing damage."
+      }
+    ]
+  },
+  {
+    "id": "srd-ogre",
+    "name": "Ogre",
+    "size": "Large",
+    "type": "giant",
+    "cr": 2,
+    "hp": 59,
+    "ac": 11,
+    "languages": ["Common", "Giant"],
+    "traits": [],
+    "actions": [
+      {
+        "name": "Greatclub",
+        "desc": "Melee Weapon Attack: +6 to hit, reach 5 ft., one target. Hit: 13 (2d8 + 4) bludgeoning damage."
+      }
+    ]
+  },
+  {
+    "id": "srd-basilisk",
+    "name": "Basilisk",
+    "size": "Medium",
+    "type": "monstrosity",
+    "cr": 3,
+    "hp": 52,
+    "ac": 15,
+    "languages": [],
+    "traits": [
+      {
+        "name": "Petrifying Gaze",
+        "desc": "If a creature starts its turn within 30 ft. of the basilisk and the two of them can see each other, the basilisk can force the creature to make a DC 12 Constitution saving throw."
+      }
+    ],
+    "actions": [
+      {
+        "name": "Bite",
+        "desc": "Melee Weapon Attack: +5 to hit, reach 5 ft., one target. Hit: 10 (2d6 + 3) piercing damage plus 7 (2d6) poison damage."
+      }
+    ]
+  },
+  {
+    "id": "srd-wyvern",
+    "name": "Wyvern",
+    "size": "Large",
+    "type": "dragon",
+    "cr": 6,
+    "hp": 110,
+    "ac": 13,
+    "languages": [],
+    "traits": [],
+    "actions": [
+      {
+        "name": "Multiattack",
+        "desc": "The wyvern makes two attacks: one with its bite and one with its stinger."
+      },
+      {
+        "name": "Stinger",
+        "desc": "Melee Weapon Attack: +7 to hit, reach 10 ft., one creature. Hit: 11 (2d6 + 4) piercing damage plus 24 (7d6) poison damage on a failed DC 15 Constitution save."
+      }
+    ]
+  }
+]

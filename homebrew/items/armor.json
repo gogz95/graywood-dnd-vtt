@@ -1,0 +1,90 @@
+[
+  {
+    "id": "raw-arm-leather",
+    "name": "Leather Armor",
+    "type": "Armor",
+    "costGp": 10,
+    "weightLbs": 10.0,
+    "rarity": "Common",
+    "description": "Cured animal hide reinforced with boiled leather plates to protect vital organs.",
+    "ac": 11,
+    "properties": ["Light Armor"]
+  },
+  {
+    "id": "raw-arm-studded-leather",
+    "name": "Studded Leather Armor",
+    "type": "Armor",
+    "costGp": 45,
+    "weightLbs": 13.0,
+    "rarity": "Common",
+    "description": "Supple leather reinforced with close-set rivets and iron studs.",
+    "ac": 12,
+    "properties": ["Light Armor"]
+  },
+  {
+    "id": "raw-arm-chain-shirt",
+    "name": "Chain Shirt",
+    "type": "Armor",
+    "costGp": 50,
+    "weightLbs": 20.0,
+    "rarity": "Common",
+    "description": "Interlocking steel rings worn between layers of cloth or leather to absorb bludgeoning impact.",
+    "ac": 13,
+    "properties": ["Medium Armor"]
+  },
+  {
+    "id": "raw-arm-breastplate",
+    "name": "Breastplate",
+    "type": "Armor",
+    "costGp": 400,
+    "weightLbs": 20.0,
+    "rarity": "Common",
+    "description": "A fitted metal chest piece worn with supple leather backing, leaving the limbs unencumbered.",
+    "ac": 14,
+    "properties": ["Medium Armor"]
+  },
+  {
+    "id": "raw-arm-half-plate",
+    "name": "Half Plate Armor",
+    "type": "Armor",
+    "costGp": 750,
+    "weightLbs": 40.0,
+    "rarity": "Common",
+    "description": "Shaped metal plates that cover most of the wearer's body, strapped over greaves and chain.",
+    "ac": 15,
+    "properties": ["Medium Armor", "Stealth Disadvantage"]
+  },
+  {
+    "id": "raw-arm-chain-mail",
+    "name": "Chain Mail",
+    "type": "Armor",
+    "costGp": 75,
+    "weightLbs": 55.0,
+    "rarity": "Common",
+    "description": "Heavy armor made of interlocking metal rings over a thick padded quilted doublet.",
+    "ac": 16,
+    "properties": ["Heavy Armor", "Str 13 Required", "Stealth Disadvantage"]
+  },
+  {
+    "id": "raw-arm-plate",
+    "name": "Plate Armor",
+    "type": "Armor",
+    "costGp": 1500,
+    "weightLbs": 65.0,
+    "rarity": "Common",
+    "description": "Interlocking steel plates covering the entire body, fitted with bespoke leather straps and buckles.",
+    "ac": 18,
+    "properties": ["Heavy Armor", "Str 15 Required", "Stealth Disadvantage"]
+  },
+  {
+    "id": "raw-arm-shield",
+    "name": "Ironbound Shield",
+    "type": "Armor",
+    "costGp": 10,
+    "weightLbs": 6.0,
+    "rarity": "Common",
+    "description": "A circular or kite shield of layered oak faced with iron bands.",
+    "ac": 2,
+    "properties": ["Shield"]
+  }
+]

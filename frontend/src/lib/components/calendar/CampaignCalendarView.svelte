@@ -1,9 +1,4 @@
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import Icons from '../../../components/Icons.svelte';
-  import { dispatchSoundEvent } from '../../audio/soundboardBridge';
-  import { campaignDateStore } from '../../../stores/websocketStore';
-
+<script module lang="ts">
   export interface ChancelleryDate {
     year: number;
     day_of_year: number;
@@ -52,6 +47,13 @@
     details: string;
     tag: 'time' | 'spoilage' | 'contract' | 'lore';
   }
+</script>
+
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import Icons from '../../../components/Icons.svelte';
+  import { dispatchSoundEvent } from '../../audio/soundboardBridge';
+  import { campaignDateStore } from '../../../stores/websocketStore';
 
   let calendars = $state<MultiCalendarDate | null>(null);
   let isAdvancing = $state(false);
