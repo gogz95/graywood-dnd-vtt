@@ -1,0 +1,110 @@
+# =============================================================================
+# Tauri & Rust
+# =============================================================================
+src-tauri/target/
+target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# =============================================================================
+# Node.js & Frontend
+# =============================================================================
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+build/
+.vite/
+.svelte-kit/
+*.tsbuildinfo
+.parcel-cache/
+
+# =============================================================================
+# SQLite Databases & Local Campaign Archives
+# =============================================================================
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.aleamos
+.aleamos_vault/
+
+# =============================================================================
+# Environment & Secrets
+# =============================================================================
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# =============================================================================
+# OS & IDE Junk
+# =============================================================================
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+
+# JetBrains / IntelliJ / CLion
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim / Neovim
+*.swp
+*.swo
+*.swn
+.netrwhist
+Session.vim
+tags
+
+# Emacs
+#*#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+
+# =============================================================================
+# Tauri Updater & Release Signing
+# =============================================================================
+*.key
+*.pem
+!certs/ca.pem
+
+# =============================================================================
+# Logs & Diagnostics
+# =============================================================================
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
