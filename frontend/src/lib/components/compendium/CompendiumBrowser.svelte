@@ -1,5 +1,9 @@
 <script lang="ts">
-  // CompendiumBrowser.svelte — SRD compendium with import, search, tag filtering, and "Add to Encounter"
+  // CompendiumBrowser.svelte — SRD compendium with import, search, tag filtering, "Add to Combat", and "Send to Party Stash"
+
+  import { sessionStore } from '../../../stores/sessionStore';
+  import { audioEngine } from '../../audio/AudioEngine';
+  import { importCompendiumJson } from '../../importers/compendiumImporter';
 
   interface CompendiumEntry {
     id: string;
@@ -30,12 +34,12 @@
 
   type FilterType = 'all' | 'creature' | 'spell' | 'item';
 
-  let searchQuery    = $state('');
-  let filterType     = $state<FilterType>('all');
+  let searchQuery = $state('');
+  let filterType = $state<FilterType>('all');
   let showImportModal = $state(false);
   let importFeedback = $state<string | null>(null);
-  let detailEntry    = $state<CompendiumEntry | null>(null);
-  let onAddToEncounter: ((e: CompendiumEntry) => void) | undefined = undefined;
+  let detailEntry = $state<CompendiumEntry | null>(null);
+  let actionToast = $state<string | null>(null);
 
   // ── Built-in SRD seed data ─────────────────────────────────────────────────
   const SRD_ENTRIES: CompendiumEntry[] = [
@@ -67,7 +71,7 @@
     })
   );
 
-  // ── Import handlers ────────────────────────────────────────────────────────
+  // ── Helpers ────────────────────────────────────────────────────────────────
   function crLabel(cr?: number): string {
     if (cr === undefined) return '—';
     if (cr === 0.125) return '⅛';
@@ -78,7 +82,7 @@
 
   function typeColor(type: FilterType | 'creature' | 'spell' | 'item'): string {
     if (type === 'creature') return 'text-rose-300 bg-rose-950/50 border-rose-800/30';
-    if (type === 'spell')    return 'text-indigo-300 bg-indigo-950/50 border-indigo-800/30';
+    if (type === 'spell')    return 'text-cyan-300 bg-cyan-950/50 border-cyan-800/30';
     if (type === 'item')     return 'text-amber-300 bg-amber-950/50 border-amber-800/30';
     return 'text-slate-300 bg-slate-800 border-slate-700';
   }
@@ -95,6 +99,8 @@
       const text = await file.text();
       if (file.name.endsWith('.json')) {
         const parsed = JSON.parse(text) as unknown;
+        await importCompendiumJson(parsed);
+
         const arr = Array.isArray(parsed) ? parsed : [parsed];
         const entries: CompendiumEntry[] = (arr as Record<string, unknown>[]).map((e, i) => ({
           id: `import-${Date.now()}-${i}`,
@@ -118,8 +124,8 @@
         }));
         importedEntries = [...importedEntries, ...entries];
         importFeedback = `Imported ${entries.length} entries from ${file.name}`;
+        audioEngine.triggerSfx('sfx-secret');
       } else {
-        // CSV or plain text: each line = one entry name
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 100);
         const entries: CompendiumEntry[] = lines.map((name, i) => ({
           id: `import-txt-${Date.now()}-${i}`,
@@ -138,9 +144,29 @@
   }
 
   function addToEncounter(entry: CompendiumEntry) {
-    onAddToEncounter?.(entry);
-    // Dispatch a custom DOM event as fallback so parent layout can catch it
-    window.dispatchEvent(new CustomEvent('vtt:add-to-encounter', { detail: entry }));
+    sessionStore.addMonsterToCombat({
+      name: entry.name,
+      hp: entry.hp,
+      ac: entry.ac,
+      cr: entry.cr,
+      description: entry.description,
+    });
+    audioEngine.triggerSfx('sfx-combat');
+    actionToast = `Spawned ${entry.name} into Active Combat!`;
+    setTimeout(() => { actionToast = null; }, 3000);
+  }
+
+  function sendToPartyStash(entry: CompendiumEntry) {
+    sessionStore.addItemToPartyStash({
+      name: entry.name,
+      category: entry.rarity || 'Gear',
+      quantity: 1,
+      weight: 1.0,
+      description: entry.description,
+    });
+    audioEngine.triggerSfx('sfx-bell');
+    actionToast = `Sent ${entry.name} to Party Stash!`;
+    setTimeout(() => { actionToast = null; }, 3000);
   }
 </script>
 
@@ -148,19 +174,30 @@
 
   <!-- Header -->
   <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-900 shrink-0">
-    <div>
-      <h2 class="text-sm font-bold text-slate-200 uppercase tracking-wide">5e SRD Compendium</h2>
-      <p class="text-[10px] text-slate-500">{allEntries.length} entries · {importedEntries.length} imported</p>
+    <div class="flex items-center gap-2.5">
+      <span class="text-base">🏛️</span>
+      <div>
+        <h2 class="text-sm font-bold text-slate-200 uppercase tracking-wide">5e SRD Compendium</h2>
+        <p class="text-[10px] text-slate-500">{allEntries.length} entries · {importedEntries.length} imported</p>
+      </div>
     </div>
-    <button onclick={() => showImportModal = true} class="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-bold rounded-lg transition-colors shadow">⬆ Import</button>
+    <button onclick={() => showImportModal = true} class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition-colors shadow">
+      ⬆ Import Data
+    </button>
   </div>
+
+  {#if actionToast}
+    <div class="bg-emerald-950/90 border-b border-emerald-800/60 px-4 py-1.5 text-center text-xs font-bold text-emerald-300 animate-pulse shrink-0">
+      ⚡ {actionToast}
+    </div>
+  {/if}
 
   <!-- Search + Filter bar -->
   <div class="flex gap-2 px-3 py-2 border-b border-slate-800 bg-slate-900/50 shrink-0">
     <input
       type="search"
       bind:value={searchQuery}
-      placeholder="Search name or description…"
+      placeholder="Search monsters, spells, items, properties…"
       class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 placeholder:text-slate-600"
     />
     <div class="flex gap-1">
@@ -168,7 +205,9 @@
         <button
           onclick={() => filterType = ft}
           class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors {filterType === ft ? typeColor(ft) + ' border' : 'text-slate-500 hover:text-slate-300 border border-transparent'}"
-        >{ft}</button>
+        >
+          {ft === 'creature' ? 'Monsters' : ft === 'spell' ? 'Spells' : ft === 'item' ? 'Items' : 'All'}
+        </button>
       {/each}
     </div>
   </div>
@@ -193,7 +232,9 @@
           onkeydown={(e) => { if (e.key === 'Enter') detailEntry = detailEntry?.id === entry.id ? null : entry; }}
         >
           <!-- Type badge -->
-          <span class="shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border {typeColor(entry.type)}">{entry.type}</span>
+          <span class="shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border {typeColor(entry.type)}">
+            {entry.type === 'creature' ? 'Monster' : entry.type}
+          </span>
 
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
@@ -201,29 +242,42 @@
               {#if entry.type === 'creature' && entry.cr !== undefined}
                 <span class="text-[10px] font-mono text-slate-500">CR {crLabel(entry.cr)}</span>
                 {#if entry.ac !== undefined}<span class="text-[10px] font-mono text-slate-600">AC {entry.ac}</span>{/if}
-                {#if entry.hp !== undefined}<span class="text-[10px] font-mono text-slate-600">HP {entry.hp}</span>{/if}
+                {#if entry.hp !== undefined}<span class="text-[10px] font-mono text-rose-400/80">HP {entry.hp}</span>{/if}
               {/if}
               {#if entry.type === 'spell' && entry.level !== undefined}
-                <span class="text-[10px] font-mono text-slate-500">Lvl {entry.level} {entry.school}</span>
+                <span class="text-[10px] font-mono text-cyan-400">Lvl {entry.level} {entry.school}</span>
               {/if}
               {#if entry.type === 'item' && entry.rarity}
                 <span class="text-[10px] font-semibold {rarityColor(entry.rarity)}">{entry.rarity}</span>
                 {#if entry.requires_attunement}<span class="text-[9px] text-slate-600">(Attunement)</span>{/if}
               {/if}
               {#if entry.source === 'imported'}
-                <span class="text-[9px] text-indigo-500">imported</span>
+                <span class="text-[9px] text-indigo-400 font-mono">imported</span>
               {/if}
             </div>
             <p class="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{entry.description}</p>
           </div>
 
           <!-- Quick actions -->
-          <div class="flex gap-1 shrink-0 ml-1">
-            <button
-              onclick={(e) => { e.stopPropagation(); addToEncounter(entry); }}
-              class="px-2 py-1 bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 text-[10px] font-bold rounded border border-rose-800/30 transition-colors whitespace-nowrap"
-              title="Add to Encounter"
-            >+ Enc</button>
+          <div class="flex gap-1.5 shrink-0 ml-1">
+            {#if entry.type === 'creature'}
+              <button
+                onclick={(e) => { e.stopPropagation(); addToEncounter(entry); }}
+                class="px-2.5 py-1 bg-rose-950/70 hover:bg-rose-900/80 text-rose-300 text-[10px] font-bold rounded border border-rose-800/40 transition-colors whitespace-nowrap"
+                title="Add to Active Combat Encounter"
+              >
+                + Combat
+              </button>
+            {:else if entry.type === 'item'}
+              <button
+                onclick={(e) => { e.stopPropagation(); sendToPartyStash(entry); }}
+                class="px-2.5 py-1 bg-amber-950/70 hover:bg-amber-900/80 text-amber-300 text-[10px] font-bold rounded border border-amber-800/40 transition-colors whitespace-nowrap"
+                title="Send to Party Stash"
+              >
+                + Stash
+              </button>
+            {/if}
+
             {#if entry.source === 'imported'}
               <button
                 onclick={(e) => { e.stopPropagation(); deleteImport(entry.id); }}
@@ -236,10 +290,10 @@
 
         <!-- Expanded Detail -->
         {#if detailEntry?.id === entry.id}
-          <div class="px-4 pb-4 pt-0 bg-slate-900/40">
+          <div class="px-4 pb-4 pt-1 bg-slate-900/40 space-y-2">
             <p class="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{entry.description}</p>
             {#if entry.type === 'spell'}
-              <div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+              <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] bg-slate-950/60 p-2.5 rounded-lg border border-slate-800">
                 {#if entry.casting_time}<div><span class="text-slate-500">Cast Time:</span> <span class="text-slate-300">{entry.casting_time}</span></div>{/if}
                 {#if entry.range}<div><span class="text-slate-500">Range:</span> <span class="text-slate-300">{entry.range}</span></div>{/if}
                 {#if entry.components}<div><span class="text-slate-500">Components:</span> <span class="text-slate-300">{entry.components}</span></div>{/if}
@@ -255,11 +309,14 @@
 
 <!-- Import Modal -->
 {#if showImportModal}
-  <div role="presentation" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-    onclick={(e) => { if (e.target === e.currentTarget) showImportModal = false; }}>
+  <div
+    role="presentation"
+    class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    onclick={(e) => { if (e.target === e.currentTarget) showImportModal = false; }}
+  >
     <div class="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6 space-y-4">
-      <h3 class="text-base font-bold text-slate-100">Import Compendium Data</h3>
-      <p class="text-xs text-slate-400">Accepts SRD JSON arrays, single stat-block JSON objects, or plain text files (one name per line). JSON fields: <code class="text-indigo-300">name, type, description, cr, ac, hp, level, school, rarity, requires_attunement</code>.</p>
+      <h3 class="text-base font-bold text-slate-100">Import 5e Compendium Data</h3>
+      <p class="text-xs text-slate-400">Accepts standard SRD JSON datasets, monster stat block arrays, or plain text lists.</p>
 
       <label class="block w-full py-10 border-2 border-dashed border-slate-700 rounded-xl text-center cursor-pointer hover:border-indigo-500 hover:bg-indigo-950/10 transition-colors">
         <span class="text-3xl block mb-2">📂</span>

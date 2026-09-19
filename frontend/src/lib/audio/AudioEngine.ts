@@ -1,6 +1,7 @@
-// AudioEngine.ts — Dual-Bus Web Audio Engine
-// Music/Ambience Bus: looping tracks with 1.5s linear gain crossfade
-// SFX Bus: concurrent one-shot procedural and asset-backed effects
+// AudioEngine.ts — Production-Ready Dual-Bus Web Audio Engine
+// Ambience Bus: looping background tracks with 1.5s linear gain crossfade
+// SFX Bus: concurrent one-shot sound effects with independent volume fader
+// Synthesizer Fallbacks: 6 Web Audio procedural synthesizers working out of the box
 
 export interface TrackEntry {
   id: string;
@@ -21,12 +22,12 @@ export interface SfxEntry {
 export class AudioEngine {
   private ctx: AudioContext | null = null;
 
-  // Master → Ambience chain
+  // Master -> Bus chains
   private masterGain: GainNode | null = null;
   private ambienceGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
 
-  // Volume levels (0.0 – 1.0)
+  // Volume levels (0.0 - 1.0)
   private masterVol = 0.8;
   private ambienceVol = 0.7;
   private sfxVol = 0.8;
@@ -36,45 +37,58 @@ export class AudioEngine {
   private activeAmbienceGainNode: GainNode | null = null;
   private activeAmbienceTrackId: string | null = null;
 
-  // Buffer cache for loaded tracks
+  // Buffer cache for loaded tracks and in-memory blobs
   private bufferCache = new Map<string, AudioBuffer>();
 
   // Registered tracks and sfx buttons
   private tracks: TrackEntry[] = [];
   private sfxButtons: SfxEntry[] = [];
 
+  // Output configuration
+  private selectedDeviceId = 'default';
+  private bufferSize = 256;
+
   // -----------------------------------------------------------------------
-  // Context Bootstrap
+  // Lifecycle & Autoplay Resume Hook
   // -----------------------------------------------------------------------
 
-  private ensureContext(): AudioContext {
+  /**
+   * Defers AudioContext instantiation until first user gesture.
+   * Wraps all playback calls in an explicit resume hook.
+   */
+  async resumeContext(): Promise<AudioContext> {
     if (!this.ctx) {
       const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AC();
-
-      this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.setValueAtTime(this.masterVol, this.ctx.currentTime);
-
-      this.ambienceGain = this.ctx.createGain();
-      this.ambienceGain.gain.setValueAtTime(this.ambienceVol, this.ctx.currentTime);
-
-      this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.setValueAtTime(this.sfxVol, this.ctx.currentTime);
-
-      this.ambienceGain.connect(this.masterGain);
-      this.sfxGain.connect(this.masterGain);
-      this.masterGain.connect(this.ctx.destination);
+      this.setupBusses();
     }
 
     if (this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => {});
+      await this.ctx.resume();
     }
 
     return this.ctx;
   }
 
+  private setupBusses(): void {
+    if (!this.ctx) return;
+
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.gain.setValueAtTime(this.masterVol, this.ctx.currentTime);
+
+    this.ambienceGain = this.ctx.createGain();
+    this.ambienceGain.gain.setValueAtTime(this.ambienceVol, this.ctx.currentTime);
+
+    this.sfxGain = this.ctx.createGain();
+    this.sfxGain.gain.setValueAtTime(this.sfxVol, this.ctx.currentTime);
+
+    this.ambienceGain.connect(this.masterGain);
+    this.sfxGain.connect(this.masterGain);
+    this.masterGain.connect(this.ctx.destination);
+  }
+
   // -----------------------------------------------------------------------
-  // Volume Controls
+  // Volume Controls (Master, Ambience, SFX)
   // -----------------------------------------------------------------------
 
   getMasterVolume(): number { return this.masterVol; }
@@ -116,18 +130,83 @@ export class AudioEngine {
     }
   }
 
+  removeTrack(id: string): void {
+    if (this.activeAmbienceTrackId === id) {
+      this.stopTrack();
+    }
+    this.tracks = this.tracks.filter(t => t.id !== id);
+  }
+
   addSfxButton(entry: SfxEntry): void {
-    if (!this.sfxButtons.find(s => s.id === entry.id)) {
+    const existingIndex = this.sfxButtons.findIndex(s => s.id === entry.id);
+    if (existingIndex >= 0) {
+      this.sfxButtons[existingIndex] = entry;
+      this.sfxButtons = [...this.sfxButtons];
+    } else {
       this.sfxButtons = [...this.sfxButtons, entry];
     }
   }
 
   // -----------------------------------------------------------------------
-  // Buffer Loading
+  // Local Asset & Blob Ingestion
+  // -----------------------------------------------------------------------
+
+  /**
+   * Ingests a local file via URL.createObjectURL and decodeAudioData
+   * to eliminate Tauri/browser CORS and asset protocol blocks.
+   */
+  async loadAudioFile(file: File, isAmbience: boolean, label?: string): Promise<TrackEntry | SfxEntry> {
+    const ctx = await this.resumeContext();
+    const objectUrl = URL.createObjectURL(file);
+    const cleanName = label || file.name.replace(/\.[^/.]+$/, '');
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      this.bufferCache.set(objectUrl, audioBuffer);
+    } catch (err) {
+      console.warn('Audio decoding fallback to direct URL playback:', err);
+    }
+
+    if (isAmbience) {
+      const newTrack: TrackEntry = {
+        id: `track-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        label: cleanName,
+        url: objectUrl,
+        loop: true,
+        isAmbience: true,
+      };
+      this.addTrack(newTrack);
+      return newTrack;
+    } else {
+      // Find lowest available hotkey slot if open
+      const usedHotkeys = new Set(this.sfxButtons.map(s => s.hotkey).filter((h): h is number => h !== null));
+      let availableHotkey: number | null = null;
+      for (let i = 1; i <= 9; i++) {
+        if (!usedHotkeys.has(i)) {
+          availableHotkey = i;
+          break;
+        }
+      }
+
+      const newSfx: SfxEntry = {
+        id: `sfx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        label: cleanName,
+        hotkey: availableHotkey,
+        url: objectUrl,
+        procedural: false,
+      };
+      this.addSfxButton(newSfx);
+      return newSfx;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Buffer Loading with Memory Cache
   // -----------------------------------------------------------------------
 
   private async loadBuffer(url: string): Promise<AudioBuffer> {
-    const ctx = this.ensureContext();
+    const ctx = await this.resumeContext();
     const cached = this.bufferCache.get(url);
     if (cached) return cached;
 
@@ -139,26 +218,32 @@ export class AudioEngine {
   }
 
   // -----------------------------------------------------------------------
-  // Ambience / Music Bus — Crossfade Play
+  // Ambience Bus — Looping Playback with Linear Crossfade
   // -----------------------------------------------------------------------
 
   async playTrack(trackId: string): Promise<void> {
-    const ctx = this.ensureContext();
+    const ctx = await this.resumeContext();
     const track = this.tracks.find(t => t.id === trackId);
     if (!track) return;
 
-    const FADE = 1.5; // seconds
+    const FADE_DURATION = 1.5; // seconds
     const now = ctx.currentTime;
 
-    // Fade out current track if any
+    // Crossfade: smoothly fade out previous track
     if (this.activeAmbienceGainNode && this.activeAmbienceSource) {
-      const fade = this.activeAmbienceGainNode;
-      fade.gain.setValueAtTime(fade.gain.value, now);
-      fade.gain.linearRampToValueAtTime(0, now + FADE);
-      const dying = this.activeAmbienceSource;
+      const dyingGain = this.activeAmbienceGainNode;
+      const dyingSource = this.activeAmbienceSource;
+      dyingGain.gain.setValueAtTime(dyingGain.gain.value, now);
+      dyingGain.gain.linearRampToValueAtTime(0, now + FADE_DURATION);
+
       setTimeout(() => {
-        try { dying.stop(); dying.disconnect(); } catch { /* already stopped */ }
-      }, (FADE + 0.1) * 1000);
+        try {
+          dyingSource.stop();
+          dyingSource.disconnect();
+        } catch {
+          // Track might have already ended
+        }
+      }, (FADE_DURATION + 0.1) * 1000);
     }
 
     this.activeAmbienceTrackId = trackId;
@@ -171,7 +256,7 @@ export class AudioEngine {
 
       const gainNode = ctx.createGain();
       gainNode.gain.setValueAtTime(0, now);
-      gainNode.gain.linearRampToValueAtTime(1, now + FADE);
+      gainNode.gain.linearRampToValueAtTime(1, now + FADE_DURATION);
 
       source.connect(gainNode);
       gainNode.connect(this.ambienceGain!);
@@ -187,7 +272,8 @@ export class AudioEngine {
           this.activeAmbienceGainNode = null;
         }
       };
-    } catch {
+    } catch (err) {
+      console.error(`Failed to play ambience track [${trackId}]:`, err);
       this.activeAmbienceTrackId = null;
     }
   }
@@ -198,10 +284,17 @@ export class AudioEngine {
       const fade = this.activeAmbienceGainNode;
       if (fade) {
         fade.gain.setValueAtTime(fade.gain.value, now);
-        fade.gain.linearRampToValueAtTime(0, now + 0.4);
+        fade.gain.linearRampToValueAtTime(0, now + 0.5);
       }
       const s = this.activeAmbienceSource;
-      setTimeout(() => { try { s.stop(); s.disconnect(); } catch { /* stopped */ } }, 500);
+      setTimeout(() => {
+        try {
+          s.stop();
+          s.disconnect();
+        } catch {
+          // Source already stopped
+        }
+      }, 550);
     }
     this.activeAmbienceSource = null;
     this.activeAmbienceGainNode = null;
@@ -209,11 +302,11 @@ export class AudioEngine {
   }
 
   // -----------------------------------------------------------------------
-  // SFX Bus — One-Shot Playback
+  // SFX Bus — Concurrent One-Shot Playback & Procedural Synthesizers
   // -----------------------------------------------------------------------
 
   async triggerSfx(sfxId: string): Promise<void> {
-    const ctx = this.ensureContext();
+    const ctx = await this.resumeContext();
     const sfx = this.sfxButtons.find(s => s.id === sfxId);
     if (!sfx) return;
 
@@ -226,70 +319,220 @@ export class AudioEngine {
       const buffer = await this.loadBuffer(sfx.url);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
+
       const gainNode = ctx.createGain();
       gainNode.gain.setValueAtTime(1, ctx.currentTime);
+
       source.connect(gainNode);
       gainNode.connect(this.sfxGain!);
       source.start(0);
     } catch {
-      // Fallback to synthesis on load failure
+      // Fallback to procedural synthesis on asset load failure
       this.synthesizeSfx(sfxId, ctx);
     }
   }
 
-  private synthesizeSfx(sfxId: string, ctx: AudioContext): void {
+  /**
+   * 6 Synthesized Fallback Sound Effects:
+   * 1. Dice Roll (noise burst + clicking transients)
+   * 2. Bell Alert (harmonic bell overtones)
+   * 3. Door Creak (FM sawtooth through bandpass filter)
+   * 4. Short Rest Chime (peaceful major triad: C5-E5-G5)
+   * 5. Combat Alert (dissonant tritone brass pulse: 440 Hz + 622.25 Hz)
+   * 6. Secret Chime (ascending shimmer arpeggio: C6-E6-G6-B6)
+   */
+  synthesizeSfx(sfxId: string, ctx: AudioContext): void {
     const now = ctx.currentTime;
 
+    // 1. Dice Roll: Multi-particle noise burst with clicking transients
     if (sfxId === 'sfx-dice' || sfxId.includes('dice')) {
-      // Dice clatter: short burst of filtered noise
-      for (let i = 0; i < 6; i++) {
-        const t = now + i * 0.06;
+      for (let i = 0; i < 7; i++) {
+        const t = now + i * 0.055 + (Math.random() * 0.015);
         const osc = ctx.createOscillator();
         const g = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(800 + Math.random() * 600, t);
-        osc.frequency.exponentialRampToValueAtTime(100 + Math.random() * 100, t + 0.07);
-        g.gain.setValueAtTime(0.18, t);
-        g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
-        osc.connect(g);
+        const filter = ctx.createBiquadFilter();
+
+        osc.type = i % 2 === 0 ? 'sawtooth' : 'triangle';
+        osc.frequency.setValueAtTime(900 + Math.random() * 800, t);
+        osc.frequency.exponentialRampToValueAtTime(120 + Math.random() * 80, t + 0.06);
+
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(1200 + i * 150, t);
+        filter.Q.setValueAtTime(3.5, t);
+
+        g.gain.setValueAtTime(0.22, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.065);
+
+        osc.connect(filter);
+        filter.connect(g);
         g.connect(this.sfxGain!);
+
         osc.start(t);
-        osc.stop(t + 0.1);
+        osc.stop(t + 0.07);
       }
       return;
     }
 
+    // 2. Bell Alert: Harmonic bell tone with decaying overtones
+    if (sfxId === 'sfx-bell' || sfxId.includes('bell')) {
+      const baseFreq = 587.33; // D5
+      const partials = [1.0, 2.756, 5.404, 8.933];
+      const amplitudes = [0.4, 0.22, 0.12, 0.06];
+
+      partials.forEach((ratio, i) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(baseFreq * ratio, now);
+
+        g.gain.setValueAtTime(amplitudes[i] ?? 0.1, now);
+        const decayTime = 2.8 / (i * 0.45 + 1);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + decayTime);
+
+        osc.connect(g);
+        g.connect(this.sfxGain!);
+        osc.start(now);
+        osc.stop(now + decayTime);
+      });
+      return;
+    }
+
+    // 3. Door Creak: FM sawtooth modulated through bandpass filter with pitch drop
+    if (sfxId === 'sfx-door' || sfxId.includes('door') || sfxId.includes('creak')) {
+      const carrier = ctx.createOscillator();
+      const modulator = ctx.createOscillator();
+      const modGain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      const mainGain = ctx.createGain();
+
+      carrier.type = 'sawtooth';
+      carrier.frequency.setValueAtTime(140, now);
+      carrier.frequency.linearRampToValueAtTime(85, now + 0.85);
+
+      modulator.type = 'sine';
+      modulator.frequency.setValueAtTime(28, now);
+      modulator.frequency.linearRampToValueAtTime(12, now + 0.85);
+
+      modGain.gain.setValueAtTime(65, now);
+      modGain.gain.linearRampToValueAtTime(20, now + 0.85);
+
+      modulator.connect(modGain);
+      modGain.connect(carrier.frequency);
+
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(450, now);
+      filter.frequency.linearRampToValueAtTime(220, now + 0.85);
+      filter.Q.setValueAtTime(4.0, now);
+
+      mainGain.gain.setValueAtTime(0.01, now);
+      mainGain.gain.linearRampToValueAtTime(0.35, now + 0.08);
+      mainGain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+
+      carrier.connect(filter);
+      filter.connect(mainGain);
+      mainGain.connect(this.sfxGain!);
+
+      modulator.start(now);
+      carrier.start(now);
+      modulator.stop(now + 0.92);
+      carrier.stop(now + 0.92);
+      return;
+    }
+
+    // 4. Short Rest Chime: Peaceful warm major triad (C5, E5, G5)
+    if (sfxId === 'sfx-rest' || sfxId.includes('rest') || sfxId.includes('chime')) {
+      const triad = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+      triad.forEach((freq, idx) => {
+        const noteStart = now + idx * 0.09;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, noteStart);
+
+        g.gain.setValueAtTime(0.001, noteStart);
+        g.gain.linearRampToValueAtTime(0.24, noteStart + 0.04);
+        g.gain.exponentialRampToValueAtTime(0.0001, noteStart + 2.2);
+
+        osc.connect(g);
+        g.connect(this.sfxGain!);
+
+        osc.start(noteStart);
+        osc.stop(noteStart + 2.3);
+      });
+      return;
+    }
+
+    // 5. Combat Alert: Sharp dissonance tritone brass pulse (root + diminished 5th)
+    if (sfxId === 'sfx-combat' || sfxId.includes('combat') || sfxId.includes('alert')) {
+      const notes = [440.0, 622.25]; // A4 + D#5 (Tritone)
+      notes.forEach(f => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(f, now);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(2600, now);
+        filter.frequency.exponentialRampToValueAtTime(600, now + 0.45);
+
+        g.gain.setValueAtTime(0.42, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+        osc.connect(filter);
+        filter.connect(g);
+        g.connect(this.sfxGain!);
+
+        osc.start(now);
+        osc.stop(now + 0.52);
+      });
+      return;
+    }
+
+    // 6. Secret Chime: Ascending 4-note arpeggio (C6, E6, G6, B6) with high shimmer
+    if (sfxId === 'sfx-secret' || sfxId.includes('secret') || sfxId.includes('discovery')) {
+      const arpeggio = [1046.50, 1318.51, 1567.98, 1975.53]; // C6, E6, G6, B6 (Maj7)
+      arpeggio.forEach((freq, idx) => {
+        const noteStart = now + idx * 0.08;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, noteStart);
+
+        g.gain.setValueAtTime(0.001, noteStart);
+        g.gain.linearRampToValueAtTime(0.28, noteStart + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, noteStart + 1.6);
+
+        osc.connect(g);
+        g.connect(this.sfxGain!);
+
+        osc.start(noteStart);
+        osc.stop(noteStart + 1.7);
+      });
+      return;
+    }
+
+    // Backwards compatibility: Sword Strike
     if (sfxId === 'sfx-sword' || sfxId.includes('sword') || sfxId.includes('hit')) {
-      // Sword strike: sharp metallic transient + ring-down
       const osc = ctx.createOscillator();
       const g = ctx.createGain();
       osc.type = 'square';
       osc.frequency.setValueAtTime(1800, now);
       osc.frequency.exponentialRampToValueAtTime(280, now + 0.15);
-      g.gain.setValueAtTime(0.5, now);
+      g.gain.setValueAtTime(0.4, now);
       g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
       osc.connect(g);
       g.connect(this.sfxGain!);
       osc.start(now);
       osc.stop(now + 0.2);
-
-      // High metallic shimmer
-      const shimmer = ctx.createOscillator();
-      const sg = ctx.createGain();
-      shimmer.type = 'sine';
-      shimmer.frequency.setValueAtTime(6400, now);
-      shimmer.frequency.exponentialRampToValueAtTime(3200, now + 0.3);
-      sg.gain.setValueAtTime(0.12, now);
-      sg.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-      shimmer.connect(sg);
-      sg.connect(this.sfxGain!);
-      shimmer.start(now);
-      shimmer.stop(now + 0.35);
       return;
     }
 
+    // Backwards compatibility: Spell Surge
     if (sfxId === 'sfx-spell' || sfxId.includes('spell') || sfxId.includes('magic')) {
-      // Arcane impact: rising shimmer + low boom
       for (let i = 0; i < 3; i++) {
         const t = now + i * 0.04;
         const osc = ctx.createOscillator();
@@ -297,7 +540,7 @@ export class AudioEngine {
         osc.type = 'sine';
         osc.frequency.setValueAtTime(440 * (i + 1), t);
         osc.frequency.exponentialRampToValueAtTime(880 * (i + 1), t + 0.2);
-        g.gain.setValueAtTime(0.2, t);
+        g.gain.setValueAtTime(0.18, t);
         g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
         osc.connect(g);
         g.connect(this.sfxGain!);
@@ -307,36 +550,40 @@ export class AudioEngine {
       return;
     }
 
-    if (sfxId === 'sfx-bell' || sfxId.includes('bell') || sfxId.includes('combat')) {
-      // Combat bell: rich harmonic bell tone
-      const partials = [1, 2.756, 5.404, 8.933];
-      partials.forEach((ratio, i) => {
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(440 * ratio, now);
-        g.gain.setValueAtTime(0.3 / (i + 1), now);
-        g.gain.exponentialRampToValueAtTime(0.001, now + 2.5 / (i * 0.4 + 1));
-        osc.connect(g);
-        g.connect(this.sfxGain!);
-        osc.start(now);
-        osc.stop(now + 2.5);
-      });
-      return;
-    }
-
-    // Generic ping fallback
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(660, now);
-    g.gain.setValueAtTime(0.3, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-    osc.connect(g);
-    g.connect(this.sfxGain!);
-    osc.start(now);
-    osc.stop(now + 0.45);
+    // Generic ping
+    const fallbackOsc = ctx.createOscillator();
+    const fallbackGain = ctx.createGain();
+    fallbackOsc.type = 'sine';
+    fallbackOsc.frequency.setValueAtTime(660, now);
+    fallbackGain.gain.setValueAtTime(0.25, now);
+    fallbackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    fallbackOsc.connect(fallbackGain);
+    fallbackGain.connect(this.sfxGain!);
+    fallbackOsc.start(now);
+    fallbackOsc.stop(now + 0.45);
   }
+
+  // -----------------------------------------------------------------------
+  // Output Device & Buffer Configuration
+  // -----------------------------------------------------------------------
+
+  async setOutputDevice(deviceId: string): Promise<boolean> {
+    this.selectedDeviceId = deviceId;
+    if (this.ctx && 'setSinkId' in this.ctx) {
+      try {
+        await (this.ctx as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId(deviceId);
+        return true;
+      } catch (e) {
+        console.warn('AudioContext.setSinkId failed:', e);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  getDeviceId(): string { return this.selectedDeviceId; }
+  setBufferSize(size: number): void { this.bufferSize = size; }
+  getBufferSize(): number { return this.bufferSize; }
 
   // -----------------------------------------------------------------------
   // Hotkey Trigger (NumPad 1-9)
@@ -353,13 +600,12 @@ export class AudioEngine {
 // Singleton export
 export const audioEngine = new AudioEngine();
 
-// Seed default SFX buttons
-audioEngine.addSfxButton({ id: 'sfx-dice',  label: 'Dice Clatter', hotkey: 1, url: null, procedural: true });
-audioEngine.addSfxButton({ id: 'sfx-sword', label: 'Sword Strike', hotkey: 2, url: null, procedural: true });
-audioEngine.addSfxButton({ id: 'sfx-spell', label: 'Spell Impact',  hotkey: 3, url: null, procedural: true });
-audioEngine.addSfxButton({ id: 'sfx-bell',  label: 'Combat Bell',   hotkey: 4, url: null, procedural: true });
-audioEngine.addSfxButton({ id: 'sfx-5',     label: 'SFX Slot 5',    hotkey: 5, url: null, procedural: true });
-audioEngine.addSfxButton({ id: 'sfx-6',     label: 'SFX Slot 6',    hotkey: 6, url: null, procedural: true });
-audioEngine.addSfxButton({ id: 'sfx-7',     label: 'SFX Slot 7',    hotkey: 7, url: null, procedural: true });
-audioEngine.addSfxButton({ id: 'sfx-8',     label: 'SFX Slot 8',    hotkey: 8, url: null, procedural: true });
-audioEngine.addSfxButton({ id: 'sfx-9',     label: 'SFX Slot 9',    hotkey: 9, url: null, procedural: true });
+// Seed initial fallback synthesizers and hotkeys (1-6 strictly defined by spec)
+audioEngine.addSfxButton({ id: 'sfx-dice',   label: 'Dice Clatter',    hotkey: 1, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-bell',   label: 'Bell Alert',      hotkey: 2, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-door',   label: 'Door Creak',      hotkey: 3, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-rest',   label: 'Short Rest Chime',hotkey: 4, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-combat', label: 'Combat Alert',    hotkey: 5, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-secret', label: 'Secret Chime',    hotkey: 6, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-sword',  label: 'Sword Strike',    hotkey: 7, url: null, procedural: true });
+audioEngine.addSfxButton({ id: 'sfx-spell',  label: 'Spell Surge',     hotkey: 8, url: null, procedural: true });

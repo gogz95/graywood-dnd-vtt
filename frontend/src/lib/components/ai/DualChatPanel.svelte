@@ -4,6 +4,7 @@
   // Panel 2: Live DM Co-Pilot (creative improv assistant, higher temp, narrative RAG, prompt chips)
 
   import { onMount } from 'svelte';
+  import KnowledgeBaseModal from './KnowledgeBaseModal.svelte';
 
   interface ChatMessage {
     id: string;
@@ -35,7 +36,9 @@
   const K_COPILOT_TEMP    = 'vtt_copilot_temp';
 
   // ── View Mode State ─────────────────────────────────────────────────────────
-  let viewMode = $state<ViewMode>('dual');
+  let { initialMode = 'dual' }: { initialMode?: ViewMode } = $props();
+  let viewMode = $state<ViewMode>(initialMode);
+  let showKbModal = $state(false);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PANEL 1: RULES ARCHIVIST STATE & LOGIC
@@ -462,6 +465,18 @@ ${ragContext ? `\n\nCampaign Lore / World Context:\n${ragContext}` : ''}\n\nDM P
       >
         <span>🎭 Co-Pilot Solo</span>
       </button>
+
+      <div class="w-px h-4 bg-slate-800 mx-1"></div>
+
+      <button
+        type="button"
+        onclick={() => showKbModal = true}
+        class="px-2.5 py-1 rounded-md text-xs font-semibold text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 transition-colors flex items-center gap-1.5"
+        title="Open Semantic Knowledge Base Chunker & Manager"
+      >
+        <span>📚</span>
+        <span>Knowledge Base</span>
+      </button>
     </div>
   </header>
 
@@ -775,4 +790,7 @@ ${ragContext ? `\n\nCampaign Lore / World Context:\n${ragContext}` : ''}\n\nDM P
     {/if}
 
   </div>
+
+  <!-- Knowledge Base Modal -->
+  <KnowledgeBaseModal bind:isOpen={showKbModal} />
 </div>

@@ -3,6 +3,10 @@
   // No external renderer dependency. Works entirely with the Canvas 2D API.
 
   import { onMount, onDestroy } from 'svelte';
+  import { parseDungeonScrawl, toggleDoorState, hitTestDoor, type WallSegment, type DoorPrimitive, type DungeonScrawlParsedMap } from '../../canvas/parsers/dungeonScrawlParser';
+  import { parseWatabouGeoJson, hitTestBuildingParcel, assignParcelEntity, type WatabouCityMap, type BuildingParcel, type SettlementEntityType } from '../../canvas/parsers/watabouParser';
+  import { renderDynamicLighting, renderWallSegments, renderDoors, renderWatabouDistricts, type VisionSource } from '../../canvas/LightShadowRenderer';
+  import MapImportModal from './MapImportModal.svelte';
 
   export interface MapToken {
     id: string;
@@ -36,6 +40,15 @@
   let mapImageInput = $state('');
   let mapImg: HTMLImageElement | null = null;
   let showSettings = $state(false);
+
+  // ── Vector Map & Lighting State ───────────────────────────────────────────
+  let walls = $state<WallSegment[]>([]);
+  let doors = $state<DoorPrimitive[]>([]);
+  let cityMap = $state<WatabouCityMap | null>(null);
+  let selectedParcel = $state<BuildingParcel | null>(null);
+  let showImportModal = $state(false);
+  let dynamicLightingEnabled = $state(true);
+  let wallVisibilityEnabled = $state(true);
 
   // ── Viewport transform ─────────────────────────────────────────────────────
   let vpX    = $state(0);   // pan offset px
@@ -80,6 +93,51 @@
     if (mapImg?.complete && mapImg.naturalWidth > 0) {
       ctx.globalAlpha = 1;
       ctx.drawImage(mapImg, 0, 0);
+    }
+
+    // Watabou City Districts, Walls & Parcels
+    if (cityMap) {
+      renderWatabouDistricts(ctx, cityMap, selectedParcel?.id, vpZoom);
+    }
+
+    // Dungeon Scrawl Walls
+    if (wallVisibilityEnabled && walls.length > 0) {
+      renderWallSegments(ctx, walls, vpZoom);
+    }
+
+    // Dungeon Scrawl Doors
+    if (doors.length > 0) {
+      renderDoors(ctx, doors, vpZoom);
+    }
+
+    // 2D Raycast Dynamic Lighting & Shadows
+    if (dynamicLightingEnabled && (walls.length > 0 || doors.length > 0 || tokens.length > 0)) {
+      const viewBounds = {
+        x: -vpX / vpZoom,
+        y: -vpY / vpZoom,
+        width: w / vpZoom,
+        height: h / vpZoom,
+      };
+
+      const visionSources: VisionSource[] = tokens.map(t => ({
+        id: t.id,
+        x: t.x * gridSize + gridSize / 2,
+        y: t.y * gridSize + gridSize / 2,
+        radius: gridSize * 5,
+        color: t.isPlayer ? 'rgba(251, 191, 36, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+      }));
+
+      if (visionSources.length === 0 && walls.length > 0) {
+        visionSources.push({
+          id: 'ambient-explorer-light',
+          x: gridSize * 3,
+          y: gridSize * 3,
+          radius: gridSize * 6,
+          color: 'rgba(251, 191, 36, 0.25)',
+        });
+      }
+
+      renderDynamicLighting(ctx, viewBounds, visionSources, walls, doors, 0.65);
     }
 
     // Grid
@@ -212,9 +270,28 @@
       panStart = { x: e.clientX, y: e.clientY, ox: vpX, oy: vpY };
       return;
     }
-    // Left click = drag token or place spawn
+    // Left click = drag token, toggle door, or inspect building parcel
     if (e.button === 0) {
       const { wx, wy } = screenToWorld(e.clientX, e.clientY);
+
+      // 1. Check door click hit-test
+      const clickedDoor = hitTestDoor(doors, wx, wy, 18 / vpZoom);
+      if (clickedDoor) {
+        doors = toggleDoorState(doors, clickedDoor.id);
+        return;
+      }
+
+      // 2. Check Watabou building parcel hit-test
+      if (cityMap) {
+        const clickedParcel = hitTestBuildingParcel(cityMap.buildings, wx, wy);
+        if (clickedParcel) {
+          selectedParcel = clickedParcel;
+          showImportModal = true;
+          return;
+        }
+      }
+
+      // 3. Token drag
       const { gx, gy } = worldToGrid(wx, wy);
       const tok = tokenAt(gx, gy);
       if (tok) {
@@ -314,12 +391,32 @@
     }
   }
 
-  function handleCanvasDrop(e: DragEvent) {
+  async function handleCanvasDrop(e: DragEvent) {
     e.preventDefault();
     isDroppingMap = false;
     const files = e.dataTransfer?.files;
-    if (files && files[0] && /\.(png|svg|jpg|jpeg|webp)$/i.test(files[0].name)) {
-      const file = files[0];
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const name = file.name.toLowerCase();
+
+    // 1. Dungeon Scrawl vector map (.ds, .uvtt)
+    if (name.endsWith('.ds') || name.endsWith('.uvtt')) {
+      const text = await file.text();
+      const parsed = parseDungeonScrawl(text, gridSize);
+      handleLoadDungeonMap(parsed);
+      return;
+    }
+
+    // 2. Watabou GeoJSON city map (.geojson, .json)
+    if (name.endsWith('.geojson') || (name.endsWith('.json') && !name.includes('campaign'))) {
+      const text = await file.text();
+      const parsed = parseWatabouGeoJson(text);
+      handleLoadWatabouCity(parsed);
+      return;
+    }
+
+    // 3. Raster map image (PNG, SVG, JPG, WEBP)
+    if (/\.(png|svg|jpg|jpeg|webp)$/i.test(name)) {
       const url = URL.createObjectURL(file);
       loadMapFromUrl(url);
       mapImageUrl = file.name;
@@ -328,6 +425,51 @@
       vpY = 0;
       vpZoom = 1.0;
     }
+  }
+
+  function handleLoadDungeonMap(map: DungeonScrawlParsedMap) {
+    walls = map.walls;
+    doors = map.doors;
+    gridSize = map.gridSize;
+    mapImageUrl = map.name;
+    mapImageInput = map.name;
+    vpX = 0;
+    vpY = 0;
+    vpZoom = 1.0;
+  }
+
+  function handleLoadWatabouCity(city: WatabouCityMap) {
+    cityMap = city;
+    mapImageUrl = city.name;
+    mapImageInput = city.name;
+    vpX = 0;
+    vpY = 0;
+    vpZoom = 1.0;
+  }
+
+  function handleSaveParcelEntity(parcelId: string, data: { entityType: SettlementEntityType; customName: string; notes: string; npcContact: string }) {
+    if (!cityMap) return;
+    cityMap = {
+      ...cityMap,
+      buildings: assignParcelEntity(cityMap.buildings, parcelId, data),
+    };
+    selectedParcel = null;
+  }
+
+  function handleSpawnTokenEvent(e: Event) {
+    const detail = (e as CustomEvent<{ name: string; hp?: number; maxHp?: number; isPlayer?: boolean; color?: string; gx?: number; gy?: number }>).detail;
+    if (!detail || !detail.name) return;
+    const id = `tok-${Date.now()}`;
+    tokens = [...tokens, {
+      id,
+      name: detail.name,
+      x: detail.gx ?? Math.floor(Math.random() * 6) + 1,
+      y: detail.gy ?? Math.floor(Math.random() * 6) + 1,
+      color: detail.color || (detail.isPlayer ? '#22c55e' : '#ef4444'),
+      isPlayer: detail.isPlayer ?? false,
+      hp: detail.hp || 20,
+      maxHp: detail.maxHp || detail.hp || 20,
+    }];
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -340,6 +482,7 @@
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('vtt:load-battle-map', handleBattleMapEvent);
+    window.addEventListener('vtt:spawn-token', handleSpawnTokenEvent);
     rafId = requestAnimationFrame(render);
   });
 
@@ -349,6 +492,7 @@
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
     window.removeEventListener('vtt:load-battle-map', handleBattleMapEvent);
+    window.removeEventListener('vtt:spawn-token', handleSpawnTokenEvent);
   });
 </script>
 
@@ -364,6 +508,56 @@
     <button onclick={() => { vpX = 0; vpY = 0; vpZoom = 1; }} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs rounded transition-colors">Reset View</button>
     <button onclick={() => showSpawnPanel = !showSpawnPanel} class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded transition-colors">+ Token</button>
     <button onclick={() => showSettings = !showSettings} class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded transition-colors">⚙ Map Settings</button>
+
+    <!-- Vector Map Import & Toggles -->
+    <button
+      onclick={() => { showImportModal = true; }}
+      class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded transition-colors flex items-center gap-1 shadow-sm"
+      title="Ingest Dungeon Scrawl (.ds) or Watabou (.geojson) files"
+    >
+      <span>📐</span>
+      <span>Vector Map</span>
+    </button>
+
+    <button
+      onclick={() => { dynamicLightingEnabled = !dynamicLightingEnabled; }}
+      class="px-2.5 py-1 text-xs font-semibold rounded transition-colors flex items-center gap-1 border {dynamicLightingEnabled ? 'bg-amber-950/60 border-amber-500/50 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'}"
+      title="Toggle 2D raycasting dynamic light & shadow projection"
+    >
+      <span>💡</span>
+      <span>Light {dynamicLightingEnabled ? 'ON' : 'OFF'}</span>
+    </button>
+
+    <button
+      onclick={() => { wallVisibilityEnabled = !wallVisibilityEnabled; }}
+      class="px-2.5 py-1 text-xs font-semibold rounded transition-colors flex items-center gap-1 border {wallVisibilityEnabled ? 'bg-indigo-950/60 border-indigo-500/50 text-indigo-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'}"
+      title="Toggle wall collider visibility"
+    >
+      <span>🧱</span>
+      <span>Walls {wallVisibilityEnabled ? 'ON' : 'OFF'}</span>
+    </button>
+
+    {#if walls.length > 0 || doors.length > 0}
+      <div class="flex items-center gap-1.5 px-2 py-0.5 bg-indigo-950/50 border border-indigo-700/40 rounded text-[11px] text-indigo-300">
+        <span>🏰 {walls.length} walls · {doors.length} doors</span>
+        <button
+          onclick={() => { walls = []; doors = []; }}
+          class="text-indigo-400 hover:text-rose-400 ml-1 font-bold"
+          title="Clear Dungeon Scrawl walls"
+        >✕</button>
+      </div>
+    {/if}
+
+    {#if cityMap}
+      <div class="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-950/50 border border-emerald-700/40 rounded text-[11px] text-emerald-300">
+        <span>🏘️ {cityMap.buildings.length} lots · {cityMap.districts.length} districts</span>
+        <button
+          onclick={() => { cityMap = null; selectedParcel = null; }}
+          class="text-emerald-400 hover:text-rose-400 ml-1 font-bold"
+          title="Clear Watabou city map"
+        >✕</button>
+      </div>
+    {/if}
 
     <div class="flex-1"></div>
     <span class="text-[10px] text-slate-600">Space+drag or middle-click to pan · Scroll to zoom</span>
@@ -478,4 +672,14 @@
       </div>
     {/if}
   </div>
+
+  <!-- ── Map Import & Parcel Inspector Modal ─────────────────────────────────── -->
+  <MapImportModal
+    bind:isOpen={showImportModal}
+    onLoadDungeonMap={handleLoadDungeonMap}
+    onLoadWatabouCity={handleLoadWatabouCity}
+    selectedParcel={selectedParcel}
+    onSaveParcelEntity={handleSaveParcelEntity}
+    onCloseParcelInspector={() => { selectedParcel = null; }}
+  />
 </div>

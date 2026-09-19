@@ -3,16 +3,20 @@
   import { onMount, onDestroy } from 'svelte';
 
   // ── Subsystem components ───────────────────────────────────────────────────
-  import PartyManager       from '../lib/components/dm/PartyManager.svelte';
+  import PartyRosterView    from '../lib/components/party/PartyRosterView.svelte';
   import EncounterDashboard from '../lib/components/dm/EncounterDashboard.svelte';
   import TacticalCanvasContainer from '../lib/components/canvas/TacticalCanvasContainer.svelte';
   import DualChatPanel      from '../lib/components/ai/DualChatPanel.svelte';
   import CompendiumBrowser  from '../lib/components/compendium/CompendiumBrowser.svelte';
   import CalendarWidget     from '../lib/components/time/CalendarWidget.svelte';
   import WorldAtlasContainer from '../lib/components/atlas/WorldAtlasContainer.svelte';
+  import LoreWikiView from '../lib/components/lore/LoreWikiView.svelte';
+  import HandoutStudioView from '../lib/components/handouts/HandoutStudioView.svelte';
+  import PlayerHandoutModal from '../lib/components/handouts/PlayerHandoutModal.svelte';
   import Sidebar, { type DmTab } from '../lib/components/navigation/Sidebar.svelte';
   import AudioDrawer        from '../lib/components/audio/AudioDrawer.svelte';
-  import SettingsDrawer     from '../lib/components/settings/SettingsDrawer.svelte';
+  import SettingsModal      from '../lib/components/settings/SettingsModal.svelte';
+  import { initAutoSaver, type CampaignBundle } from '../lib/utils/campaignPersistence';
   import { registerGlobalDropZone, type DroppedAsset } from '../lib/utils/assetDrop';
 
   // ── View state ─────────────────────────────────────────────────────────────
@@ -63,6 +67,10 @@
 
     window.addEventListener('vtt:switch-tab', handleSwitchTab);
     window.addEventListener('vtt:load-battle-map', handleAutoBattleMat);
+    window.addEventListener('vtt:campaign-loaded', handleCampaignLoaded);
+    window.addEventListener('vtt:toggle-audio', handleToggleAudio);
+
+    stopAutoSaver = initAutoSaver();
 
     dropCleanup = registerGlobalDropZone((asset: DroppedAsset) => {
       lastDrop = asset.fileName;
@@ -73,9 +81,27 @@
 
   onDestroy(() => {
     dropCleanup?.();
+    stopAutoSaver?.();
     window.removeEventListener('vtt:switch-tab', handleSwitchTab);
     window.removeEventListener('vtt:load-battle-map', handleAutoBattleMat);
+    window.removeEventListener('vtt:campaign-loaded', handleCampaignLoaded);
+    window.removeEventListener('vtt:toggle-audio', handleToggleAudio);
   });
+
+  function handleToggleAudio() {
+    audioOpen = true;
+  }
+
+  let stopAutoSaver: (() => void) | null = null;
+
+  function handleCampaignLoaded(e: Event) {
+    const detail = (e as CustomEvent<{ bundle: CampaignBundle }>).detail;
+    if (detail?.bundle?.metadata?.campaignName) {
+      campaignName = detail.bundle.metadata.campaignName;
+    }
+    lastDrop = `Restored: ${campaignName}`;
+    setTimeout(() => { lastDrop = null; }, 3500);
+  }
 
   function handleSwitchTab(e: Event) {
     const detail = (e as CustomEvent<{ tab: DmTab }>).detail;
@@ -113,15 +139,16 @@
     else { playerPinError = 'Invalid PIN. Ask your DM for your assigned 4-digit PIN.'; }
   }
 
-  // Nav tab config
+  // Nav tab config matching strictly the 8 primary workstation subsystems
   const DM_TABS: { id: DmTab; icon: string; label: string; title: string }[] = [
-    { id: 'party',      icon: '👥', label: 'Party',      title: 'Party Roster & Management' },
-    { id: 'encounter',  icon: '⚔️', label: 'Combat',     title: 'Encounter & Turn Tracker' },
-    { id: 'battlemat',  icon: '🗺️', label: 'Battle Mat', title: 'Tactical Battle Mat' },
-    { id: 'archivist',  icon: '📖', label: 'AI Hub',     title: 'Rules Archivist & DM Co-Pilot' },
-    { id: 'compendium', icon: '📚', label: 'Compendium', title: 'SRD Compendium Browser' },
-    { id: 'calendar',   icon: '📅', label: 'Calendar',   title: 'Campaign Calendar & Time' },
-    { id: 'atlas',      icon: '🧭', label: 'Atlas',      title: 'World Atlas & External Tools Hub' },
+    { id: 'party',      icon: '👥', label: 'Party',      title: 'Active Party Roster & PIN Controls' },
+    { id: 'encounter',  icon: '⚔️', label: 'Combat',     title: 'Encounter & Initiative Tracker' },
+    { id: 'battlemat',  icon: '🗺️', label: 'Tactical',  title: 'Tactical Mat (PixiJS Canvas)' },
+    { id: 'lore',       icon: '📚', label: 'Lore',       title: 'Relational Lore Graph & Trade Valuation' },
+    { id: 'handouts',   icon: '📜', label: 'Handouts',   title: 'Parchment Handout Studio & Broadcast' },
+    { id: 'archivist',  icon: '📖', label: 'Archivist',  title: 'Rules Archivist (SRD & Rules RAG)' },
+    { id: 'copilot',    icon: '🤖', label: 'Co-Pilot',   title: 'Session Co-Pilot (Live DM Terminal)' },
+    { id: 'audio',      icon: '🎵', label: 'Audio',      title: 'Audio Studio & Dual-Bus Soundboard' },
   ];
 </script>
 
@@ -160,8 +187,9 @@
       </button>
       <button id="open-settings"
         onclick={() => { settingsOpen = !settingsOpen; if (settingsOpen) audioOpen = false; }}
-        class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {settingsOpen ? 'bg-slate-700 text-slate-200 border border-slate-600' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}">
-        ⚙️
+        class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {settingsOpen ? 'bg-indigo-700 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
+        title="Settings & Campaign Persistence">
+        ⚙️ Settings
       </button>
     </div>
   </header>
@@ -235,15 +263,28 @@
 
         <!-- Panels — only active is visible, all preserved in DOM for state retention -->
         <div class="flex-1 min-h-0 overflow-hidden relative">
-          <div class="absolute inset-0 {activeTab === 'party'      ? '' : 'hidden'}"><PartyManager /></div>
+          <div class="absolute inset-0 {activeTab === 'party'      ? '' : 'hidden'}"><PartyRosterView /></div>
           <div class="absolute inset-0 {activeTab === 'encounter'  ? '' : 'hidden'}"><EncounterDashboard /></div>
           <div class="absolute inset-0 {activeTab === 'battlemat'  ? '' : 'hidden'}"><TacticalCanvasContainer /></div>
-          <div class="absolute inset-0 {activeTab === 'archivist'  ? '' : 'hidden'}"><DualChatPanel /></div>
-          <div class="absolute inset-0 {activeTab === 'compendium' ? '' : 'hidden'}"><CompendiumBrowser /></div>
-          <div class="absolute inset-0 {activeTab === 'calendar'   ? '' : 'hidden'}">
-            <CalendarWidget onTimeChange={(s: string) => { campaignTime = s; }} />
+          <div class="absolute inset-0 {activeTab === 'lore'       ? '' : 'hidden'}"><LoreWikiView /></div>
+          <div class="absolute inset-0 {activeTab === 'handouts'   ? '' : 'hidden'}"><HandoutStudioView /></div>
+          <div class="absolute inset-0 {activeTab === 'archivist'  ? '' : 'hidden'}"><DualChatPanel initialMode="archivist" /></div>
+          <div class="absolute inset-0 {activeTab === 'copilot'    ? '' : 'hidden'}"><DualChatPanel initialMode="copilot" /></div>
+          <div class="absolute inset-0 {activeTab === 'audio'      ? '' : 'hidden'}">
+            <div class="h-full flex flex-col items-center justify-center p-8 text-center space-y-4 bg-slate-950">
+              <div class="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-3xl shadow-lg">🎵</div>
+              <div>
+                <h2 class="text-lg font-black text-slate-100 uppercase tracking-wide">Audio Studio &amp; Dual-Bus Soundboard</h2>
+                <p class="text-xs text-slate-400 mt-1 max-w-md">Control looping background ambience with 1.5s linear crossfading and trigger low-latency procedural sound effects.</p>
+              </div>
+              <button
+                onclick={() => audioOpen = true}
+                class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2"
+              >
+                <span>🔊</span> Open Audio Studio Drawer
+              </button>
+            </div>
           </div>
-          <div class="absolute inset-0 {activeTab === 'atlas'      ? '' : 'hidden'}"><WorldAtlasContainer /></div>
         </div>
       </main>
 
@@ -317,7 +358,8 @@
     </div>
   {/if}
 
-  <!-- Drawers -->
+  <!-- Modals & Drawers -->
   <AudioDrawer bind:isOpen={audioOpen} />
-  <SettingsDrawer bind:isOpen={settingsOpen} />
+  <SettingsModal bind:isOpen={settingsOpen} />
+  <PlayerHandoutModal />
 </div>

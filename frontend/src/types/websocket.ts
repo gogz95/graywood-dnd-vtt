@@ -33,4 +33,19 @@ export type WsEvent =
       epoch_days: number;
       days_advanced: number;
       date_formatted: string;
+    }
+  | {
+      type: 'HANDOUT_BROADCAST';
+      handout_id: string;
+      title: string;
+      subtitle?: string;
+      content_markdown: string;
+      theme: 'bounty' | 'proclamation' | 'journal' | 'contract' | 'classic';
+      seal_type?: 'wax_red' | 'wax_gold' | 'imperial_black' | 'none';
+      seal_text?: string;
+      timestamp: number;
+    }
+  | {
+      type: 'HANDOUT_DISMISS';
+      handout_id?: string;
     };

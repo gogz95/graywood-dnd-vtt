@@ -109,6 +109,20 @@ function handleIncomingWsEvent(event: WsEvent): void {
       });
       break;
 
+    case 'HANDOUT_BROADCAST':
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('vtt_active_broadcast_handout', JSON.stringify(event));
+        window.dispatchEvent(new CustomEvent('vtt:handout-broadcast', { detail: event }));
+      }
+      break;
+
+    case 'HANDOUT_DISMISS':
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('vtt_active_broadcast_handout');
+        window.dispatchEvent(new CustomEvent('vtt:handout-dismiss', { detail: event }));
+      }
+      break;
+
     case 'TOKEN_MOVE':
     case 'SYSTEM_MESSAGE':
       break;

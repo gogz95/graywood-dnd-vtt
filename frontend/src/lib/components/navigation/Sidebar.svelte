@@ -1,5 +1,13 @@
 <script module lang="ts">
-  export type DmTab = 'party' | 'encounter' | 'battlemat' | 'archivist' | 'compendium' | 'calendar' | 'atlas';
+  export type DmTab =
+    | 'party'
+    | 'encounter'
+    | 'battlemat'
+    | 'lore'
+    | 'handouts'
+    | 'archivist'
+    | 'copilot'
+    | 'audio';
 
   export interface SidebarTab {
     id: DmTab;
@@ -10,7 +18,15 @@
 </script>
 
 <script lang="ts">
-  // Sidebar.svelte — Vertical DM navigation dock with Atlas hub integration
+  // Sidebar.svelte — Vertical DM navigation dock with strictly 8 primary subsystems:
+  // 1. Party & Characters
+  // 2. Encounter & Combat
+  // 3. Tactical Mat
+  // 4. Lore Wiki
+  // 5. Handout Studio
+  // 6. Rules Archivist
+  // 7. Session Co-Pilot
+  // 8. Audio Studio
 
   let {
     activeTab = $bindable<DmTab>('encounter'),
@@ -21,18 +37,22 @@
   } = $props();
 
   const TABS: SidebarTab[] = [
-    { id: 'party',      icon: '👥', label: 'Party',      title: 'Party Roster & Character Management' },
-    { id: 'encounter',  icon: '⚔️', label: 'Combat',     title: 'Encounter & Turn Tracker' },
-    { id: 'battlemat',  icon: '🗺️', label: 'Battle Mat', title: 'Tactical Battle Mat & Grid' },
-    { id: 'archivist',  icon: '📖', label: 'AI Hub',     title: 'Rules Archivist & DM Co-Pilot' },
-    { id: 'compendium', icon: '📚', label: 'Compendium', title: '5e / 5.5e SRD Compendium Browser' },
-    { id: 'calendar',   icon: '📅', label: 'Calendar',   title: 'Campaign Calendar & Timekeeping' },
-    { id: 'atlas',      icon: '🧭', label: 'Atlas',      title: 'World Atlas & External Tools Hub' },
+    { id: 'party',     icon: '👥', label: 'Party',     title: 'Active Party Roster & PIN Controls' },
+    { id: 'encounter', icon: '⚔️', label: 'Combat',    title: 'Encounter & Initiative Tracker' },
+    { id: 'battlemat', icon: '🗺️', label: 'Tactical',  title: 'Tactical Mat (PixiJS Canvas)' },
+    { id: 'lore',      icon: '📚', label: 'Lore',      title: 'Lore Wiki & Relational Graph' },
+    { id: 'handouts',  icon: '📜', label: 'Handouts',  title: 'Parchment Handout Studio & Broadcast' },
+    { id: 'archivist', icon: '📖', label: 'Archivist', title: 'Rules Archivist (Independent RAG)' },
+    { id: 'copilot',   icon: '🤖', label: 'Co-Pilot',  title: 'Session Co-Pilot (DM Command Terminal)' },
+    { id: 'audio',     icon: '🎵', label: 'Audio',     title: 'Audio Studio & Dual-Bus Soundboard' },
   ];
 
   function selectTab(id: DmTab) {
     activeTab = id;
     onSelectTab?.(id);
+    if (id === 'audio') {
+      window.dispatchEvent(new CustomEvent('vtt:toggle-audio'));
+    }
   }
 </script>
 
@@ -54,15 +74,4 @@
       {/if}
     </button>
   {/each}
-
-  <!-- Separator + Secondary Economy / Settlement Tool -->
-  <div class="w-6 h-px bg-slate-800 my-1"></div>
-  <button
-    type="button"
-    title="Economy & Strongholds (Secondary)"
-    class="w-10 h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 text-slate-600 hover:bg-slate-800 hover:text-slate-400 transition-all"
-  >
-    <span class="text-base leading-none">🪙</span>
-    <span class="text-[8px] font-bold uppercase tracking-wide leading-none">Econ</span>
-  </button>
 </aside>
