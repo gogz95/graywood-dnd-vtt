@@ -95,10 +95,10 @@
         </div>
         <div>
           <h2 class="text-base font-black text-slate-100 uppercase tracking-tight font-serif">
-            Grand Chancellery Compendium & Codex
+            Standard 5e Compendium & Codex
           </h2>
           <p class="text-xs text-amber-200/60">
-            Canonical Spells, Classes, Reagents, and Arcane Rules
+            SRD 5.1 & 5.2 Spells, Classes, Equipment, and Rules
           </p>
         </div>
       </div>

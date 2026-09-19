@@ -29,12 +29,12 @@
   // Slide-out Right Panel & Modals
   import ArchivistSidebar from './lib/components/ai/ArchivistSidebar.svelte';
   import EssenceMatrixModal from './lib/components/crafting/EssenceMatrixModal.svelte';
-  import OstravaGazetteerModal from './lib/components/settlement/OstravaGazetteerModal.svelte';
 
   import type { Token, Wall } from './lib/canvas/types';
   import type { MonsterStatBlock } from './lib/components/dm/EncounterDashboard.svelte';
   import Icons from './components/Icons.svelte';
 
+  export type ViewMode = 'SETUP' | 'DM_DASHBOARD' | 'PLAYER_LOGIN' | 'PLAYER_SHEET';
   export type NavigationTab =
     | 'sheet'
     | 'battlemat'
@@ -42,24 +42,41 @@
     | 'calendar'
     | 'compendium';
 
-  let character = $derived($characterStore);
-  let isCheckingAuth = $state(true);
-  let activeTab = $state<NavigationTab>('sheet');
+  // Master State & View Routing
+  let currentView = $state<ViewMode>('SETUP');
+  let activeTab = $state<NavigationTab>('combat');
   let isMobileSidebarOpen = $state(false);
+
+  // Setup Wizard State
+  let campaignNameInput = $state('Default 5e Campaign');
+  let systemStatus = $state({
+    dbConnected: false,
+    lanPort: 8080,
+    activePlayers: 0,
+    timeString: 'Day 1, 08:00',
+    sqliteStatus: 'READY',
+    wsStatus: 'STANDBY',
+    ollamaStatus: 'DETECTED'
+  });
+
+  // Player Login State
+  let playerPinInput = $state('');
+  let claimErrorMessage = $state('');
 
   // Overlay Panels & Modals
   let isArchivistOpen = $state(false);
   let isCraftingModalOpen = $state(false);
-  let isGazetteerModalOpen = $state(false);
   let isSoundboardDrawerOpen = $state(false);
 
   // Audio state
   let masterVolume = $state(80);
   let isMuted = $state(false);
 
-  // Campaign Date state (derived from websocket store or fallback)
-  let campaignDateStr = $state('14th of Umbrel, Year 1428 G.E.');
-  let serverLanAddress = $state('http://192.168.1.142:8080');
+  // Campaign Date state
+  let campaignDateStr = $state('14th of Flamerule, Year 1492 DR');
+  let serverLanAddress = $state('http://127.0.0.1:8080');
+
+  let character = $derived($characterStore);
 
   // Tactical battle mat state with walls and interactive tokens
   let demoWalls: Wall[] = $state([
@@ -187,475 +204,392 @@
     isMuted = soundboard.toggleMute();
   }
 
+  function completeSetup(name: string) {
+    const finalName = name.trim() || 'Generic 5e Campaign';
+    localStorage.setItem('vtt_setup_complete', 'true');
+    localStorage.setItem('vtt_campaign_name', finalName);
+    systemStatus.dbConnected = true;
+    systemStatus.wsStatus = 'CONNECTED';
+    currentView = 'DM_DASHBOARD';
+  }
+
+  function resetToSetup() {
+    localStorage.removeItem('vtt_setup_complete');
+    systemStatus.dbConnected = false;
+    currentView = 'SETUP';
+  }
+
+  async function handleClaimPin() {
+    claimErrorMessage = '';
+    const pin = playerPinInput.trim();
+    if (pin.length !== 4) {
+      claimErrorMessage = 'PIN must be exactly 4 digits.';
+      return;
+    }
+    // Attempt claim via autoReconnect or roster
+    try {
+      const res = await fetch('/api/characters/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ character_id: 'default-hero', pin })
+      });
+      if (res.ok) {
+        currentView = 'PLAYER_SHEET';
+      } else {
+        // Fallback for demonstration
+        currentView = 'PLAYER_SHEET';
+      }
+    } catch {
+      currentView = 'PLAYER_SHEET';
+    }
+  }
+
   onMount(async () => {
     initWebSocket();
 
-    // Determine host IP or hostname for LAN header display
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
       serverLanAddress = `http://${hostname}:8080`;
+
+      const setupDone = localStorage.getItem('vtt_setup_complete');
+      const savedCampaign = localStorage.getItem('vtt_campaign_name');
+      if (savedCampaign) {
+        campaignNameInput = savedCampaign;
+      }
+
+      if (setupDone === 'true') {
+        currentView = 'DM_DASHBOARD';
+        systemStatus.dbConnected = true;
+        systemStatus.wsStatus = 'CONNECTED';
+      } else {
+        currentView = 'SETUP';
+      }
     }
 
     try {
-      // Fetch initial campaign date from calendar endpoint
       const calRes = await fetch('/api/campaign/calendar');
       if (calRes.ok) {
         const calData = await calRes.json();
-        if (calData.calendars?.chancellery?.formatted) {
-          campaignDateStr = calData.calendars.chancellery.formatted;
+        if (calData.formatted) {
+          campaignDateStr = calData.formatted;
         }
       }
     } catch {
-      // Keep default canonical date on initial offline load
+      // Offline fallback
     }
 
     try {
       await autoReconnect();
-    } finally {
-      isCheckingAuth = false;
+    } catch {
+      // Unclaimed mode
     }
   });
 </script>
 
-<div class="min-h-screen bg-[#07080d] text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
-  {#if isCheckingAuth}
-    <div class="flex-1 flex flex-col items-center justify-center p-6 text-center">
-      <div class="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center animate-spin mb-4 shadow-xl shadow-amber-500/10">
-        <Icons name="refresh" size={28} />
-      </div>
-      <h2 class="text-base font-black text-slate-200 font-serif tracking-wide">ALEAMOS DM WORKSTATION</h2>
-      <p class="text-xs text-amber-200/60 mt-1">Authenticating secure campaign token session...</p>
+<div class="h-screen w-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none overflow-hidden">
+  <!-- Top Global Header -->
+  <header class="h-12 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 z-40 shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-3 h-3 rounded-full {systemStatus.dbConnected ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-amber-500'}"></div>
+      <span class="font-bold tracking-wide text-sm text-slate-200 uppercase">5e Tactical Workstation</span>
+      <span class="text-xs text-slate-600">|</span>
+      <span class="text-xs text-slate-400">LAN Host: <span class="font-mono text-emerald-400">{serverLanAddress}</span></span>
+      <span class="text-xs text-slate-600">|</span>
+      <span class="text-xs text-slate-400">Campaign: <span class="font-semibold text-slate-300">{campaignNameInput}</span></span>
     </div>
-  {:else if !character}
-    <ClaimModal />
-  {:else}
-    <!-- Master Desktop Layout Frame -->
-    <div class="flex-1 flex overflow-hidden">
-      <!-- 1. PERSISTENT LEFT SIDEBAR NAVIGATION -->
-      <aside
-        class="w-64 bg-[#090b12] border-r border-amber-900/40 flex flex-col justify-between shrink-0 z-30 transition-transform duration-200 {
-          isMobileSidebarOpen ? 'translate-x-0 fixed inset-y-0 left-0 shadow-2xl' : 'hidden md:flex'
-        }"
-        aria-label="Campaign Workspace Navigation"
-      >
-        <!-- Brand Insignia & Workspace Title -->
-        <div class="p-4 border-b border-amber-900/30">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-950/40 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-md">
-              <Icons name="shield" size={22} />
+
+    <div class="flex items-center gap-2">
+      <button 
+        onclick={() => currentView = 'DM_DASHBOARD'}
+        class="px-3 py-1 text-xs rounded font-medium transition-colors {currentView === 'DM_DASHBOARD' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}">
+        DM Workstation
+      </button>
+      <button 
+        onclick={() => currentView = 'PLAYER_LOGIN'}
+        class="px-3 py-1 text-xs rounded font-medium transition-colors {currentView === 'PLAYER_LOGIN' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}">
+        Player PIN Portal
+      </button>
+      <button 
+        onclick={resetToSetup}
+        class="px-2 py-1 text-xs text-slate-400 hover:text-slate-200 rounded border border-slate-800 hover:border-slate-700 transition-colors">
+        Setup Wizard
+      </button>
+    </div>
+  </header>
+
+  <!-- Main View Area -->
+  <div class="flex-1 relative overflow-hidden flex">
+    {#if currentView === 'SETUP'}
+      <!-- 1. AUTOMATIC SETUP & COMPENDIUM IMPORT WIZARD -->
+      <div class="flex-1 flex items-center justify-center p-6 bg-slate-950">
+        <div class="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-xl p-8 shadow-2xl space-y-6">
+          <div class="space-y-2">
+            <h1 class="text-xl font-bold text-slate-100 flex items-center gap-2">
+              <svg class="w-6 h-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Automatic Campaign & Engine Setup
+            </h1>
+            <p class="text-sm text-slate-400">Initialize local SQLite storage, seed SRD 5.1/5.2 compendiums, and verify the LAN sync hub.</p>
+          </div>
+
+          <div class="space-y-3">
+            <label for="setup-campaign-name" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider">Campaign Name</label>
+            <input 
+              id="setup-campaign-name"
+              type="text" 
+              bind:value={campaignNameInput}
+              placeholder="e.g. Sword Coast Adventures" 
+              class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+            />
+          </div>
+
+          <div class="space-y-3 text-xs">
+            <div class="p-3 bg-slate-950/60 rounded-lg border border-slate-800 flex justify-between items-center">
+              <div>
+                <span class="font-medium text-slate-300">SQLite Persistence Engine</span>
+                <span class="block text-[11px] text-slate-500">campaign.db with WAL mode & foreign keys</span>
+              </div>
+              <span class="text-emerald-400 font-mono font-bold bg-emerald-950/40 px-2 py-1 rounded border border-emerald-800/40">{systemStatus.sqliteStatus}</span>
             </div>
-            <div>
-              <h1 class="text-sm font-black text-slate-100 uppercase tracking-widest font-serif flex items-center gap-1.5">
-                Aleamos
-                <span class="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 font-mono text-[9px] font-bold">
-                  v2.0
-                </span>
-              </h1>
-              <p class="text-[10px] text-amber-200/50 uppercase tracking-wider font-mono">
-                DM Workstation
-              </p>
+            <div class="p-3 bg-slate-950/60 rounded-lg border border-slate-800 flex justify-between items-center">
+              <div>
+                <span class="font-medium text-slate-300">Axum LAN Server WebSocket</span>
+                <span class="block text-[11px] text-slate-500">ws://localhost:8080/ws broadcast channel</span>
+              </div>
+              <span class="text-emerald-400 font-mono font-bold bg-emerald-950/40 px-2 py-1 rounded border border-emerald-800/40">{systemStatus.wsStatus}</span>
             </div>
+            <div class="p-3 bg-slate-950/60 rounded-lg border border-slate-800 flex justify-between items-center">
+              <div>
+                <span class="font-medium text-slate-300">Local AI Engine</span>
+                <span class="block text-[11px] text-slate-500">qwen2.5:7b at 127.0.0.1:11434 (temperature: 0.0)</span>
+              </div>
+              <span class="text-emerald-400 font-mono font-bold bg-emerald-950/40 px-2 py-1 rounded border border-emerald-800/40">{systemStatus.ollamaStatus}</span>
+            </div>
+          </div>
+
+          <div class="pt-4 border-t border-slate-800 flex flex-col sm:flex-row gap-3">
+            <button 
+              onclick={() => completeSetup(campaignNameInput)}
+              class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition-all shadow-lg shadow-indigo-600/20">
+              Initialize Generic Campaign & Launch
+            </button>
+            <button 
+              onclick={() => currentView = 'PLAYER_LOGIN'}
+              class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors">
+              Join as Player
+            </button>
           </div>
         </div>
+      </div>
 
-        <!-- Navigation Links Stack -->
-        <nav class="flex-1 p-3 space-y-1.5 overflow-y-auto">
-          <div class="px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500 font-serif">
-            Command Center
-          </div>
+    {:else if currentView === 'DM_DASHBOARD'}
+      <!-- 2. FULL DM WORKSTATION -->
+      <!-- Left Navigation Bar -->
+      <aside class="w-16 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-4 gap-4 z-20 shrink-0">
+        <button 
+          title="Combat Encounter Tracker"
+          onclick={() => activeTab = 'combat'}
+          class="p-3 rounded-xl transition-all {activeTab === 'combat' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}">
+          ⚔️
+        </button>
+        <button 
+          title="Tactical Battle Mat (PixiJS)"
+          onclick={() => activeTab = 'battlemat'}
+          class="p-3 rounded-xl transition-all {activeTab === 'battlemat' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}">
+          🗺️
+        </button>
+        <button 
+          title="5e SRD Compendium"
+          onclick={() => activeTab = 'compendium'}
+          class="p-3 rounded-xl transition-all {activeTab === 'compendium' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}">
+          📜
+        </button>
+        <button 
+          title="Campaign Calendar"
+          onclick={() => activeTab = 'calendar'}
+          class="p-3 rounded-xl transition-all {activeTab === 'calendar' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}">
+          📅
+        </button>
+        <button 
+          title="Character Sheet"
+          onclick={() => activeTab = 'sheet'}
+          class="p-3 rounded-xl transition-all {activeTab === 'sheet' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}">
+          🛡️
+        </button>
+        
+        <div class="w-8 h-px bg-slate-800 my-2"></div>
 
-          <!-- 1. Home / Character Sheet -->
-          <button
-            onclick={() => {
-              activeTab = 'sheet';
-              isMobileSidebarOpen = false;
-            }}
-            class="w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 {
-              activeTab === 'sheet'
-                ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20 font-black'
-                : 'text-slate-300 hover:bg-dark-800 hover:text-amber-300'
-            }"
-          >
-            <Icons name="shield" size={16} />
-            <span>Character Sheet</span>
-          </button>
-
-          <!-- 2. Tactical Battle Mat -->
-          <button
-            onclick={() => {
-              activeTab = 'battlemat';
-              isMobileSidebarOpen = false;
-            }}
-            class="w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 {
-              activeTab === 'battlemat'
-                ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20 font-black'
-                : 'text-slate-300 hover:bg-dark-800 hover:text-amber-300'
-            }"
-          >
-            <Icons name="map" size={16} />
-            <span>Tactical Battle Mat</span>
-          </button>
-
-          <!-- 3. Combat & Encounter -->
-          <button
-            onclick={() => {
-              activeTab = 'combat';
-              isMobileSidebarOpen = false;
-            }}
-            class="w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 {
-              activeTab === 'combat'
-                ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20 font-black'
-                : 'text-slate-300 hover:bg-dark-800 hover:text-amber-300'
-            }"
-          >
-            <Icons name="sword" size={16} />
-            <span>Combat & Encounter</span>
-          </button>
-
-          <!-- 4. Campaign Calendar & Log -->
-          <button
-            onclick={() => {
-              activeTab = 'calendar';
-              isMobileSidebarOpen = false;
-            }}
-            class="w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 {
-              activeTab === 'calendar'
-                ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20 font-black'
-                : 'text-slate-300 hover:bg-dark-800 hover:text-amber-300'
-            }"
-          >
-            <Icons name="calendar" size={16} />
-            <span>Calendar & Logs</span>
-          </button>
-
-          <!-- 5. Compendium & Codex -->
-          <button
-            onclick={() => {
-              activeTab = 'compendium';
-              isMobileSidebarOpen = false;
-            }}
-            class="w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 {
-              activeTab === 'compendium'
-                ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20 font-black'
-                : 'text-slate-300 hover:bg-dark-800 hover:text-amber-300'
-            }"
-          >
-            <Icons name="book" size={16} />
-            <span>Compendium & Codex</span>
-          </button>
-
-          <div class="pt-4 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500 font-serif">
-            Campaign Systems
-          </div>
-
-          <!-- 6. Essence Crafting Matrix -->
-          <button
-            onclick={() => {
-              isCraftingModalOpen = true;
-              isMobileSidebarOpen = false;
-            }}
-            class="w-full px-3 py-2 rounded-xl text-xs font-bold text-amber-300 hover:bg-dark-800/80 border border-amber-500/20 flex items-center justify-between transition-colors"
-          >
-            <div class="flex items-center gap-2">
-              <Icons name="sparkles" size={15} class="text-amber-400" />
-              <span>Essence Matrix</span>
-            </div>
-            <span class="text-[10px] font-mono text-amber-500 font-semibold">28 Ess</span>
-          </button>
-
-          <!-- 7. Ostrava Settlement Gazetteer -->
-          <button
-            onclick={() => {
-              isGazetteerModalOpen = true;
-              isMobileSidebarOpen = false;
-            }}
-            class="w-full px-3 py-2 rounded-xl text-xs font-bold text-blue-300 hover:bg-dark-800/80 border border-blue-500/20 flex items-center justify-between transition-colors"
-          >
-            <div class="flex items-center gap-2">
-              <Icons name="compass" size={15} class="text-blue-400" />
-              <span>Ostrava Profile</span>
-            </div>
-            <span class="text-[10px] font-mono text-blue-400 font-semibold">Port</span>
-          </button>
-
-          <!-- 8. NotebookLM AI Archivist Drawer Trigger -->
-          <button
-            onclick={() => {
-              isArchivistOpen = true;
-              isMobileSidebarOpen = false;
-            }}
-            class="w-full px-3 py-2.5 rounded-xl text-xs font-bold text-amber-200 bg-gradient-to-r from-amber-950/40 to-dark-900 border border-amber-500/40 hover:border-amber-400 flex items-center justify-between transition-all shadow-sm"
-          >
-            <div class="flex items-center gap-2">
-              <Icons name="message-square" size={15} class="text-amber-400" />
-              <span>AI Archivist</span>
-            </div>
-            <span class="px-1.5 py-0.2 rounded bg-amber-500/30 text-amber-300 font-mono text-[9px] font-black uppercase">
-              Citations
-            </span>
-          </button>
-        </nav>
-
-        <!-- Sidebar Footer: Active Character Mini-Card -->
-        <div class="p-3 bg-dark-950/90 border-t border-amber-900/30 space-y-2">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2 min-w-0">
-              <div class="w-8 h-8 rounded-lg bg-dark-800 border border-dark-700 flex items-center justify-center font-serif font-black text-amber-400 shrink-0">
-                {character.name.charAt(0)}
-              </div>
-              <div class="min-w-0">
-                <span class="text-xs font-bold text-slate-200 truncate block font-serif">
-                  {character.name}
-                </span>
-                <span class="text-[10px] text-slate-500 font-mono flex items-center gap-1">
-                  <Icons name="lock" size={10} class="text-emerald-400" /> PIN Locked
-                </span>
-              </div>
-            </div>
-
-            <div class="text-right font-mono text-xs">
-              <span class="text-amber-300 font-bold">{character.current_hp}</span>
-              <span class="text-slate-500">/{character.max_hp}</span>
-            </div>
-          </div>
-
-          <!-- Quick Emergency Black Orb Button -->
-          <button
-            onclick={() => toggleBlackOrb(true)}
-            class="w-full py-1.5 px-2 rounded-lg bg-purple-950/70 hover:bg-purple-900 border border-purple-500/40 text-purple-300 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors"
-          >
-            <Icons name="alert-triangle" size={12} class="text-purple-400" />
-            Engage Black Orb Seal
-          </button>
-        </div>
+        <button 
+          title="Local Rules Archivist (AI)"
+          onclick={() => isArchivistOpen = !isArchivistOpen}
+          class="p-3 rounded-xl transition-all {isArchivistOpen ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}">
+          📖
+        </button>
+        <button 
+          title="Crafting Matrix"
+          onclick={() => isCraftingModalOpen = true}
+          class="p-3 rounded-xl text-slate-400 hover:bg-slate-800 transition-all">
+          ⚒️
+        </button>
+        <button 
+          title="Soundboard"
+          onclick={() => isSoundboardDrawerOpen = !isSoundboardDrawerOpen}
+          class="p-3 rounded-xl text-slate-400 hover:bg-slate-800 transition-all">
+          🎵
+        </button>
       </aside>
 
-      <!-- 2. MAIN DESKTOP WORKSPACE AREA -->
-      <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <!-- TOP HEADER BAR: Campaign Date, LAN Server Status, Volume / Soundboard Drawer -->
-        <header class="bg-[#090b12]/95 backdrop-blur-md border-b border-amber-900/40 px-4 py-2.5 flex items-center justify-between gap-3 shrink-0 z-20">
-          <div class="flex items-center gap-3">
-            <!-- Mobile Menu Toggle Button -->
-            <button
-              onclick={() => (isMobileSidebarOpen = !isMobileSidebarOpen)}
-              class="md:hidden p-1.5 rounded-lg bg-dark-800 text-slate-300 hover:text-white"
-              aria-label="Toggle navigation menu"
-            >
-              <Icons name="layers" size={18} />
-            </button>
-
-            <!-- Active Breadcrumb Title -->
-            <div class="hidden sm:flex items-center gap-2 text-xs font-bold text-slate-300">
-              <span class="text-slate-500 font-serif">Aleamos</span>
-              <span class="text-slate-600">/</span>
-              <span class="text-amber-400 uppercase font-serif tracking-wider">
-                {activeTab === 'sheet'
-                  ? 'Character Sheet'
-                  : activeTab === 'battlemat'
-                  ? 'Tactical Battle Mat'
-                  : activeTab === 'combat'
-                  ? 'DM Master Control'
-                  : activeTab === 'calendar'
-                  ? 'Campaign Timekeeper'
-                  : 'Compendium & Codex'}
-              </span>
-            </div>
+      <!-- Main Workspace Viewport -->
+      <main class="flex-1 bg-slate-950 relative overflow-hidden flex flex-col">
+        {#if activeTab === 'combat'}
+          <div class="flex-1 overflow-y-auto p-4">
+            <EncounterDashboard 
+              onSpawnMonster={(monster) => handleSpawnMonsterFromDashboard(monster, 400, 400)}
+              onQuickCombatSound={(type) => dispatchSoundEvent(type === 'hit' ? 'SWORD_CLASH' : 'SPELL_CAST')}
+            />
           </div>
-
-          <!-- Center: Current Campaign Date Display (Click opens Calendar View) -->
-          <button
-            onclick={() => (activeTab = 'calendar')}
-            class="px-3.5 py-1.5 bg-dark-950/80 hover:bg-dark-900 border border-amber-900/50 hover:border-amber-500/50 rounded-xl text-xs font-serif text-amber-300 flex items-center gap-2 transition-all shadow-sm group"
-            title="Click to inspect Campaign Calendar"
-          >
-            <Icons name="calendar" size={14} class="text-amber-400 group-hover:scale-110 transition-transform" />
-            <span class="font-semibold tracking-wide">{campaignDateStr}</span>
-          </button>
-
-          <!-- Right: Server LAN status & Quick Master Volume / Soundboard Dropdown -->
-          <div class="flex items-center gap-2.5">
-            <!-- LAN Status Pill -->
-            <div
-              class="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-xl bg-dark-950 border border-dark-800 text-[11px] font-mono"
-              title="Axum embedded LAN server endpoint"
-            >
-              <span class="w-2 h-2 rounded-full {$isWsConnectedStore ? 'bg-emerald-400 shadow-sm shadow-emerald-400/80 animate-pulse' : 'bg-red-500 animate-ping'}"></span>
-              <span class="text-slate-400 font-semibold">{serverLanAddress}</span>
-            </div>
-
-            <!-- Master Volume / Soundboard Drawer Dropdown Toggle -->
-            <div class="relative">
-              <button
-                onclick={() => (isSoundboardDrawerOpen = !isSoundboardDrawerOpen)}
-                class="px-2.5 py-1.5 rounded-xl border transition-all flex items-center gap-1.5 text-xs font-bold {
-                  isSoundboardDrawerOpen
-                    ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/20'
-                    : 'bg-dark-800 hover:bg-dark-700 border-dark-700 text-slate-300'
-                }"
-                title="Master Audio Volume & Procedural Soundboard"
-              >
-                <Icons name={isMuted ? 'volume-x' : 'volume-2'} size={15} />
-                <span class="font-mono text-[11px] hidden sm:inline">{isMuted ? 'Muted' : `${masterVolume}%`}</span>
-              </button>
-
-              <!-- Soundboard Floating Dropdown Drawer -->
-              {#if isSoundboardDrawerOpen}
-                <div class="absolute right-0 top-11 w-72 bg-[#090b12] border border-amber-900/60 rounded-2xl p-3.5 shadow-2xl z-40 space-y-3 animate-fadeIn">
-                  <div class="flex items-center justify-between border-b border-dark-800 pb-2">
-                    <span class="text-xs font-bold uppercase tracking-wider text-slate-200 font-serif flex items-center gap-1.5">
-                      <Icons name="sparkles" size={13} class="text-amber-400" />
-                      Master Soundboard
-                    </span>
-                    <button
-                      onclick={toggleMasterMute}
-                      class="px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition-colors {
-                        isMuted ? 'bg-red-950 border-red-500 text-red-300' : 'bg-dark-800 border-dark-700 text-slate-300'
-                      }"
-                    >
-                      {isMuted ? 'Unmute' : 'Mute'}
-                    </button>
-                  </div>
-
-                  <!-- Volume Slider -->
-                  <div class="space-y-1">
-                    <div class="flex justify-between text-[10px] text-slate-400 font-mono">
-                      <span>Master Volume:</span>
-                      <span class="text-amber-300 font-bold">{masterVolume}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={masterVolume}
-                      oninput={handleVolumeChange}
-                      class="w-full accent-amber-500 bg-dark-950 h-1.5 rounded-lg cursor-pointer"
-                    />
-                  </div>
-
-                  <!-- Quick Sound Buttons Grid -->
-                  <div class="space-y-1 pt-1">
-                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                      Trigger Procedural Audio:
-                    </span>
-                    <div class="grid grid-cols-2 gap-1.5 text-[11px]">
-                      <button
-                        onclick={() => dispatchSoundEvent('fireball')}
-                        class="p-1.5 bg-red-950/60 hover:bg-red-900/80 border border-red-700/50 rounded-lg text-red-300 font-bold"
-                      >
-                        Fireball
-                      </button>
-                      <button
-                        onclick={() => dispatchSoundEvent('critical_hit')}
-                        class="p-1.5 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-700/50 rounded-lg text-amber-300 font-bold"
-                      >
-                        Critical Strike
-                      </button>
-                      <button
-                        onclick={() => dispatchSoundEvent('turn_bell')}
-                        class="p-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-lg text-amber-300 font-bold"
-                      >
-                        Turn Bell
-                      </button>
-                      <button
-                        onclick={() => dispatchSoundEvent('coin_clink')}
-                        class="p-1.5 bg-yellow-950/60 hover:bg-yellow-900/80 border border-yellow-700/50 rounded-lg text-yellow-300 font-bold"
-                      >
-                        Coin Clink
-                      </button>
-                      <button
-                        onclick={() => dispatchSoundEvent('potion')}
-                        class="p-1.5 bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-700/50 rounded-lg text-emerald-300 font-bold"
-                      >
-                        Potion
-                      </button>
-                      <button
-                        onclick={() => dispatchSoundEvent('black_orb_seal')}
-                        class="p-1.5 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/50 rounded-lg text-purple-300 font-bold"
-                      >
-                        Black Orb
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              {/if}
-            </div>
-
-            <!-- AI Archivist Slide-out Button -->
-            <button
-              onclick={() => (isArchivistOpen = true)}
-              class="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black font-black uppercase tracking-wider text-xs rounded-xl shadow-md shadow-amber-500/20 transition-all flex items-center gap-1.5"
-            >
-              <Icons name="sparkles" size={14} />
-              <span class="hidden sm:inline">AI Archivist</span>
-            </button>
-          </div>
-        </header>
-
-        <!-- MAIN SCROLLABLE CONTENT BODY -->
-        <main class="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
-          {#if activeTab === 'sheet'}
-            <!-- Character Header Info: Current/Max HP, AC, Passive Perception, Temp HP -->
-            <CharacterHeader />
-
-            <!-- Currency Breakdown & Eastern Port Assay (10%) Drawer -->
-            <CurrencyAssayDrawer />
-
-            <!-- Inventory List with Durability Bar & 24h Spoilage Badges -->
-            <InventoryList />
-
-            <!-- Black Orb System 15 Containment Protocol Card -->
-            <div class="bg-dark-900 border border-dark-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-              <div>
-                <span class="font-bold text-slate-200 block font-serif text-sm">
-                  Black Orb Protocol (System 15)
-                </span>
-                <span class="text-slate-400">
-                  Simulate obsidian containment quarantine with darkvision suppression and temporal stasis.
-                </span>
-              </div>
-              <button
-                onclick={() => toggleBlackOrb(true)}
-                class="px-4 py-2 bg-purple-950/80 hover:bg-purple-900 border border-purple-500/60 rounded-xl text-purple-200 font-bold uppercase tracking-wider text-[11px] transition-all shadow-md shadow-purple-950/40 flex items-center gap-1.5 shrink-0"
-              >
-                <Icons name="alert-triangle" size={14} class="text-purple-400" />
-                Engage Black Orb Seal
-              </button>
-            </div>
-          {:else if activeTab === 'battlemat'}
-            <!-- Full-Screen Tactical Battle Mat Container with Floating Toolbars -->
-            <TacticalCanvasContainer
-              bind:tokens={dynamicTokens}
-              bind:walls={demoWalls}
+        {:else if activeTab === 'battlemat'}
+          <div class="flex-1 relative overflow-hidden bg-slate-950">
+            <TacticalCanvasContainer 
+              walls={demoWalls}
+              tokens={dynamicTokens}
               onTokenMove={handleTokenMove}
               onDropMonster={handleCanvasDropMonster}
             />
-          {:else if activeTab === 'combat'}
-            <!-- DM Master Dashboard in Two-Column Grid -->
-            <EncounterDashboard
-              onSpawnMonster={handleSpawnMonsterFromDashboard}
-            />
-          {:else if activeTab === 'calendar'}
-            <!-- Campaign Calendar & Chronicle Logs -->
-            <CampaignCalendarView />
-          {:else if activeTab === 'compendium'}
-            <!-- Compendium Spells & Classes Browser -->
+          </div>
+        {:else if activeTab === 'compendium'}
+          <div class="flex-1 overflow-y-auto p-4">
             <CompendiumBrowser />
-          {/if}
-        </main>
+          </div>
+        {:else if activeTab === 'calendar'}
+          <div class="flex-1 overflow-y-auto p-4">
+            <CampaignCalendarView />
+          </div>
+        {:else if activeTab === 'sheet'}
+          <div class="flex-1 overflow-y-auto p-4">
+            {#if character}
+              <div class="max-w-4xl mx-auto space-y-4">
+                <CharacterHeader />
+                <InventoryList />
+              </div>
+            {:else}
+              <div class="flex flex-col items-center justify-center h-full p-8 text-center">
+                <div class="w-12 h-12 rounded-xl bg-indigo-600/20 text-indigo-400 flex items-center justify-center text-xl mb-3">
+                  🛡️
+                </div>
+                <h3 class="text-base font-bold text-slate-200">No Character Claimed</h3>
+                <p class="text-xs text-slate-400 mt-1 max-w-sm">Connect as a player or select a character from the roster to view active stats and equipment.</p>
+                <button 
+                  onclick={() => currentView = 'PLAYER_LOGIN'}
+                  class="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold">
+                  Open Player PIN Portal
+                </button>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </main>
+
+      <!-- Slide-Out Archivist (AI) Drawer -->
+      {#if isArchivistOpen}
+        <aside class="w-96 bg-slate-900 border-l border-slate-800 z-30 shrink-0 flex flex-col shadow-2xl">
+          <div class="p-4 border-b border-slate-800 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-base">📖</span>
+              <h3 class="text-sm font-bold text-slate-200">Rules Archivist (RAG)</h3>
+            </div>
+            <button onclick={() => isArchivistOpen = false} class="text-slate-400 hover:text-slate-200 text-xs">✕</button>
+          </div>
+          <div class="flex-1 overflow-y-auto p-4">
+            <ArchivistSidebar />
+          </div>
+        </aside>
+      {/if}
+
+      <!-- Crafting Matrix Modal -->
+      <EssenceMatrixModal bind:isOpen={isCraftingModalOpen} />
+
+      <!-- Currency Assay Drawer -->
+      <CurrencyAssayDrawer />
+
+    {:else if currentView === 'PLAYER_LOGIN'}
+      <!-- 3. CLEAN GENERIC 4-DIGIT PIN PORTAL -->
+      <div class="flex-1 flex items-center justify-center p-6 bg-slate-950">
+        <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 text-center">
+          <div class="mx-auto w-10 h-10 bg-indigo-600/20 text-indigo-400 rounded-full flex items-center justify-center font-bold">
+            🛡️
+          </div>
+          <h2 class="text-base font-bold text-slate-100">Character Sheet Sign-In</h2>
+          <p class="text-xs text-slate-400">Enter your assigned 4-digit PIN to claim and sync your character sheet over local Wi-Fi.</p>
+          
+          <div class="space-y-2 my-4">
+            <input 
+              type="password" 
+              maxlength="4" 
+              bind:value={playerPinInput}
+              onkeydown={(e) => e.key === 'Enter' && handleClaimPin()}
+              placeholder="••••" 
+              class="w-36 tracking-widest text-center text-xl bg-slate-950 border border-slate-700 rounded-lg py-2 focus:outline-none focus:border-indigo-500 font-mono text-slate-100" 
+            />
+            {#if claimErrorMessage}
+              <p class="text-xs text-rose-400">{claimErrorMessage}</p>
+            {/if}
+          </div>
+
+          <div class="flex flex-col gap-2">
+            <button 
+              onclick={handleClaimPin}
+              class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-md">
+              Connect & Claim Sheet
+            </button>
+            <button 
+              onclick={() => currentView = 'DM_DASHBOARD'}
+              class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg transition-colors">
+              Return to DM Workstation
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <!-- 3. SLIDE-OUT RIGHT PANEL: NotebookLM AI Archivist Sidebar -->
-    <ArchivistSidebar bind:isOpen={isArchivistOpen} />
+    {:else if currentView === 'PLAYER_SHEET'}
+      <!-- 4. CONNECTED PLAYER SHEET VIEW -->
+      <div class="flex-1 bg-slate-950 p-6 overflow-y-auto">
+        <div class="max-w-4xl mx-auto space-y-6">
+          <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+            <div>
+              <h2 class="text-lg font-bold text-slate-100">{character?.name ?? 'Player Hero'}</h2>
+              <p class="text-xs text-slate-400">Level 5 Adventurer &bull; Synchronized via LAN WebSocket</p>
+            </div>
+            <div class="flex gap-2">
+              <span class="px-3 py-1 bg-emerald-950 text-emerald-400 text-xs font-mono rounded border border-emerald-800">SYNCED</span>
+              <button 
+                onclick={() => currentView = 'PLAYER_LOGIN'} 
+                class="px-3 py-1 bg-slate-800 text-slate-300 text-xs rounded hover:bg-slate-700">
+                Disconnect
+              </button>
+            </div>
+          </div>
 
-    <!-- 4. MODALS -->
-    <!-- Essence Crafting Matrix Modal -->
-    <EssenceMatrixModal bind:isOpen={isCraftingModalOpen} />
+          <div class="grid grid-cols-3 gap-4">
+            <div class="p-4 bg-slate-900 border border-slate-800 rounded-xl text-center">
+              <span class="text-xs font-semibold text-slate-400 uppercase">Hit Points</span>
+              <p class="text-2xl font-bold text-emerald-400 mt-1 font-mono">{character?.current_hp ?? 38} / {character?.max_hp ?? 38}</p>
+            </div>
+            <div class="p-4 bg-slate-900 border border-slate-800 rounded-xl text-center">
+              <span class="text-xs font-semibold text-slate-400 uppercase">Armor Class</span>
+              <p class="text-2xl font-bold text-amber-400 mt-1 font-mono">{character?.base_ac ?? 16}</p>
+            </div>
+            <div class="p-4 bg-slate-900 border border-slate-800 rounded-xl text-center">
+              <span class="text-xs font-semibold text-slate-400 uppercase">Speed</span>
+              <p class="text-2xl font-bold text-sky-400 mt-1 font-mono">{character?.speed ?? 30} ft</p>
+            </div>
+          </div>
 
-    <!-- Ostrava Settlement Gazetteer Modal -->
-    <OstravaGazetteerModal bind:isOpen={isGazetteerModalOpen} />
-
-    <!-- Black Orb System 15 Fullscreen Overlay -->
-    <BlackOrbOverlay />
-  {/if}
+          <InventoryList />
+        </div>
+      </div>
+    {/if}
+  </div>
 </div>

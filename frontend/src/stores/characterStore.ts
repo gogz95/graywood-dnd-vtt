@@ -23,9 +23,9 @@ export const tokenStore = writable<string | null>(null);
 export const isClaimingStore = writable<boolean>(false);
 export const claimErrorStore = writable<string | null>(null);
 
-const STORAGE_CHAR_ID_KEY = 'aleamos_claimed_character_id';
-const STORAGE_PIN_KEY = 'aleamos_claimed_pin';
-const STORAGE_TOKEN_KEY = 'aleamos_session_token';
+const STORAGE_CHAR_ID_KEY = 'vtt_claimed_character_id';
+const STORAGE_PIN_KEY = 'vtt_claimed_pin';
+const STORAGE_TOKEN_KEY = 'vtt_session_token';
 
 // Sample initial inventory items for realistic character sheet demonstration
 function createDefaultInventory(characterId: string): InventoryItem[] {

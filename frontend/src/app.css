@@ -53,3 +53,47 @@
     background: #4b5563;
   }
 }
+
+/* ==========================================================================
+   Theme Custom Properties
+   ========================================================================== */
+:root {
+  --theme-bg-main: #07080d;
+  --theme-bg-surface: #0f111a;
+  --theme-bg-elevated: #161926;
+  --theme-border: #1e2436;
+  --theme-text-main: #f1f5f9;
+  --theme-text-muted: #94a3b8;
+  --theme-accent: #6366f1;
+}
+
+html.theme-obsidian {
+  --theme-bg-main: #07080d;
+  --theme-bg-surface: #0f111a;
+  --theme-bg-elevated: #161926;
+  --theme-border: #1e2436;
+  --theme-text-main: #f1f5f9;
+  --theme-text-muted: #94a3b8;
+  --theme-accent: #6366f1;
+}
+
+html.theme-parchment {
+  --theme-bg-main: #18120c;
+  --theme-bg-surface: #221a12;
+  --theme-bg-elevated: #2d2218;
+  --theme-border: #4a3828;
+  --theme-text-main: #fef3c7;
+  --theme-text-muted: #d5be9b;
+  --theme-accent: #d97706;
+}
+
+html.theme-high-contrast {
+  --theme-bg-main: #000000;
+  --theme-bg-surface: #0a0a0a;
+  --theme-bg-elevated: #141414;
+  --theme-border: #ffffff;
+  --theme-text-main: #ffffff;
+  --theme-text-muted: #e2e8f0;
+  --theme-accent: #38bdf8;
+}
+

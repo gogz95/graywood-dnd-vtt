@@ -58,7 +58,7 @@
   let isLoading = $state(true);
 
   // Campaign Backup state
-  let backupPath = $state('campaign_backup.aleamos');
+  let backupPath = $state('campaign_backup.zip');
   let isExportingArchive = $state(false);
   let backupFeedback: { message: string; isError: boolean } | null = $state(null);
 
@@ -223,7 +223,7 @@
     isExportingArchive = true;
     backupFeedback = null;
     try {
-      const res = await exportCampaignArchive(backupPath.trim() || 'campaign_backup.aleamos');
+      const res = await exportCampaignArchive(backupPath.trim() || 'campaign_backup.zip');
       backupFeedback = {
         message: `Backup archive saved: ${res.archive_path}`,
         isError: false,
@@ -541,7 +541,7 @@
             <h4 class="text-xs font-bold text-slate-100 uppercase tracking-wider font-serif">Campaign Archive Backup</h4>
           </div>
           <p class="text-[11px] text-slate-400 mt-0.5">
-            Single-file SQLite snapshot & asset pack (.aleamos format).
+            Single-file SQLite snapshot & asset pack (.zip archive).
           </p>
         </div>
         <div class="flex items-center gap-2 w-full sm:w-auto shrink-0">

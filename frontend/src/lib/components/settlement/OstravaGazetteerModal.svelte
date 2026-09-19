@@ -30,14 +30,14 @@
 
   async function loadSettlementData() {
     try {
-      const res = await fetch('/api/settlements/ostrava');
+      const res = await fetch('/api/settlements/profile');
       if (res.ok) {
         const data = await res.json();
         profile = data.profile;
         contracts = data.contracts;
       }
     } catch (err) {
-      console.error('Failed loading Ostrava settlement profile:', err);
+      console.error('Failed loading settlement profile:', err);
     } finally {
       isLoading = false;
     }
@@ -109,7 +109,7 @@
           <div>
             <div class="flex items-center gap-2">
               <h2 class="text-base font-black text-slate-100 uppercase tracking-tight">
-                Settlement Profile: {profile?.name ?? 'Ostrava'}
+                Settlement Profile: {profile?.name ?? 'Coastal Settlement'}
               </h2>
               <span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold uppercase font-mono">
                 Trade Port &bull; Pop. {profile?.population_count.toLocaleString() ?? '18,400'}
@@ -184,7 +184,7 @@
         {#if isLoading}
           <div class="py-12 text-center text-slate-400 flex flex-col items-center justify-center">
             <div class="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-            <span>Loading Ostrava compendium profile...</span>
+            <span>Loading settlement compendium profile...</span>
           </div>
         {:else if activeTab === 'overview'}
           <!-- TAB 1: Demographics & Governance -->
@@ -224,7 +224,7 @@
                   <div class="space-y-2 text-xs">
                     <div>
                       <div class="flex justify-between text-slate-300 mb-1">
-                        <span>Human (Chancellery &amp; Coastland)</span>
+                        <span>Human (Civil &amp; Coastland)</span>
                         <strong>{demographics.human_percentage}%</strong>
                       </div>
                       <div class="w-full h-1.5 rounded-full bg-dark-900 overflow-hidden">

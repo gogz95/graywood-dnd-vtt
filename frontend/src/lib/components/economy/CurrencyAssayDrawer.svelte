@@ -182,14 +182,14 @@
         <div>
           <div class="flex items-center gap-2">
             <span class="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-bold text-[10px] uppercase">
-              Chancellery Customs Law §12
+              Standard Currency Exchange §12
             </span>
             <h3 class="text-xs font-black text-slate-100 uppercase tracking-wider font-serif">
-              Eastern Port Currency Assay Exchange
+              Regional Currency Assay & Exchange
             </h3>
           </div>
           <p class="text-[11px] text-slate-400 mt-1">
-            Mandatory harbor minting: Ay Modlahd Sun-Disks are reminted into Concord Sovereigns with an official <span class="text-amber-300 font-bold">10% municipal tariff</span> retained by the High Commissioner.
+            Regional minting: Foreign coinage and bullion disks are converted into standard trade currency with an official <span class="text-amber-300 font-bold">10% minting tariff</span> retained for municipal treasury.
           </p>
         </div>
       </div>

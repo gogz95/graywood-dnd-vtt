@@ -69,7 +69,7 @@
     <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 mb-3 shadow-lg shadow-amber-500/5">
       <Icons name="shield" size={28} />
     </div>
-    <h1 class="text-3xl font-black text-slate-100 tracking-tight">Aleamos DM Desktop</h1>
+    <h1 class="text-3xl font-black text-slate-100 tracking-tight">5e Tactical Workstation</h1>
     <p class="text-slate-400 text-sm mt-1 max-w-md mx-auto">
       Select your hero card from the roster and enter your secret 4-digit PIN to claim and synchronize your character sheet.
     </p>

@@ -64,7 +64,7 @@ export async function spawnCombatantToken(
 
 /**
  * Packages the campaign SQLite database, asset directory, and metadata
- * into a compressed `.aleamos` archive file for disaster recovery.
+ * into a compressed `.zip` archive file for disaster recovery.
  */
 export async function exportCampaignArchive(
   outputPath?: string
@@ -74,12 +74,12 @@ export async function exportCampaignArchive(
       const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: (cmd: string, args: unknown) => Promise<string> } } }).__TAURI__;
       if (tauri?.core?.invoke) {
         const msg = await tauri.core.invoke('export_campaign_archive', {
-          path: outputPath ?? 'campaign_backup.aleamos',
+          path: outputPath ?? 'campaign_backup.zip',
         });
         return {
           success: true,
           message: msg,
-          archive_path: outputPath ?? 'campaign_backup.aleamos',
+          archive_path: outputPath ?? 'campaign_backup.zip',
         };
       }
     } catch (ipcErr) {

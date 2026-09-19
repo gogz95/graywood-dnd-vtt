@@ -63,8 +63,8 @@
       id: 'log-1',
       epochDay: 1428,
       dateStr: '14th of Umbrel, Year 1428 G.E.',
-      title: 'Arrival at Ostrava Harbor Bastion',
-      details: 'Party chartered the caravel Sea Nymph into the High Pier. Weapon peace-bonding seals inspected and verified by Gate Bailiffs.',
+      title: 'Arrival at Coastal Harbor Bastion',
+      details: 'Party chartered the caravel Sea Nymph into the High Pier. Equipment and supplies inspected and verified by Gate Bailiffs.',
       tag: 'lore',
     },
     {
@@ -72,7 +72,7 @@
       epochDay: 1428,
       dateStr: '14th of Umbrel, Year 1428 G.E.',
       title: 'Port Assay Currency Exchange',
-      details: 'Exchanged foreign western tender at the Beacon Hill Assay Mint under 10% municipal customs tariff.',
+      details: 'Exchanged foreign western tender at the Port Assay Mint under standard exchange rates.',
       tag: 'contract',
     },
   ]);
@@ -181,7 +181,7 @@
           </h2>
         </div>
         <p class="text-xs text-amber-200/60 mt-1">
-          Chronicles of Aleamos &bull; Epoch Elapsed Days:
+          Campaign Chronicles &bull; Epoch Elapsed Days:
           <span class="font-mono text-amber-400 font-bold">{calendars?.epoch_days ?? '...'}</span>
         </p>
       </div>
@@ -229,7 +229,7 @@
 
   <!-- Tri-Calendar Canonical Cards -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-    <!-- Calendar 1: Chancellery Standard -->
+    <!-- Calendar 1: Civil Standard -->
     <div class="bg-dark-900/90 border border-amber-500/30 rounded-2xl p-4 shadow-xl space-y-3 relative overflow-hidden">
       <div class="flex items-center justify-between">
         <span class="text-[10px] uppercase font-black text-amber-400 tracking-wider">Civil Realm Standard</span>
@@ -358,7 +358,7 @@
             <input
               id="new-log-title"
               type="text"
-              placeholder="e.g. Cleared Ostrava Sluice Gates"
+              placeholder="e.g. Cleared Coastal Sluice Gates"
               bind:value={newLogTitle}
               class="w-full bg-dark-950 border border-dark-700 focus:border-amber-500 text-slate-200 text-xs px-3 py-1.5 rounded-xl focus:outline-none"
             />
