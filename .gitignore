@@ -1,52 +1,70 @@
 # =============================================================================
-# Tauri & Rust
+# Tauri & Rust Build Outputs
 # =============================================================================
 src-tauri/target/
 target/
 **/*.rs.bk
 *.pdb
-Cargo.lock
+*.profraw
+*.profdata
 
 # =============================================================================
-# Node.js & Frontend
+# Node.js, Frontend Bundlers & Caches
 # =============================================================================
 node_modules/
 frontend/node_modules/
 dist/
 frontend/dist/
 build/
+frontend/build/
 .vite/
+frontend/.vite/
 .svelte-kit/
+frontend/.svelte-kit/
 *.tsbuildinfo
 .parcel-cache/
 
 # =============================================================================
-# SQLite Databases & Local Campaign Archives
+# SQLite Databases, Runtime Stores & WAL Files
 # =============================================================================
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
 *.sqlite
+*.sqlite3
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
-*.aleamos
-.aleamos_vault/
+campaign.db
+campaign.db-journal
+campaign.db-wal
+campaign.db-shm
 
 # =============================================================================
-# Environment & Secrets
+# Vector Store / Local RAG Embeddings Cache
+# =============================================================================
+lancedb/
+.lancedb/
+data/embeddings/
+data/vector_cache/
+
+# =============================================================================
+# Environment Variables & Secrets
 # =============================================================================
 .env
 .env.local
 .env.*.local
 .env.production
 .env.development
+*.pem
+*.key
+*.cert
+*.pfx
 
 # =============================================================================
-# OS & IDE Junk
+# Operating System Junk
 # =============================================================================
-
 # macOS
 .DS_Store
 .DS_Store?
@@ -65,18 +83,23 @@ $RECYCLE.BIN/
 
 # Linux
 *~
+.directory
 
+# =============================================================================
+# IDEs & Developer Tooling
+# =============================================================================
 # VS Code
 .vscode/
 !.vscode/extensions.json
+!.vscode/settings.json
 
-# JetBrains / IntelliJ / CLion
+# JetBrains / IntelliJ IDEA / CLion / WebStorm
 .idea/
 *.iml
 *.iws
 *.ipr
 
-# Vim / Neovim
+# Vim & Neovim
 *.swp
 *.swo
 *.swn
@@ -93,14 +116,7 @@ auto-save-list
 tramp
 
 # =============================================================================
-# Tauri Updater & Release Signing
-# =============================================================================
-*.key
-*.pem
-!certs/ca.pem
-
-# =============================================================================
-# Logs & Diagnostics
+# Logs & Diagnostic Dumps
 # =============================================================================
 *.log
 logs/

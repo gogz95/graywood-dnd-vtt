@@ -1,0 +1,24 @@
+{
+  "name": "dnd-vtt-workstation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline-first desktop Virtual Tabletop (VTT) workstation for D&D 5e/5.5e built with Tauri 2, Rust, SQLite, Axum, PixiJS v8, and Svelte 5.",
+  "type": "module",
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "check": "npm --prefix frontend run check",
+    "lint": "npm --prefix frontend run lint",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

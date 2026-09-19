@@ -1,0 +1,86 @@
+name: Release Desktop Bundles
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Release (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            args: ""
+          - os: windows-latest
+            platform: windows
+            args: ""
+          - os: macos-latest
+            platform: macos
+            args: ""
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux System Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Setup Rust Stable Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Setup Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Frontend Dependencies
+        run: |
+          npm ci --prefix frontend
+
+      - name: Build Desktop Application and Publish Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'D&D 5e/5.5e VTT Workstation ${{ github.ref_name }}'
+          releaseBody: |
+            Automated production release for ${{ github.ref_name }}.
+            
+            ### Included Desktop Binaries:
+            - **Windows**: `.msi` standalone installer and `.exe` bundle
+            - **macOS**: Universal `.dmg` installer (Apple Silicon & Intel)
+            - **Linux**: `.AppImage` standalone binary and `.deb` package
+            
+            See the repository documentation for offline setup and local LAN connectivity guidelines.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
