@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  /* CRT Scanline Overlay Effect */
+  .crt-scanlines {
+    background: linear-gradient(
+      rgba(18, 16, 16, 0) 50%,
+      rgba(0, 0, 0, 0.4) 50%
+    );
+    background-size: 100% 4px;
+    pointer-events: none;
+  }
+
+  /* Chromatic Aberration Text & Shadow Effect */
+  .chromatic-glitch {
+    position: relative;
+    text-shadow: -2px 0 #ef4444, 2px 0 #06b6d4;
+    animation: chromatic-flicker 2s infinite alternate;
+  }
+
+  @keyframes chromatic-flicker {
+    0% {
+      text-shadow: -2px 0 #ef4444, 2px 0 #06b6d4;
+    }
+    50% {
+      text-shadow: -3px 1px #ef4444, 3px -1px #06b6d4;
+    }
+    100% {
+      text-shadow: -1px -1px #ef4444, 1px 1px #06b6d4;
+    }
+  }
+
+  /* Dark Void Pulsing Radial Gradient */
+  .dark-void-bg {
+    background: radial-gradient(circle at center, #020008 0%, #0d061f 40%, #07080d 85%);
+  }
+
+  /* Custom Smooth Mobile Scrollbars */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0f111a;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2e344e;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #4b5563;
+  }
+}
