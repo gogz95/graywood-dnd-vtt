@@ -2,8 +2,101 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   Global Box Model Reset & Viewport Safeguards
+   ========================================================================== */
+
+/* Force standard box model across every element */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Prevent viewport bounce, elastic overscroll, and phantom horizontal bars.
+   position:fixed anchors the root so iOS rubber-banding never escapes the shell. */
+html, body {
+  width: 100%;
+  height: 100%;
+  height: 100dvh; /* dynamic viewport height — collapses mobile browser chrome */
+  overflow: hidden;
+  position: fixed;
+  touch-action: none;
+  background-color: #020617; /* slate-950 */
+  color: #f8fafc;
+}
+
+/* Canvas and media elements must never expand their flex/grid parent.
+   WebGL canvas default display:inline introduces 4 px baseline gap — neutralize it. */
+canvas, img, svg, video {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* Remove default list decoration that leaks through Tailwind reset gaps */
+ul, ol {
+  list-style: none;
+}
+
+/* Remove button/input browser chrome that overrides design-system tokens */
+button, input, textarea, select {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+/* ==========================================================================
+   Scrollbar Skin — slim, consistent across Webkit and Firefox
+   ========================================================================== */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #0f111a;
+}
+::-webkit-scrollbar-thumb {
+  background: #2e344e;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2e344e #0f111a;
+}
+
+/* ==========================================================================
+   Drop-Zone Overlay (activated by assetDrop.ts body class)
+   ========================================================================== */
+body.drop-active::after {
+  content: 'Drop audio, image, or data file…';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #a5b4fc;
+  background: rgba(2, 6, 23, 0.75);
+  border: 2px dashed #6366f1;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+/* ==========================================================================
+   Custom Utility Animations
+   ========================================================================== */
 @layer utilities {
-  /* CRT Scanline Overlay Effect */
+  /* CRT Scanline Overlay */
   .crt-scanlines {
     background: linear-gradient(
       rgba(18, 16, 16, 0) 50%,
@@ -13,7 +106,7 @@
     pointer-events: none;
   }
 
-  /* Chromatic Aberration Text & Shadow Effect */
+  /* Chromatic Aberration Effect */
   .chromatic-glitch {
     position: relative;
     text-shadow: -2px 0 #ef4444, 2px 0 #06b6d4;
@@ -21,36 +114,21 @@
   }
 
   @keyframes chromatic-flicker {
-    0% {
-      text-shadow: -2px 0 #ef4444, 2px 0 #06b6d4;
-    }
-    50% {
-      text-shadow: -3px 1px #ef4444, 3px -1px #06b6d4;
-    }
-    100% {
-      text-shadow: -1px -1px #ef4444, 1px 1px #06b6d4;
-    }
+    0%   { text-shadow: -2px  0px #ef4444,  2px  0px #06b6d4; }
+    50%  { text-shadow: -3px  1px #ef4444,  3px -1px #06b6d4; }
+    100% { text-shadow: -1px -1px #ef4444,  1px  1px #06b6d4; }
   }
 
-  /* Dark Void Pulsing Radial Gradient */
+  /* Dark Void Background */
   .dark-void-bg {
     background: radial-gradient(circle at center, #020008 0%, #0d061f 40%, #07080d 85%);
   }
 
-  /* Custom Smooth Mobile Scrollbars */
-  ::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
-  }
-  ::-webkit-scrollbar-track {
-    background: #0f111a;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #2e344e;
-    border-radius: 4px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #4b5563;
+  /* Flex child that must never overflow its row/column parent */
+  .flex-no-overflow {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
   }
 }
 
@@ -58,42 +136,41 @@
    Theme Custom Properties
    ========================================================================== */
 :root {
-  --theme-bg-main: #07080d;
-  --theme-bg-surface: #0f111a;
+  --theme-bg-main:     #07080d;
+  --theme-bg-surface:  #0f111a;
   --theme-bg-elevated: #161926;
-  --theme-border: #1e2436;
-  --theme-text-main: #f1f5f9;
-  --theme-text-muted: #94a3b8;
-  --theme-accent: #6366f1;
+  --theme-border:      #1e2436;
+  --theme-text-main:   #f1f5f9;
+  --theme-text-muted:  #94a3b8;
+  --theme-accent:      #6366f1;
 }
 
 html.theme-obsidian {
-  --theme-bg-main: #07080d;
-  --theme-bg-surface: #0f111a;
+  --theme-bg-main:     #07080d;
+  --theme-bg-surface:  #0f111a;
   --theme-bg-elevated: #161926;
-  --theme-border: #1e2436;
-  --theme-text-main: #f1f5f9;
-  --theme-text-muted: #94a3b8;
-  --theme-accent: #6366f1;
+  --theme-border:      #1e2436;
+  --theme-text-main:   #f1f5f9;
+  --theme-text-muted:  #94a3b8;
+  --theme-accent:      #6366f1;
 }
 
 html.theme-parchment {
-  --theme-bg-main: #18120c;
-  --theme-bg-surface: #221a12;
+  --theme-bg-main:     #18120c;
+  --theme-bg-surface:  #221a12;
   --theme-bg-elevated: #2d2218;
-  --theme-border: #4a3828;
-  --theme-text-main: #fef3c7;
-  --theme-text-muted: #d5be9b;
-  --theme-accent: #d97706;
+  --theme-border:      #4a3828;
+  --theme-text-main:   #fef3c7;
+  --theme-text-muted:  #d5be9b;
+  --theme-accent:      #d97706;
 }
 
 html.theme-high-contrast {
-  --theme-bg-main: #000000;
-  --theme-bg-surface: #0a0a0a;
+  --theme-bg-main:     #000000;
+  --theme-bg-surface:  #0a0a0a;
   --theme-bg-elevated: #141414;
-  --theme-border: #ffffff;
-  --theme-text-main: #ffffff;
-  --theme-text-muted: #e2e8f0;
-  --theme-accent: #38bdf8;
+  --theme-border:      #ffffff;
+  --theme-text-main:   #ffffff;
+  --theme-text-muted:  #e2e8f0;
+  --theme-accent:      #38bdf8;
 }
-

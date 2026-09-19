@@ -1,8 +1,11 @@
 <script lang="ts">
   import '../app.css';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import AudioDrawer from '../lib/components/audio/AudioDrawer.svelte';
+  import SettingsDrawer from '../lib/components/settings/SettingsDrawer.svelte';
+  import { registerGlobalDropZone, type DroppedAsset } from '../lib/utils/assetDrop';
 
-  export type ViewMode = 'SETUP' | 'DM_DASHBOARD' | 'PLAYER_LOGIN' | 'PLAYER_SHEET';
+  type ViewMode = 'SETUP' | 'DM_DASHBOARD' | 'PLAYER_LOGIN' | 'PLAYER_SHEET';
   
   let currentView: ViewMode = $state('SETUP');
   let activeTab = $state<'encounter' | 'canvas' | 'archivist' | 'crafting' | 'economy'>('encounter');
@@ -12,6 +15,14 @@
   let archivistQuery = $state('');
   let archivistResponse = $state('');
   let isArchivistLoading = $state(false);
+
+  // Drawer visibility
+  let audioDrawerOpen = $state(false);
+  let settingsDrawerOpen = $state(false);
+
+  // Drop-zone feedback
+  let lastDroppedFile = $state<string | null>(null);
+  let dropCleanup: (() => void) | null = null;
 
   let systemStatus = $state({
     dbConnected: false,
@@ -61,6 +72,20 @@
     } catch {
       currentView = 'SETUP';
     }
+
+    // Register global drag-and-drop ingestion
+    dropCleanup = registerGlobalDropZone((asset: DroppedAsset) => {
+      lastDroppedFile = asset.fileName;
+      // If audio was dropped, open the audio drawer so the user sees the new track
+      if (asset.category === 'audio') {
+        audioDrawerOpen = true;
+      }
+      setTimeout(() => { lastDroppedFile = null; }, 3500);
+    });
+  });
+
+  onDestroy(() => {
+    if (dropCleanup) dropCleanup();
   });
 
   function completeSetup(name: string) {
@@ -174,6 +199,27 @@
         onclick={resetToSetup}
         class="px-2 py-1 text-xs text-slate-400 hover:text-slate-200 rounded border border-slate-800 hover:border-slate-700 transition-colors">
         Setup Wizard
+      </button>
+
+      <!-- Divider -->
+      <span class="w-px h-4 bg-slate-800 mx-1"></span>
+
+      <!-- Audio Studio Button -->
+      <button
+        id="open-audio-drawer"
+        onclick={() => { audioDrawerOpen = !audioDrawerOpen; if (audioDrawerOpen) settingsDrawerOpen = false; }}
+        title="Audio Studio"
+        class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded font-medium transition-colors {audioDrawerOpen ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-600/40' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}">
+        🎵 <span class="hidden sm:inline">Audio</span>
+      </button>
+
+      <!-- Settings Button -->
+      <button
+        id="open-settings-drawer"
+        onclick={() => { settingsDrawerOpen = !settingsDrawerOpen; if (settingsDrawerOpen) audioDrawerOpen = false; }}
+        title="Settings"
+        class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded font-medium transition-colors {settingsDrawerOpen ? 'bg-slate-700 text-slate-200 border border-slate-600' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}">
+        ⚙️ <span class="hidden sm:inline">Settings</span>
       </button>
     </div>
   </header>
@@ -543,4 +589,17 @@
       </div>
     {/if}
   </div>
+
+  <!-- Drop overlay indicator -->
+  {#if lastDroppedFile}
+    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 border border-slate-700 shadow-2xl rounded-xl px-4 py-2.5 flex items-center gap-2.5 text-xs font-medium text-slate-200 animate-pulse pointer-events-none">
+      <span class="text-indigo-400">📂</span> Ingested: <span class="font-mono text-emerald-400">{lastDroppedFile}</span>
+    </div>
+  {/if}
+
+  <!-- Audio Studio Drawer -->
+  <AudioDrawer bind:isOpen={audioDrawerOpen} />
+
+  <!-- Settings Drawer -->
+  <SettingsDrawer bind:isOpen={settingsDrawerOpen} />
 </div>
