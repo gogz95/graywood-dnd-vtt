@@ -1,4 +1,4 @@
-import type { ActiveCombatant, MonsterStatBlock } from '../components/dm/EncounterDashboard.svelte';
+import type { ActiveCombatant, MonsterStatBlock } from '../../types/combat';
 
 export interface SpawnCombatantPayload {
   encounter_id: string;

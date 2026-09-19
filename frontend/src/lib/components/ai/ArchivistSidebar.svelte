@@ -1,336 +1,356 @@
 <script lang="ts">
-  import Icons from '../../../components/Icons.svelte';
+  // ArchivistSidebar.svelte — LLM chat panel with offline KB ingestion + RAG injection
 
-  export interface CitationSource {
-    id: number;
-    title: string;
-    category: string;
-    excerpt: string;
-    authority: string;
-    enabled: boolean;
-  }
+  import { onMount } from 'svelte';
 
-  export interface ArchivistMessage {
+  interface ArchivistMessage {
     id: string;
     sender: 'user' | 'archivist';
     text: string;
     timestamp: number;
-    citations?: number[];
+    citations?: string[];
+    isLoading?: boolean;
   }
 
-  let { isOpen = $bindable(false) }: { isOpen?: boolean } = $props();
+  interface KbChunk {
+    id: string;
+    fileName: string;
+    text: string;
+    tags: string[];
+  }
 
-  let queryInput = $state('');
-  let isGenerating = $state(false);
+  const KB_KEY   = 'vtt_archivist_kb';
+  const CHAT_KEY = 'vtt_archivist_chat';
+  const MODEL_KEY = 'vtt_archivist_model';
 
-  let sources = $state<CitationSource[]>([
-    {
-      id: 1,
-      title: 'SRD 5.2 Combat Actions & Maneuvers',
-      category: 'Tactical Combat Rules',
-      excerpt:
-        'Unarmed Strikes & Grappling: Grappling requires a Strength (Athletics) check or an Unarmed Strike against the target DC (8 + Str mod + Prof). The Grappled condition reduces speed to 0. Moving a grappled creature requires half movement speed unless one size category smaller.',
-      authority: 'System Reference Document 5.2 (2024)',
-      enabled: true,
-    },
-    {
-      id: 2,
-      title: 'SRD 5.1 Spellcasting & Concentration Rules',
-      category: 'Arcane & Divine Magic',
-      excerpt:
-        'Concentration: Taking damage while concentrating mandates a Constitution saving throw. The DC equals 10 or half the damage taken (whichever number is higher). Taking damage from multiple sources triggers separate saving throws.',
-      authority: 'System Reference Document 5.1',
-      enabled: true,
-    },
-    {
-      id: 3,
-      title: 'SRD 5.1 Resting, Exhaustion & Recovery',
-      category: 'Adventuring Environment',
-      excerpt:
-        'Short & Long Rests: A Short Rest lasts at least 1 hour; characters spend available Hit Dice to regain HP. A Long Rest lasts 8 hours, restoring all hit points and up to half the character’s maximum total Hit Dice.',
-      authority: 'System Reference Document 5.1',
-      enabled: true,
-    },
-    {
-      id: 4,
-      title: 'SRD 5.1 Magic Item Rarity & Crafting Valuation',
-      category: 'Equipment & Artifice',
-      excerpt:
-        'Magic Item Crafting Valuation: Common (50-100 GP, level 1+), Uncommon (101-500 GP, level 3+), Rare (501-5,000 GP, level 5+), Very Rare (5,001-50,000 GP, level 11+), Legendary (50,001+ GP, level 17+).',
-      authority: 'System Reference Document 5.1',
-      enabled: true,
-    },
-    {
-      id: 5,
-      title: 'SRD 5.2 Vision, Lighting & Cover Mechanics',
-      category: 'Environmental Senses',
-      excerpt:
-        'Cover and Vision: Half Cover grants +2 to AC and Dexterity saving throws. Three-Quarters Cover grants +5 to AC and Dexterity saves. Total Cover prevents direct targeting. Darkvision allows seeing in Dim Light as Bright Light, and Darkness as Dim Light (black and white only).',
-      authority: 'System Reference Document 5.2',
-      enabled: true,
-    },
-  ]);
+  // ── State ──────────────────────────────────────────────────────────────────
+  let queryInput    = $state('');
+  let isGenerating  = $state(false);
+  let abortCtrl: AbortController | null = null;
+  let chatBottom    = $state<HTMLElement | null>(null);
+  let showKbPanel   = $state(false);
+  let modelName     = $state(localStorage.getItem(MODEL_KEY) ?? 'qwen2.5:7b');
+  let temperature   = $state(0.1);
 
-  let messages = $state<ArchivistMessage[]>([
-    {
-      id: 'init-1',
-      sender: 'archivist',
-      text: 'Greetings, Game Master. The Local Rules Archivist is active. I provide immediate, deterministic rulings sourced from the standard D&D 5e / 5.5e (2024) SRD compendium. How may I assist your encounter?',
-      timestamp: Date.now() - 60000,
-    },
-  ]);
+  let messages = $state<ArchivistMessage[]>((() => {
+    try {
+      const raw = localStorage.getItem(CHAT_KEY);
+      const parsed = raw ? (JSON.parse(raw) as ArchivistMessage[]) : [];
+      if (parsed.length > 0) return parsed;
+    } catch { /* empty */ }
+    return [{
+      id: 'init-0', sender: 'archivist', timestamp: Date.now(),
+      text: 'Rules Archivist online. I answer D&D 5e / 5.5e SRD questions. Load source files to expand my knowledge base.',
+    }];
+  })());
 
-  function toggleSource(id: number) {
-    const s = sources.find((src) => src.id === id);
-    if (s) {
-      s.enabled = !s.enabled;
+  let kb = $state<KbChunk[]>((() => {
+    try { return JSON.parse(localStorage.getItem(KB_KEY) ?? '[]') as KbChunk[]; } catch { return []; }
+  })());
+
+  // ── Persist ────────────────────────────────────────────────────────────────
+  $effect(() => {
+    localStorage.setItem(CHAT_KEY, JSON.stringify(messages.filter(m => !m.isLoading).slice(-60)));
+  });
+  $effect(() => { localStorage.setItem(KB_KEY, JSON.stringify(kb)); });
+  $effect(() => { localStorage.setItem(MODEL_KEY, modelName); });
+
+  // ── Auto-scroll ────────────────────────────────────────────────────────────
+  $effect(() => {
+    if (messages.length) {
+      setTimeout(() => { chatBottom?.scrollIntoView({ behavior: 'smooth' }); }, 50);
     }
+  });
+
+  // ── KB helpers ─────────────────────────────────────────────────────────────
+  function chunkText(text: string, maxLen = 800): string[] {
+    const paragraphs = text.split(/\n{2,}/);
+    const chunks: string[] = [];
+    let current = '';
+    for (const p of paragraphs) {
+      if ((current + p).length > maxLen) {
+        if (current) chunks.push(current.trim());
+        current = p;
+      } else {
+        current += (current ? '\n\n' : '') + p;
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks;
   }
 
-  async function handleSendQuery() {
+  async function ingestFile(file: File) {
+    const text = await file.text();
+    const chunks = chunkText(text);
+    const newChunks: KbChunk[] = chunks.map((c, i) => ({
+      id: `${file.name}-${i}-${Date.now()}`,
+      fileName: file.name,
+      text: c,
+      tags: inferTags(c),
+    }));
+    kb = [...kb, ...newChunks];
+  }
+
+  function inferTags(text: string): string[] {
+    const lower = text.toLowerCase();
+    const tags: string[] = [];
+    if (/spell|cast|cantrip|slot/.test(lower)) tags.push('spells');
+    if (/combat|attack|action|initiative|turn|round/.test(lower)) tags.push('combat');
+    if (/rest|hit dice|exhaustion/.test(lower)) tags.push('resting');
+    if (/magic item|artifact|rarity/.test(lower)) tags.push('items');
+    if (/monster|creature|cr|challenge/.test(lower)) tags.push('monsters');
+    return tags;
+  }
+
+  function removeKbFile(fileName: string) {
+    kb = kb.filter(c => c.fileName !== fileName);
+  }
+
+  function kbFileList(): string[] {
+    return [...new Set(kb.map(c => c.fileName))];
+  }
+
+  function retrieveContext(query: string): string {
+    if (kb.length === 0) return '';
+    const queryWords = query.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+    const scored = kb.map(chunk => {
+      const lower = chunk.text.toLowerCase();
+      const score = queryWords.reduce((s, w) => s + (lower.split(w).length - 1), 0);
+      return { chunk, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    const top = scored.slice(0, 3).filter(s => s.score > 0);
+    if (top.length === 0) return '';
+    return top.map(s => `[Source: ${s.chunk.fileName}]\n${s.chunk.text}`).join('\n\n---\n\n');
+  }
+
+  // ── Chat handling ──────────────────────────────────────────────────────────
+  async function sendQuery() {
     const raw = queryInput.trim();
     if (!raw || isGenerating) return;
 
-    const userMsg: ArchivistMessage = {
-      id: `user-${Date.now()}`,
-      sender: 'user',
-      text: raw,
-      timestamp: Date.now(),
-    };
-
-    messages = [...messages, userMsg];
+    const userMsg: ArchivistMessage = { id: `u-${Date.now()}`, sender: 'user', text: raw, timestamp: Date.now() };
+    const loadingMsg: ArchivistMessage = { id: `loading-${Date.now()}`, sender: 'archivist', text: '…', timestamp: Date.now(), isLoading: true };
+    messages = [...messages, userMsg, loadingMsg];
     queryInput = '';
     isGenerating = true;
 
+    const ragContext = retrieveContext(raw);
+    const systemPrompt = `You are an expert D&D 5e/5.5e (2024) SRD Rules Referee. Answer with exact SRD mechanics. Use only verifiable rules — no homebrew.\n\n${ragContext ? `Relevant source material:\n${ragContext}\n\n` : ''}User question:`;
+
+    abortCtrl = new AbortController();
+
     try {
-      // First attempt local Ollama instance on port 11434
       const res = await fetch('http://127.0.0.1:11434/api/generate', {
         method: 'POST',
+        signal: abortCtrl.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'qwen2.5:7b',
-          prompt: `You are an expert D&D 5e/5.5e (2024 SRD) Rules Referee. Answer using strictly standard SRD mechanics with zero homebrew lore:\n\n${raw}`,
+          model: modelName,
+          prompt: `${systemPrompt}\n${raw}`,
           stream: false,
-          options: { temperature: 0.0 },
+          options: { temperature },
         }),
       });
 
       if (res.ok) {
-        const data = await res.json();
-        const archivistMsg: ArchivistMessage = {
-          id: `arch-${Date.now()}`,
-          sender: 'archivist',
-          text: data.response,
-          timestamp: Date.now(),
-          citations: [1, 2],
+        const data = await res.json() as { response: string };
+        const citations = ragContext ? kbFileList().filter(f => ragContext.includes(f)) : [];
+        const replyMsg: ArchivistMessage = {
+          id: `a-${Date.now()}`, sender: 'archivist', text: data.response,
+          timestamp: Date.now(), citations: citations.length > 0 ? citations : undefined,
         };
-        messages = [...messages, archivistMsg];
+        messages = [...messages.filter(m => !m.isLoading), replyMsg];
         return;
       }
-    } catch {
-      // Offline fallback deterministic rule evaluation
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        messages = messages.filter(m => !m.isLoading);
+        isGenerating = false;
+        return;
+      }
     } finally {
       isGenerating = false;
+      abortCtrl = null;
     }
 
-    // Deterministic rule synthesizer
-    const reply = synthesizeOfflineRuling(raw);
-    messages = [...messages, reply];
-  }
-
-  function synthesizeOfflineRuling(query: string): ArchivistMessage {
-    const lower = query.toLowerCase();
-    const activeIds = sources.filter((s) => s.enabled).map((s) => s.id);
-
-    if (lower.includes('grapple') || lower.includes('unarmed') || lower.includes('shove') || lower.includes('athletics')) {
-      if (activeIds.includes(1)) {
-        return {
-          id: `arch-${Date.now()}`,
-          sender: 'archivist',
-          text: 'Under standard SRD 5.2 rules [cite: 1], a Grapple attempt replaces an attack during an Attack action. The DC equals 8 + the initiator’s Strength modifier + proficiency bonus. The target makes a Strength or Dexterity saving throw. While grappled, the target’s speed is 0 and cannot benefit from bonuses to speed.',
-          timestamp: Date.now(),
-          citations: [1],
-        };
-      }
-    }
-
-    if (lower.includes('concentration') || lower.includes('spell') || lower.includes('cast')) {
-      if (activeIds.includes(2)) {
-        return {
-          id: `arch-${Date.now()}`,
-          sender: 'archivist',
-          text: 'Under standard SRD 5.1 rules [cite: 2], whenever a concentrating spellcaster takes damage, they must make a Constitution saving throw to maintain concentration. The DC equals 10 or half the damage taken, whichever number is higher. If damage is taken from multiple sources, separate saving throws must be rolled for each instance.',
-          timestamp: Date.now(),
-          citations: [2],
-        };
-      }
-    }
-
-    if (lower.includes('rest') || lower.includes('exhaustion') || lower.includes('hit dice') || lower.includes('sleep')) {
-      if (activeIds.includes(3)) {
-        return {
-          id: `arch-${Date.now()}`,
-          sender: 'archivist',
-          text: 'Under standard SRD 5.1 resting rules [cite: 3], a Short Rest requires at least 1 hour of downtime, allowing characters to spend Hit Dice up to their maximum level. A Long Rest requires 8 hours (with no more than 2 hours of light watch), regaining all lost hit points and half of the total maximum Hit Dice.',
-          timestamp: Date.now(),
-          citations: [3],
-        };
-      }
-    }
-
-    if (lower.includes('magic item') || lower.includes('craft') || lower.includes('rarity') || lower.includes('cost')) {
-      if (activeIds.includes(4)) {
-        return {
-          id: `arch-${Date.now()}`,
-          sender: 'archivist',
-          text: 'According to SRD magic item valuation standards [cite: 4], crafting times and material values scale with item rarity: Common items cost ~50-100 GP, Uncommon items ~101-500 GP, and Rare items ~501-5,000 GP. Crafting progress typically advances at 50 GP of market value per full 8-hour workday.',
-          timestamp: Date.now(),
-          citations: [4],
-        };
-      }
-    }
-
-    if (lower.includes('cover') || lower.includes('darkvision') || lower.includes('vision') || lower.includes('light')) {
-      if (activeIds.includes(5)) {
-        return {
-          id: `arch-${Date.now()}`,
-          sender: 'archivist',
-          text: 'Under SRD 5.2 vision and cover rules [cite: 5], Half Cover grants +2 to AC and Dexterity saving throws, while Three-Quarters Cover grants +5. Total Cover shields a target from direct spell targeting. Darkvision permits seeing in darkness as if it were dim light within the specified range (usually 60 ft), but color cannot be discerned.',
-          timestamp: Date.now(),
-          citations: [5],
-        };
-      }
-    }
-
-    const availableCites = activeIds.slice(0, 2);
-    const citeTokens = availableCites.map((c) => `[cite: ${c}]`).join(', ');
-    return {
-      id: `arch-${Date.now()}`,
-      sender: 'archivist',
-      text: `Based on enabled SRD source documents ${citeTokens}, standard Fifth Edition mechanics resolve this inquiry using core ability checks or difficulty class formulas (DC 10 for Easy, 15 for Medium, 20 for Hard). Consult enabled citations above for exact clauses.`,
+    // Offline deterministic fallback
+    const fallback = offlineFallback(raw);
+    messages = [...messages.filter(m => !m.isLoading), {
+      id: `a-${Date.now()}`, sender: 'archivist', text: `[Offline Mode — Ollama unavailable]\n\n${fallback}`,
       timestamp: Date.now(),
-      citations: availableCites,
-    };
+    }];
   }
 
-  function handleClose() {
-    isOpen = false;
+  function cancelGeneration() {
+    abortCtrl?.abort();
+    messages = messages.filter(m => !m.isLoading);
+    isGenerating = false;
+  }
+
+  function clearChat() {
+    messages = [{
+      id: 'init-clear', sender: 'archivist', timestamp: Date.now(),
+      text: 'Chat cleared. Ask a rules question to begin.',
+    }];
+  }
+
+  function offlineFallback(query: string): string {
+    const q = query.toLowerCase();
+    if (q.match(/grapple|unarmed|shove|athletics/))
+      return 'SRD 5.2 — Grappling: A grapple replaces an attack. The target must succeed on a Str or Dex saving throw (DC = 8 + your Str mod + Prof). The Grappled condition reduces the target\'s speed to 0.';
+    if (q.match(/concentrat|spell/))
+      return 'SRD 5.1 — Concentration: When a concentrating caster takes damage, make a Constitution saving throw. DC = 10 or half the damage taken (whichever is higher). Multiple damage sources require separate saves.';
+    if (q.match(/rest|exhaustion|hit dice/))
+      return 'SRD 5.1 — Short Rest: 1+ hours, spend Hit Dice to regain HP. Long Rest: 8 hours, regain all HP and half of maximum Hit Dice. Exhaustion reduces by 1 on a Long Rest.';
+    if (q.match(/cover|darkvision|light/))
+      return 'SRD 5.2 — Cover: Half Cover +2 AC/Dex saves, Three-Quarters Cover +5 AC/Dex saves, Total Cover prevents direct targeting. Darkvision: treats Darkness as Dim Light within range.';
+    if (q.match(/initiative|combat|surprise/))
+      return 'SRD 5e — Initiative: Roll Dex check at start of combat; highest result goes first. A surprised creature cannot move, take actions, or reactions on its first turn. Initiative order is fixed until end of encounter.';
+    return 'No matching SRD rule found in offline library. Connect Ollama (qwen2.5:7b on port 11434) for a full language model response, or load source documents via the Knowledge Base panel.';
+  }
+
+  function formatTime(ts: number): string {
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  const QUICK_QUERIES = [
+    '2024 Grapple rules', 'Concentration DC formula', 'Cover AC bonuses',
+    'Short rest vs long rest', 'Surprise round mechanics', 'Opportunity attack triggers',
+  ];
+
+  let dragOver = $state(false);
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    dragOver = false;
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    for (const f of files) {
+      if (f.name.match(/\.(txt|md|json)$/i)) ingestFile(f);
+    }
   }
 </script>
 
-<div class="h-full flex flex-col bg-[#0b0d14] text-slate-100 select-none">
-  <!-- Header Bar -->
-  <div class="p-4 border-b border-amber-900/30 flex items-center justify-between shrink-0 bg-[#07090e]">
-    <div class="flex items-center gap-2.5">
-      <div class="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-md">
-        <Icons name="book" size={18} />
-      </div>
-      <div>
-        <h2 class="text-sm font-black text-slate-100 uppercase tracking-widest font-serif flex items-center gap-1.5">
-          Rules Archivist
-          <span class="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 font-mono text-[9px] font-bold">RAG</span>
-        </h2>
-        <p class="text-[10px] text-amber-200/60 font-mono">SRD 5.1/5.2 Offline Inference</p>
-      </div>
+<div class="h-full flex flex-col overflow-hidden bg-slate-950">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-900 shrink-0">
+    <div>
+      <h2 class="text-sm font-bold text-slate-200 uppercase tracking-wide">Rules Archivist</h2>
+      <p class="text-[10px] text-slate-500">Ollama · {modelName} · {kb.length} KB chunks</p>
     </div>
-    <button
-      onclick={handleClose}
-      class="w-7 h-7 rounded-lg bg-dark-900 hover:bg-dark-800 text-slate-400 hover:text-slate-200 flex items-center justify-center border border-dark-700 transition-colors"
-      aria-label="Close Archivist Drawer"
+    <div class="flex items-center gap-1.5">
+      <button onclick={() => showKbPanel = !showKbPanel} class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg transition-colors {showKbPanel ? 'bg-indigo-900/50 text-indigo-300' : ''}">📚 KB</button>
+      <button onclick={clearChat} class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs rounded-lg transition-colors">🗑 Clear</button>
+    </div>
+  </div>
+
+  <!-- ── KB Panel ─────────────────────────────────────────────────────────── -->
+  {#if showKbPanel}
+    <div
+      class="border-b border-slate-800 bg-slate-900/60 shrink-0 p-3 space-y-2 transition-all"
+      role="region"
+      ondragover={(e) => { e.preventDefault(); dragOver = true; }}
+      ondragleave={() => dragOver = false}
+      ondrop={handleDrop}
     >
-      <Icons name="x" size={14} />
-    </button>
-  </div>
+      <div class="flex items-center justify-between">
+        <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Knowledge Base ({kbFileList().length} files, {kb.length} chunks)</h3>
+        <label class="px-2.5 py-1 bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-semibold rounded cursor-pointer transition-colors">
+          + Import File
+          <input type="file" accept=".txt,.md,.json" multiple class="hidden"
+            onchange={(e) => { for (const f of Array.from((e.target as HTMLInputElement).files ?? [])) ingestFile(f); }} />
+        </label>
+      </div>
 
-  <!-- Sources Selector (Collapsible Chips) -->
-  <div class="p-3 border-b border-amber-900/20 bg-[#090b10] shrink-0">
-    <span class="text-[10px] font-bold text-amber-300 uppercase tracking-wider block mb-2 font-serif">
-      Indexed SRD Vector Indices:
-    </span>
-    <div class="flex flex-wrap gap-1.5">
-      {#each sources as src}
-        <button
-          onclick={() => toggleSource(src.id)}
-          class="px-2 py-1 rounded-lg text-[10px] font-semibold border transition-all flex items-center gap-1.5 {
-            src.enabled
-              ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-sm shadow-amber-500/10'
-              : 'bg-dark-900/60 border-dark-700 text-slate-500 hover:text-slate-400'
-          }"
-        >
-          <span class="w-1.5 h-1.5 rounded-full {src.enabled ? 'bg-amber-400' : 'bg-slate-600'}"></span>
-          {src.title}
-        </button>
-      {/each}
-    </div>
-  </div>
+      <div class="border-2 border-dashed {dragOver ? 'border-indigo-500 bg-indigo-950/20' : 'border-slate-800'} rounded-xl p-3 text-center text-xs text-slate-600 transition-colors">
+        {dragOver ? 'Drop to ingest…' : 'Drag .txt / .md / .json files here'}
+      </div>
 
-  <!-- Messages Conversation Stream -->
-  <div class="flex-1 overflow-y-auto p-4 space-y-4">
-    {#each messages as msg}
-      <div class="flex flex-col {msg.sender === 'user' ? 'items-end' : 'items-start'}">
-        <div
-          class="max-w-[88%] rounded-2xl p-3.5 text-xs leading-relaxed shadow-lg {
-            msg.sender === 'user'
-              ? 'bg-gradient-to-br from-amber-600 to-amber-700 text-slate-950 font-medium rounded-br-sm'
-              : 'bg-[#10131d] border border-amber-900/30 text-slate-200 rounded-bl-sm'
-          }"
-        >
-          <p class="whitespace-pre-wrap">{msg.text}</p>
-
-          {#if msg.citations && msg.citations.length > 0}
-            <div class="mt-3 pt-2.5 border-t border-amber-500/20 space-y-1.5">
-              <span class="text-[9px] font-bold uppercase tracking-wider text-amber-400/90 font-serif block">
-                Official SRD Sources Cited:
-              </span>
-              {#each msg.citations as citeId}
-                {@const src = sources.find((s) => s.id === citeId)}
-                {#if src}
-                  <div class="bg-black/30 rounded-lg p-2 text-[10px] border border-amber-500/10">
-                    <span class="font-semibold text-amber-300">[{src.id}] {src.title}:</span>
-                    <p class="text-slate-300 mt-0.5 italic">"{src.excerpt}"</p>
-                    <span class="text-[9px] text-amber-400/60 block mt-1 font-mono">&mdash; {src.authority}</span>
-                  </div>
-                {/if}
-              {/each}
+      {#if kbFileList().length > 0}
+        <div class="space-y-1 max-h-32 overflow-y-auto">
+          {#each kbFileList() as fname}
+            <div class="flex items-center justify-between px-2.5 py-1.5 bg-slate-800/60 rounded-lg">
+              <div class="min-w-0">
+                <p class="text-[11px] font-semibold text-slate-300 truncate">{fname}</p>
+                <p class="text-[9px] text-slate-600">{kb.filter(c => c.fileName === fname).length} chunks</p>
+              </div>
+              <button onclick={() => removeKbFile(fname)} class="text-slate-600 hover:text-rose-400 text-xs ml-2 transition-colors shrink-0">✕</button>
             </div>
+          {/each}
+        </div>
+      {/if}
+
+      <!-- Model config -->
+      <div class="flex items-center gap-2 pt-1">
+        <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Model</span>
+        <input type="text" bind:value={modelName} class="flex-1 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500" />
+        <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Temp</span>
+        <input type="number" min="0" max="1" step="0.05" bind:value={temperature} class="w-14 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500" />
+      </div>
+    </div>
+  {/if}
+
+  <!-- ── Quick queries ────────────────────────────────────────────────────── -->
+  <div class="flex gap-1.5 px-3 py-2 border-b border-slate-800/60 overflow-x-auto shrink-0">
+    {#each QUICK_QUERIES as q}
+      <button
+        onclick={() => { queryInput = q; sendQuery(); }}
+        class="whitespace-nowrap px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-[10px] font-semibold text-slate-400 hover:text-slate-200 rounded-full transition-colors"
+      >{q}</button>
+    {/each}
+  </div>
+
+  <!-- ── Chat Feed ─────────────────────────────────────────────────────────── -->
+  <div class="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+    {#each messages as msg (msg.id)}
+      <div class="flex {msg.sender === 'user' ? 'justify-end' : 'justify-start'}">
+        <div class="max-w-[85%] {msg.sender === 'user'
+          ? 'bg-indigo-700/60 text-slate-100 rounded-2xl rounded-tr-sm'
+          : 'bg-slate-800/80 text-slate-200 rounded-2xl rounded-tl-sm'} px-3 py-2.5 shadow">
+          {#if msg.isLoading}
+            <div class="flex gap-1 items-center py-1">
+              <div class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:0ms"></div>
+              <div class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:150ms"></div>
+              <div class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:300ms"></div>
+            </div>
+          {:else}
+            <p class="text-xs leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+            {#if msg.citations?.length}
+              <div class="mt-2 flex flex-wrap gap-1">
+                {#each msg.citations as cit}
+                  <span class="px-1.5 py-0.5 bg-indigo-950/60 text-indigo-300 text-[9px] font-semibold rounded border border-indigo-800/30">[{cit}]</span>
+                {/each}
+              </div>
+            {/if}
+            <p class="text-[9px] text-slate-500 mt-1.5 text-right">{formatTime(msg.timestamp)}</p>
           {/if}
         </div>
-        <span class="text-[9px] text-slate-600 mt-1 px-1 font-mono">
-          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
       </div>
     {/each}
-
-    {#if isGenerating}
-      <div class="flex items-center gap-2 text-xs text-amber-400/70 p-2">
-        <div class="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
-        <span class="font-mono text-[11px]">Evaluating SRD vectors via local Ollama (11434)...</span>
-      </div>
-    {/if}
+    <div bind:this={chatBottom}></div>
   </div>
 
-  <!-- Query Input Field -->
-  <div class="p-3 border-t border-amber-900/30 bg-[#07090e] shrink-0">
-    <form
-      onsubmit={(e) => {
-        e.preventDefault();
-        handleSendQuery();
-      }}
-      class="flex items-center gap-2"
-    >
-      <input
-        type="text"
-        placeholder="Ask a rules question (e.g. 2024 Grapple DC)..."
+  <!-- ── Input Area ───────────────────────────────────────────────────────── -->
+  <div class="px-3 py-3 border-t border-slate-800 bg-slate-900/80 shrink-0">
+    <div class="flex gap-2">
+      <textarea
         bind:value={queryInput}
-        class="flex-1 bg-[#10131d] border border-dark-700 focus:border-amber-500 text-xs text-slate-200 px-3.5 py-2.5 rounded-xl focus:outline-none placeholder:text-slate-600 transition-colors"
-      />
-      <button
-        type="submit"
-        disabled={isGenerating || !queryInput.trim()}
-        class="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all shrink-0"
-      >
-        Inquire
-      </button>
-    </form>
+        rows="2"
+        placeholder="Ask a SRD rules question…"
+        onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuery(); } }}
+        class="flex-1 resize-none bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 placeholder:text-slate-600"
+      ></textarea>
+      {#if isGenerating}
+        <button onclick={cancelGeneration} class="px-3 py-2 bg-rose-900/60 hover:bg-rose-800/70 text-rose-300 text-xs font-bold rounded-xl transition-colors border border-rose-800/30">✕ Stop</button>
+      {:else}
+        <button
+          onclick={sendQuery}
+          disabled={!queryInput.trim()}
+          class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-colors shadow-md shadow-indigo-600/20"
+        >Ask</button>
+      {/if}
+    </div>
+    <p class="text-[9px] text-slate-600 mt-1.5 text-center">Enter to send · Shift+Enter for newline · Ollama on port 11434</p>
   </div>
 </div>
