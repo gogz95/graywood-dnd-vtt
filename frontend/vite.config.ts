@@ -6,6 +6,16 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/pixi.js')) {
+            return 'vendor-pixi';
+          }
+        }
+      }
+    }
   },
   server: {
     host: '0.0.0.0',
