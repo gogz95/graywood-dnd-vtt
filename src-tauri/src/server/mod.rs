@@ -11,7 +11,6 @@ use axum::{
     Router,
 };
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use tower_http::cors::{Any, CorsLayer};
 
 pub const DEFAULT_SERVER_ADDR: &str = "0.0.0.0:8080";
@@ -76,9 +75,9 @@ pub async fn run_server(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use crate::db::init_in_memory_db;
     use crate::models::Character;
-    use crate::server::routes::characters::CharacterAction;
     use axum::{
         body::{to_bytes, Body},
         http::{header, Request, StatusCode},

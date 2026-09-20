@@ -12,7 +12,12 @@
     type WaxSealType,
   } from '../../network/broadcastBridge';
   import { isWsConnectedStore } from '../../../stores/websocketStore';
-  import { generateProceduralContract, type ContractClassification } from '../../data/handoutTables';
+  import {
+    generateProceduralContract,
+    generateLocalizedHubContract,
+    type ContractClassification,
+    type SettlementHub
+  } from '../../data/handoutTables';
 
   const STORAGE_HANDOUTS_KEY = 'vtt_campaign_handouts';
 
@@ -275,6 +280,24 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
     docContent = docContent + '\n' + snippet;
   }
 
+  let selectedHub = $state<SettlementHub>('Ostrava Harbor');
+
+  function handleGenerateLocalizedContract() {
+    const contract = generateLocalizedHubContract(selectedHub);
+    docTitle = contract.title;
+    docSubtitle = `${contract.commissioner} (${contract.originSettlement})`;
+    docTheme = 'contract';
+    docSealType = 'imperial_black';
+    docSealText = 'CHANCELLERY WITNESSED';
+    docContent = contract.markdownContent;
+    docDmNotes = contract.dmNotes;
+    broadcastStatus = {
+      type: 'success',
+      text: `Generated ${selectedHub} contract (${contract.id}) with escrow in Concord Sovereigns!`
+    };
+    setTimeout(() => { broadcastStatus = null; }, 3000);
+  }
+
   function handleGenerateContract(cat?: ContractClassification) {
     const contract = generateProceduralContract(cat);
     docTitle = contract.title;
@@ -308,10 +331,23 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
 
     <!-- Center Broadcast & Generator Action Controls -->
     <div class="flex items-center gap-2">
+      <!-- Settlement Hub Dropdown -->
+      <div class="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs">
+        <span class="text-slate-500 font-bold uppercase text-[10px]">Hub:</span>
+        <select
+          bind:value={selectedHub}
+          class="bg-transparent text-amber-300 font-bold text-xs focus:outline-none cursor-pointer"
+        >
+          <option value="Ostrava Harbor" class="bg-slate-900 text-slate-200">Ostrava Harbor</option>
+          <option value="Kladno Deep Foundry" class="bg-slate-900 text-slate-200">Kladno Deep Foundry</option>
+          <option value="Port Ruceas" class="bg-slate-900 text-slate-200">Port Ruceas</option>
+        </select>
+      </div>
+
       <button
-        onclick={() => handleGenerateContract()}
-        class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs rounded-lg transition-all shadow-md flex items-center gap-1.5"
-        title="Generate randomized procedural Adventurers Guild bounty/contract from Chancellery manifests"
+        onclick={handleGenerateLocalizedContract}
+        class="px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs rounded-lg transition-all shadow-md flex items-center gap-1.5"
+        title="Generate localized Adventurers Guild contract from selected settlement hub"
       >
         <span>🎲</span>
         <span>Generate Contract</span>

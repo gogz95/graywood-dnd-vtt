@@ -19,6 +19,7 @@
   // Aleamos Downtime, Logistics & Crafting
   import AlchemyWorkbench from '../lib/components/crafting/AlchemyWorkbench.svelte';
   import GuildNoticeBoard from '../lib/components/guild/GuildNoticeBoard.svelte';
+  import BastionManagerView from '../lib/components/bastion/BastionManagerView.svelte';
   import StrongholdDashboard from '../lib/components/stronghold/StrongholdDashboard.svelte';
 
   // Dual Right Utility Dock Panels
@@ -287,9 +288,9 @@
           <GuildNoticeBoard />
         </div>
 
-        <!-- 🏰 Stronghold Manager & Room Point Upgrades -->
+        <!-- 🏰 Stronghold / Bastion Zero-State Manager & Room Point Upgrades -->
         <div class="absolute inset-0 {activeTab === 'stronghold' ? '' : 'hidden'}">
-          <StrongholdDashboard />
+          <BastionManagerView />
         </div>
 
         <!-- 📚 Lore Wiki & Relational Graph -->

@@ -391,6 +391,49 @@ class CanvasStoreClass {
     }
   }
 
+  addWallSegment(wall: WallSegment) {
+    this.walls = [...this.walls, wall];
+    this.broadcast('WALLS_DOORS_SYNC', { walls: this.walls, doors: this.doors });
+  }
+
+  addWallSegments(walls: WallSegment[]) {
+    this.walls = [...this.walls, ...walls];
+    this.broadcast('WALLS_DOORS_SYNC', { walls: this.walls, doors: this.doors });
+  }
+
+  clearWalls() {
+    this.walls = [];
+    this.broadcast('WALLS_DOORS_SYNC', { walls: [], doors: this.doors });
+  }
+
+  carveFog(cells: string[]) {
+    const next = Array.from(new Set([...this.fogExplored, ...cells]));
+    this.fogExplored = next;
+    this.broadcast('FOG_EXPLORED_SYNC', this.fogExplored);
+  }
+
+  concealFog(cells: string[]) {
+    const cellSet = new Set(cells);
+    this.fogExplored = this.fogExplored.filter(c => !cellSet.has(c));
+    this.broadcast('FOG_EXPLORED_SYNC', this.fogExplored);
+  }
+
+  clearFog() {
+    this.fogExplored = [];
+    this.broadcast('FOG_EXPLORED_SYNC', []);
+  }
+
+  revealAllFog(widthCells = 40, heightCells = 30) {
+    const allCells: string[] = [];
+    for (let x = 0; x < widthCells; x++) {
+      for (let y = 0; y < heightCells; y++) {
+        allCells.push(`${x},${y}`);
+      }
+    }
+    this.fogExplored = allCells;
+    this.broadcast('FOG_EXPLORED_SYNC', this.fogExplored);
+  }
+
   setBackgroundTexture(url: string) {
     this.mapImageUrl = url;
     this.broadcast('FULL_STATE_SYNC', { mapImageUrl: url });

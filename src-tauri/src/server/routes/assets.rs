@@ -5,9 +5,8 @@ use axum::{
     http::{header, HeaderValue, Response, StatusCode},
     response::IntoResponse,
 };
-use std::path::PathBuf;
 
-const FALLBACK_PWA_INDEX_HTML: &str = r#"<!DOCTYPE html>
+const FALLBACK_PWA_INDEX_HTML: &str = r##"<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -77,7 +76,7 @@ const FALLBACK_PWA_INDEX_HTML: &str = r#"<!DOCTYPE html>
   </div>
 </body>
 </html>
-"#;
+"##;
 
 /// Serves the root PWA index page from the client dist folder, or falls back to the embedded shell.
 pub async fn serve_index(State(state): State<AppState>) -> impl IntoResponse {

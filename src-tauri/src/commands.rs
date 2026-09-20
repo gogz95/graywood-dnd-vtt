@@ -1,7 +1,8 @@
 use crate::migrations::export_campaign_archive;
-use crate::models::compendium::CompendiumMonster;
 use crate::server::routes::ws::WsEvent;
-use crate::systems::encounter::{ActiveCombatant, SpawnCombatantRequest, SpawnCombatantResponse};
+use crate::systems::encounter::{
+    ActiveCombatant, MonsterStatBlock, SpawnCombatantRequest, SpawnCombatantResponse,
+};
 use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -31,7 +32,7 @@ pub async fn spawn_combatant_token_cmd(
     let conn = db.lock().await;
 
     // 1. Fetch monster definition from compendium
-    let monster = CompendiumMonster::find_by_id(&conn, &payload.monster_compendium_id)
+    let monster = MonsterStatBlock::find_by_id(&conn, &payload.monster_compendium_id)
         .map_err(|e| format!("Database error querying monster: {}", e))?
         .ok_or_else(|| format!("Monster '{}' not found in compendium", payload.monster_compendium_id))?;
 
@@ -91,13 +92,18 @@ pub async fn spawn_combatant_token_cmd(
 
     // 3. Broadcast SPAWN_TOKEN over WebSocket hub
     let _ = ws_sender.send(WsEvent::SpawnToken {
-        token_id: token_id.clone(),
+        id: token_id.clone(),
         name: combatant_name,
         x: payload.canvas_x,
         y: payload.canvas_y,
+        radius: if monster.size == "Large" { 30.0 } else { 22.0 },
+        sight_radius: 280.0,
+        darkvision_radius: 280.0,
+        is_orb_sealed: false,
+        tint: 0xef4444,
+        ac: monster.ac,
         hp_current: monster.hp_max,
         hp_max: monster.hp_max,
-        ac: monster.ac,
     });
 
     Ok(SpawnCombatantResponse {

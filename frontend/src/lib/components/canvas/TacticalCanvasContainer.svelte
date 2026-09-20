@@ -18,6 +18,7 @@
     renderTurnReticleOnCanvas,
   } from '../map/TokenOverlay';
   import GeneratorDrawer from '../map/GeneratorDrawer.svelte';
+  import CanvasDrawingToolbar, { type DrawTool } from '../map/CanvasDrawingToolbar.svelte';
   import { importDungeonScrawlFile } from '../../importers/dungeonScrawlImporter';
 
   export interface MapToken {
@@ -519,6 +520,24 @@
 
   function removeToken(id: string) { tokens = tokens.filter(t => t.id !== id); }
 
+  async function handleCastBattlemat() {
+    try {
+      if ('PresentationRequest' in window) {
+        const presentationRequest = new (window as any).PresentationRequest(['/projector']);
+        const connection = await presentationRequest.start();
+        connection.addEventListener('connect', () => {
+          dsImportFeedback = '✓ Battlemat connected to external display!';
+          setTimeout(() => { dsImportFeedback = null; }, 3000);
+        });
+      } else {
+        window.open('/projector', 'BattleMatProjector', 'width=1920,height=1080');
+      }
+    } catch (e) {
+      // Fallback: Launch secondary window for projector
+      window.open('/projector', 'BattleMatProjector', 'width=1920,height=1080');
+    }
+  }
+
   // ── Map Ingestion Bridge (from Atlas Hub or direct drop) ─────────────────
   let isDroppingMap = $state(false);
 
@@ -713,6 +732,15 @@
         <span>{canvasStore.lockProjectorPan ? '🔒 TV Decoupled' : '🎥 TV Mirrored'}</span>
       </button>
 
+      <button
+        onclick={handleCastBattlemat}
+        class="px-2.5 py-1 text-xs font-bold text-amber-300 hover:text-amber-200 hover:bg-amber-950/60 rounded transition-colors flex items-center gap-1 border border-amber-800/40"
+        title="Prompt Presentation API / Native Screen Casting to Projector Route"
+      >
+        <span>📡</span>
+        <span>Cast Battlemat</span>
+      </button>
+
       <a
         href="/projector"
         target="_blank"
@@ -891,6 +919,11 @@
         onmouseup={handleMouseUp}
         onmouseleave={() => { hoveredCell = null; handleMouseUp(new MouseEvent('mouseup')); }}
       ></canvas>
+      <!-- Floating Vector Drawing & Fog Toolbar Overlay -->
+      <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
+        <CanvasDrawingToolbar />
+      </div>
+
       {#if !mapImageUrl && tokens.length === 0}
         <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div class="text-center space-y-2">

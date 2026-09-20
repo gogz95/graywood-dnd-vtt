@@ -27,8 +27,15 @@
   let newStr = $state(14);
   let newIsBeastOfBurden = $state(true);
 
+  let isDrawnHarnessed = $state(false);
+  let checkFeedback = $state<string | null>(null);
+
   function calculateCapacity(strScore: number, isBeastOfBurden: boolean): number {
     return strScore * 15 * (isBeastOfBurden ? 2 : 1);
+  }
+
+  function calculateDrawnCapacity(strScore: number, isBeastOfBurden: boolean): number {
+    return calculateCapacity(strScore, isBeastOfBurden) * 5;
   }
 
   function handleCreateAnimal() {
@@ -56,22 +63,36 @@
   }
 
   function feedOneDay(animal: CompanionAnimal) {
-    animal.feedDaysRemaining = animal.feedDaysRemaining + 1;
+    animal.feedDaysRemaining = Math.min(10, animal.feedDaysRemaining + 1);
+    checkFeedback = `${animal.name} fed for 1 day (${animal.feedDaysRemaining}/10 days stabled).`;
+    setTimeout(() => { checkFeedback = null; }, 3000);
     if (onFeedAnimal) onFeedAnimal(animal.id);
   }
 
   function triggerMoraleCheck(animal: CompanionAnimal) {
     const d20 = Math.floor(Math.random() * 20) + 1;
-    const wisMod = Math.floor((10 - 10) / 2); // default DC 10 base check
+    const wisMod = 0; // DC 10 base Wisdom check
     const total = d20 + wisMod;
     const success = total >= 10;
+    checkFeedback = `Morale Save for ${animal.name}: [d20: ${d20}] = ${total} (DC 10) -> ${success ? 'HELD FIRM ✅' : 'PANICKED / FLEEING ⚠️'}`;
+    setTimeout(() => { checkFeedback = null; }, 4500);
     if (onRollMorale) {
       onRollMorale(animal, { d20, total, success });
     }
   }
 
+  function triggerAnimalHandlingCheck(animal: CompanionAnimal) {
+    const d20 = Math.floor(Math.random() * 20) + 1;
+    const total = d20 + 2; // +2 base handler proficiency
+    checkFeedback = `Wisdom (Animal Handling) Check for ${animal.name}: [d20: ${d20}] + 2 = ${total}`;
+    setTimeout(() => { checkFeedback = null; }, 4500);
+  }
+
   function adjustHp(animal: CompanionAnimal, delta: number) {
     animal.currentHp = Math.max(0, Math.min(animal.maxHp, animal.currentHp + delta));
+    if (animal.currentHp > 0 && animal.currentHp <= Math.floor(animal.maxHp * 0.5) && delta < 0) {
+      triggerMoraleCheck(animal);
+    }
   }
 </script>
 
@@ -280,16 +301,39 @@
                 <button
                   onclick={() => triggerMoraleCheck(animal)}
                   class="px-2 py-1 bg-slate-800 hover:bg-amber-800 text-slate-200 hover:text-amber-100 rounded text-[11px] font-semibold transition-colors flex items-center gap-1"
-                  title="Roll d20 Morale Check against panic/fleeing"
+                  title="Roll d20 Morale Check against panic/fleeing (DC 10)"
                 >
                   <span>🎲</span>
-                  <span>Morale Check</span>
+                  <span>Morale</span>
+                </button>
+
+                <button
+                  onclick={() => triggerAnimalHandlingCheck(animal)}
+                  class="px-2 py-1 bg-slate-800 hover:bg-indigo-800 text-slate-200 hover:text-indigo-100 rounded text-[11px] font-semibold transition-colors flex items-center gap-1"
+                  title="Roll Wisdom (Animal Handling) Check"
+                >
+                  <span>🐾</span>
+                  <span>Handle</span>
                 </button>
               </div>
+            </div>
+
+            <!-- Drawn Capacity sub-row -->
+            <div class="pt-1 text-[10px] text-slate-400 flex items-center justify-between font-mono">
+              <span>Drawn Cart/Wagon Capacity: <strong class="text-indigo-300">{calculateDrawnCapacity(animal.str, animal.isBeastOfBurden)} lbs</strong> (5×)</span>
+              {#if animal.feedDaysRemaining <= 0}
+                <span class="text-rose-400 font-bold animate-pulse">⚠️ Starvation: 1 Exhaustion Tier</span>
+              {/if}
             </div>
           </div>
         {/each}
       </div>
     {/if}
+  {/if}
+
+  {#if checkFeedback}
+    <div class="mt-3 p-2 bg-indigo-950/80 border border-indigo-700/60 rounded-lg text-xs text-center font-mono font-bold text-indigo-200 animate-pulse">
+      {checkFeedback}
+    </div>
   {/if}
 </div>

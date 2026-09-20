@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const SKILLED_HIRELING_DAILY_WAGE_CP: i64 = 200; // 2 gp/day = 200 cp
 pub const UNSKILLED_HIRELING_DAILY_WAGE_CP: i64 = 20; // 2 sp/day = 20 cp
 pub const CP_PER_GP: i64 = 100;
+pub const CP_PER_SP: i64 = 10;
 pub const STANDARD_DND_MONTH_DAYS: u32 = 30;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

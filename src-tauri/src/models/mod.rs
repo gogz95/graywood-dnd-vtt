@@ -11,7 +11,9 @@ pub use bastion::{
     SKILLED_HIRELING_DAILY_WAGE_CP, STANDARD_DND_MONTH_DAYS, UNSKILLED_HIRELING_DAILY_WAGE_CP,
 };
 pub use character::{Character, SpellSlotLevel, SpellSlots};
-pub use compendium::{CompendiumClass, CompendiumSpell, PublicCharacterRoster};
+pub use compendium::{
+    CompendiumClass, CompendiumMonster, CompendiumSpell, PublicCharacterRoster,
+};
 pub use crafting::{
     evaluate_crafting_matrix, CraftingEvaluation, ElementalEssence, ItemSocket,
 };

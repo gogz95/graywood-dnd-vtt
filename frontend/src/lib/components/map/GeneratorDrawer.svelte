@@ -187,10 +187,11 @@
           {/if}
           <button
             onclick={handleExportToCanvas}
-            class="px-4 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-slate-950 font-black text-xs rounded-lg shadow-sm transition-all active:scale-95 flex items-center gap-1.5"
+            class="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs rounded-lg shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+            title="Transfer exported texture to battlemat and initiate 2-click grid calibration"
           >
             <span>🎯</span>
-            <span>Export to Battlemat Canvas</span>
+            <span>Push to Battlemat</span>
           </button>
         </div>
       </div>

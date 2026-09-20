@@ -172,3 +172,71 @@ export async function getAllChunksForEnabledDocs(): Promise<SourceChunk[]> {
     request.onerror = () => reject(request.error);
   });
 }
+
+export async function purgeAllDocuments(): Promise<void> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE_DOCUMENTS, STORE_CHUNKS], 'readwrite');
+    tx.objectStore(STORE_DOCUMENTS).clear();
+    tx.objectStore(STORE_CHUNKS).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export const sourceDb = {
+  documents: {
+    put: async (doc: SourceDocument) => {
+      const db = await openDatabase();
+      return new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([STORE_DOCUMENTS], 'readwrite');
+        tx.objectStore(STORE_DOCUMENTS).put(doc);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    },
+    get: getDocumentById,
+    toArray: getAllDocuments,
+    delete: deleteDocumentAndChunks,
+    clear: async () => {
+      const db = await openDatabase();
+      return new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([STORE_DOCUMENTS], 'readwrite');
+        tx.objectStore(STORE_DOCUMENTS).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+  },
+  chunks: {
+    bulkPut: async (chunks: SourceChunk[]) => {
+      const db = await openDatabase();
+      return new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([STORE_CHUNKS], 'readwrite');
+        const store = tx.objectStore(STORE_CHUNKS);
+        for (const c of chunks) store.put(c);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    },
+    whereDocId: getChunksByDocId,
+    toArray: async () => {
+      const db = await openDatabase();
+      return new Promise<SourceChunk[]>((resolve, reject) => {
+        const tx = db.transaction([STORE_CHUNKS], 'readonly');
+        const req = tx.objectStore(STORE_CHUNKS).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    },
+    clear: async () => {
+      const db = await openDatabase();
+      return new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([STORE_CHUNKS], 'readwrite');
+        tx.objectStore(STORE_CHUNKS).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+  }
+};

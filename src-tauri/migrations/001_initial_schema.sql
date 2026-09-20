@@ -43,35 +43,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
 CREATE INDEX IF NOT EXISTS idx_inventory_character_id ON inventory_items(character_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_spoilage ON inventory_items(is_preserved, is_spoiled, harvest_timestamp);
 
--- Trigger: Automatically spoil unpreserved harvest on insert if timestamp exceeds 86400 seconds (24h)
-CREATE TRIGGER IF NOT EXISTS trg_inventory_check_spoilage_insert
-AFTER INSERT ON inventory_items
-FOR EACH ROW
-WHEN NEW.is_preserved = 0
-  AND NEW.is_spoiled = 0
-  AND NEW.harvest_timestamp IS NOT NULL
-  AND (strftime('%s', 'now') - NEW.harvest_timestamp) > 86400
-BEGIN
-    UPDATE inventory_items
-    SET is_spoiled = 1,
-        base_value_cp = NEW.base_value_cp / 2
-    WHERE id = NEW.id;
-END;
 
--- Trigger: Automatically spoil unpreserved harvest on update if timestamp exceeds 86400 seconds (24h)
-CREATE TRIGGER IF NOT EXISTS trg_inventory_check_spoilage_update
-AFTER UPDATE OF harvest_timestamp, is_preserved, is_spoiled ON inventory_items
-FOR EACH ROW
-WHEN NEW.is_preserved = 0
-  AND NEW.is_spoiled = 0
-  AND NEW.harvest_timestamp IS NOT NULL
-  AND (strftime('%s', 'now') - NEW.harvest_timestamp) > 86400
-BEGIN
-    UPDATE inventory_items
-    SET is_spoiled = 1,
-        base_value_cp = NEW.base_value_cp / 2
-    WHERE id = NEW.id;
-END;
 
 -- 3. Currency Pouches & Assay Ledger Tables
 CREATE TABLE IF NOT EXISTS currency_pouches (

@@ -42,11 +42,11 @@ pub const MIGRATIONS: [Migration; 5] = [
 
 /// Applies all pending version-controlled SQLite migrations transactionally and idempotently.
 pub fn run_versioned_migrations(conn: &mut Connection) -> Result<u32, rusqlite::Error> {
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.execute_batch(
-        "PRAGMA foreign_keys = ON;
-         PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = NORMAL;
-         CREATE TABLE IF NOT EXISTS schema_migrations (
+        "CREATE TABLE IF NOT EXISTS schema_migrations (
              version INTEGER PRIMARY KEY NOT NULL,
              name TEXT NOT NULL,
              applied_at BIGINT NOT NULL

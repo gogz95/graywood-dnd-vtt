@@ -26,6 +26,18 @@ pub struct CompendiumSpell {
     pub classes_json: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CompendiumMonster {
+    pub id: String,
+    pub name: String,
+    pub cr: f64,
+    pub ac: i32,
+    pub hp: i32,
+    pub speed: i32,
+    pub alignment: String,
+    pub creature_type: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublicCharacterRoster {
     pub id: String,

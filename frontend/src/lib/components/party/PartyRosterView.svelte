@@ -13,6 +13,8 @@
   import { audioEngine } from '../../audio/AudioEngine';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
   import { sendWsEvent } from '../../../stores/websocketStore';
+  import CharacterBuilderModal, { type CreatedCharacter } from '../character/CharacterBuilderModal.svelte';
+  import PetManagerDrawer from '../player/PetManagerDrawer.svelte';
 
   interface PartyMember {
     id: string;
@@ -22,6 +24,7 @@
     level: number;
     hpCurrent: number;
     hpMax: number;
+    tempHp?: number;
     ac: number;
     passivePerception: number;
     pin: string;
@@ -30,12 +33,30 @@
     conditions: string[];
     exhaustion?: number;
     isOrbSealed?: boolean;
+    race?: string;
+    dialect?: string;
     str?: number;
     dex?: number;
     con?: number;
     int?: number;
     wis?: number;
     cha?: number;
+    weaponName?: string;
+    weaponCurrentRp?: number;
+    weaponMaxRp?: number;
+    armorName?: string;
+    armorCurrentRp?: number;
+    armorMaxRp?: number;
+    sovereignsGp?: number;
+    sunDisks10Gp?: number;
+    tradeBars50Gp?: number;
+    silverSp?: number;
+    copperCp?: number;
+    hitDiceCurrent?: number;
+    hitDiceMax?: number;
+    manaToxicity?: number;
+    skills?: Record<string, boolean>;
+    expertises?: Record<string, boolean>;
   }
 
   const STORAGE_ROSTER_KEY = 'vtt_party_roster';
@@ -220,6 +241,134 @@
     isNpc: false,
     conditions: [] as string[],
   });
+
+  let isBuilderOpen = $state(false);
+  let isPetDrawerOpen = $state(false);
+  let inspectedMemberId = $state<string | null>(null);
+  let inspectedMember = $derived(roster.find(m => m.id === inspectedMemberId) || null);
+
+  const SKILL_DEFS: { name: string; ability: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha' }[] = [
+    { name: 'Acrobatics', ability: 'dex' },
+    { name: 'Animal Handling', ability: 'wis' },
+    { name: 'Arcana', ability: 'int' },
+    { name: 'Athletics', ability: 'str' },
+    { name: 'Deception', ability: 'cha' },
+    { name: 'History', ability: 'int' },
+    { name: 'Insight', ability: 'wis' },
+    { name: 'Intimidation', ability: 'cha' },
+    { name: 'Investigation', ability: 'int' },
+    { name: 'Medicine', ability: 'wis' },
+    { name: 'Nature', ability: 'int' },
+    { name: 'Perception', ability: 'wis' },
+    { name: 'Performance', ability: 'cha' },
+    { name: 'Persuasion', ability: 'cha' },
+    { name: 'Religion', ability: 'int' },
+    { name: 'Sleight of Hand', ability: 'dex' },
+    { name: 'Stealth', ability: 'dex' },
+    { name: 'Survival', ability: 'wis' }
+  ];
+
+  function getAbilityMod(score?: number): number {
+    return Math.floor(((score ?? 10) - 10) / 2);
+  }
+
+  function getProficiencyBonus(level: number = 1): number {
+    return Math.floor((level - 1) / 4) + 2;
+  }
+
+  function getSkillMod(member: PartyMember, skill: typeof SKILL_DEFS[0]): number {
+    const baseMod = getAbilityMod(member[skill.ability]);
+    const prof = getProficiencyBonus(member.level);
+    const isProf = member.skills?.[skill.name] ?? false;
+    const isExpert = member.expertises?.[skill.name] ?? false;
+    if (isExpert) return baseMod + prof * 2;
+    if (isProf) return baseMod + prof;
+    return baseMod;
+  }
+
+  function handleShortRest(memberId: string) {
+    roster = roster.map(m => {
+      if (m.id !== memberId) return m;
+      const hitDiceLeft = m.hitDiceCurrent ?? m.level;
+      if (hitDiceLeft <= 0) return m;
+      const conMod = getAbilityMod(m.con);
+      const hitDieSize = m.class.includes('Barbarian') ? 12 : m.class.includes('Fighter') || m.class.includes('Paladin') || m.class.includes('Ranger') ? 10 : m.class.includes('Wizard') || m.class.includes('Sorcerer') ? 6 : 8;
+      const roll = Math.floor(Math.random() * hitDieSize) + 1;
+      const healed = Math.max(1, roll + conMod);
+      const newHp = Math.min(m.hpMax, m.hpCurrent + healed);
+      const newWeaponRp = m.weaponCurrentRp !== undefined && m.weaponMaxRp !== undefined ? Math.min(m.weaponMaxRp, m.weaponCurrentRp + 5) : undefined;
+      const newArmorRp = m.armorCurrentRp !== undefined && m.armorMaxRp !== undefined ? Math.min(m.armorMaxRp, m.armorCurrentRp + 5) : undefined;
+      audioEngine.triggerSfx('sfx-rest');
+      return {
+        ...m,
+        hpCurrent: newHp,
+        hitDiceCurrent: hitDiceLeft - 1,
+        weaponCurrentRp: newWeaponRp,
+        armorCurrentRp: newArmorRp
+      };
+    });
+  }
+
+  function handleLongRest(memberId: string) {
+    roster = roster.map(m => {
+      if (m.id !== memberId) return m;
+      const maxHitDice = m.level;
+      const regainedDice = Math.max(1, Math.floor(maxHitDice / 2));
+      audioEngine.triggerSfx('sfx-rest');
+      return {
+        ...m,
+        hpCurrent: m.hpMax,
+        tempHp: 0,
+        hitDiceCurrent: Math.min(maxHitDice, (m.hitDiceCurrent ?? maxHitDice) + regainedDice),
+        manaToxicity: 0,
+        exhaustion: Math.max(0, (m.exhaustion ?? 0) - 1)
+      };
+    });
+  }
+
+  function handleCharacterCreated(char: CreatedCharacter) {
+    const newMember: PartyMember = {
+      id: char.id,
+      name: char.name,
+      playerName: char.playerName,
+      class: char.class,
+      level: char.level,
+      hpCurrent: char.hpCurrent,
+      hpMax: char.hpMax,
+      tempHp: char.tempHp,
+      ac: char.ac,
+      passivePerception: char.passivePerception,
+      pin: char.pin,
+      isOnline: true,
+      isNpc: false,
+      conditions: [],
+      race: char.race,
+      dialect: char.dialect,
+      str: char.str,
+      dex: char.dex,
+      con: char.con,
+      int: char.int,
+      wis: char.wis,
+      cha: char.cha,
+      weaponName: char.weaponName,
+      weaponCurrentRp: char.weaponCurrentRp,
+      weaponMaxRp: char.weaponMaxRp,
+      armorName: char.armorName,
+      armorCurrentRp: char.armorCurrentRp,
+      armorMaxRp: char.armorMaxRp,
+      sovereignsGp: char.sovereignsGp,
+      sunDisks10Gp: char.sunDisks10Gp,
+      tradeBars50Gp: char.tradeBars50Gp,
+      silverSp: char.silverSp,
+      copperCp: char.copperCp,
+      hitDiceCurrent: char.level,
+      hitDiceMax: char.level,
+      manaToxicity: 0,
+      skills: char.skills.reduce((acc, s) => ({ ...acc, [s]: true }), {})
+    };
+    roster = [...roster, newMember];
+    audioEngine.triggerSfx('sfx-secret');
+  }
 
   function openAddModal() {
     form = {
@@ -450,10 +599,25 @@
       </div>
 
       <button
-        onclick={openAddModal}
-        class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5"
+        onclick={() => isBuilderOpen = true}
+        class="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-1.5"
       >
-        <span>+</span> Add Character (DM Manual)
+        <span>✨</span> 3-Mode Builder
+      </button>
+
+      <button
+        onclick={openAddModal}
+        class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 shadow-sm transition-colors flex items-center gap-1.5"
+      >
+        <span>+</span> Quick Add
+      </button>
+
+      <button
+        onclick={() => isPetDrawerOpen = true}
+        class="px-3 py-1.5 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-700/50 text-emerald-300 text-xs font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5"
+        title="Bound Animals, Steeds, Carts & Cargo"
+      >
+        <span>🐾</span> Companions &amp; Pets
       </button>
 
       <button
@@ -813,6 +977,13 @@
                   🔗 Join Link
                 </button>
                 <button
+                  onclick={() => inspectedMemberId = member.id}
+                  class="px-2 py-1 bg-amber-950/70 hover:bg-amber-900 border border-amber-700/50 text-amber-300 text-[10px] font-bold rounded transition-colors flex items-center gap-1"
+                  title="Open Full 5e Aleamos Character Sheet"
+                >
+                  <span>📜</span> Sheet
+                </button>
+                <button
                   onclick={() => openEditModal(member)}
                   class="p-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded transition-colors"
                   title="Edit Character"
@@ -997,6 +1168,244 @@
         >
           {editingId ? 'Save Changes' : 'Create Character'}
         </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     3-MODE CHARACTER BUILDER MODAL
+════════════════════════════════════════════════════════════════════════════ -->
+<CharacterBuilderModal
+  bind:isOpen={isBuilderOpen}
+  onCharacterCreated={handleCharacterCreated}
+/>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     BOUND ANIMAL & PET DRAWER
+════════════════════════════════════════════════════════════════════════════ -->
+<PetManagerDrawer
+  bind:isOpen={isPetDrawerOpen}
+/>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     FULL 5E ALEAMOS CHARACTER SHEET INSPECTOR MODAL
+════════════════════════════════════════════════════════════════════════════ -->
+{#if inspectedMember}
+  {@const m = inspectedMember}
+  {@const prof = getProficiencyBonus(m.level)}
+  {@const strMod = getAbilityMod(m.str ?? 10)}
+  {@const dexMod = getAbilityMod(m.dex ?? 10)}
+  {@const conMod = getAbilityMod(m.con ?? 10)}
+  {@const intMod = getAbilityMod(m.int ?? 10)}
+  {@const wisMod = getAbilityMod(m.wis ?? 10)}
+  {@const chaMod = getAbilityMod(m.cha ?? 10)}
+  {@const abilityMods = { str: strMod, dex: dexMod, con: conMod, int: intMod, wis: wisMod, cha: chaMod }}
+  {@const wMax = m.weaponMaxRp ?? 30}
+  {@const wCur = m.weaponCurrentRp ?? 30}
+  {@const wSunder = Math.floor(wMax * 0.25)}
+  {@const isWSundered = wCur <= wSunder}
+  {@const aMax = m.armorMaxRp ?? 25}
+  {@const aCur = m.armorCurrentRp ?? 25}
+  {@const aSunder = Math.floor(aMax * 0.25)}
+  {@const isASundered = aCur <= aSunder}
+
+  <div
+    role="presentation"
+    class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 lg:p-6"
+    onclick={(e) => { if (e.target === e.currentTarget) inspectedMemberId = null; }}
+  >
+    <div class="w-full max-w-4xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+      <!-- Sheet Header -->
+      <div class="px-6 py-4 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-3">
+            <h2 class="text-xl font-black text-slate-100">{m.name}</h2>
+            <span class="px-2 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-700/50 text-xs font-bold">
+              Level {m.level} {m.class}
+            </span>
+            <span class="text-xs text-slate-400">
+              {m.race ?? 'Concord Human'} · <span class="text-amber-400 font-mono">{m.dialect ?? 'Old Concord'}</span>
+            </span>
+          </div>
+          <p class="text-xs text-slate-400 mt-0.5">Player: <span class="text-slate-200">{m.playerName}</span> · PIN: <span class="font-mono text-amber-300">{m.pin}</span></p>
+        </div>
+
+        <!-- Rest Engines -->
+        <div class="flex items-center gap-2">
+          <button
+            onclick={() => handleShortRest(m.id)}
+            class="px-3 py-1.5 bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 border border-amber-700/50 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+            title="Spend Hit Die, heal 1d8+CON, and apply +5 RP repair check"
+          >
+            <span>☕</span> Short Rest ({m.hitDiceCurrent ?? m.level}/{m.hitDiceMax ?? m.level} HD)
+          </button>
+          <button
+            onclick={() => handleLongRest(m.id)}
+            class="px-3 py-1.5 bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-700/50 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+            title="Restore full HP, half HD, clear mana toxicity & 1 exhaustion tier"
+          >
+            <span>🌙</span> Long Rest
+          </button>
+          <button
+            onclick={() => inspectedMemberId = null}
+            class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-sm font-bold ml-2"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-6 space-y-6 text-xs">
+        <!-- Tri-Stat HUD -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 text-center">
+            <span class="text-[10px] uppercase font-bold text-slate-500 block">Armor Class</span>
+            <span class="text-2xl font-black text-amber-400">{m.ac}</span>
+          </div>
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 text-center">
+            <span class="text-[10px] uppercase font-bold text-slate-500 block">Initiative Mod</span>
+            <span class="text-2xl font-black text-indigo-400">
+              {dexMod >= 0 ? `+${dexMod}` : dexMod}
+            </span>
+          </div>
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 text-center">
+            <span class="text-[10px] uppercase font-bold text-slate-500 block">Current / Max HP</span>
+            <div class="flex items-center justify-center gap-1">
+              <span class="text-2xl font-black text-emerald-400">{m.hpCurrent}</span>
+              <span class="text-slate-600 text-lg">/</span>
+              <span class="text-lg font-bold text-slate-300">{m.hpMax}</span>
+              {#if (m.tempHp ?? 0) > 0}
+                <span class="text-xs font-mono text-cyan-400 ml-1">(+{m.tempHp})</span>
+              {/if}
+            </div>
+          </div>
+          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 text-center">
+            <span class="text-[10px] uppercase font-bold text-slate-500 block">Proficiency Bonus</span>
+            <span class="text-2xl font-black text-purple-400">+{prof}</span>
+          </div>
+        </div>
+
+        <!-- 6 Ability Scores -->
+        <div>
+          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Ability Scores &amp; Saving Throws</h4>
+          <div class="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
+            {#each (['str', 'dex', 'con', 'int', 'wis', 'cha'] as const) as ab}
+              {@const score = m[ab] ?? 10}
+              {@const mod = getAbilityMod(score)}
+              <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center">
+                <span class="text-[10px] uppercase font-bold text-slate-400 block">{ab}</span>
+                <span class="text-lg font-black text-slate-100">{score}</span>
+                <span class="text-xs font-bold text-indigo-400 block">
+                  {mod >= 0 ? `+${mod}` : mod}
+                </span>
+              </div>
+            {/each}
+          </div>
+        </div>
+
+        <!-- Equipment Durability RP Pools & Sunder Thresholds -->
+        <div>
+          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Equipment Durability RP Pools &amp; Sunder Thresholds</h4>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <!-- Weapon Pool -->
+            <div class="bg-slate-950/80 border {isWSundered ? 'border-rose-600/80' : 'border-slate-800'} rounded-xl p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-slate-200">⚔️ {m.weaponName ?? 'Primary Weapon'}</span>
+                <span class="text-[11px] font-mono font-bold {isWSundered ? 'text-rose-400' : 'text-emerald-400'}">
+                  {wCur} / {wMax} RP
+                </span>
+              </div>
+              <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  class="h-full {isWSundered ? 'bg-rose-500' : 'bg-emerald-500'} transition-all"
+                  style="width: {Math.max(0, Math.min(100, (wCur / wMax) * 100))}%"
+                ></div>
+              </div>
+              <div class="flex items-center justify-between text-[10px] text-slate-400">
+                <span>Sunder Threshold: ≤ {wSunder} RP</span>
+                {#if isWSundered}
+                  <span class="text-rose-400 font-bold uppercase tracking-wide">⚠️ SUNDERED (-2 to Hit)</span>
+                {:else}
+                  <span class="text-emerald-500 font-medium">Functional</span>
+                {/if}
+              </div>
+            </div>
+
+            <!-- Armor Pool -->
+            <div class="bg-slate-950/80 border {isASundered ? 'border-rose-600/80' : 'border-slate-800'} rounded-xl p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-slate-200">🛡️ {m.armorName ?? 'Equipped Armor'}</span>
+                <span class="text-[11px] font-mono font-bold {isASundered ? 'text-rose-400' : 'text-emerald-400'}">
+                  {aCur} / {aMax} RP
+                </span>
+              </div>
+              <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  class="h-full {isASundered ? 'bg-rose-500' : 'bg-emerald-500'} transition-all"
+                  style="width: {Math.max(0, Math.min(100, (aCur / aMax) * 100))}%"
+                ></div>
+              </div>
+              <div class="flex items-center justify-between text-[10px] text-slate-400">
+                <span>Sunder Threshold: ≤ {aSunder} RP</span>
+                {#if isASundered}
+                  <span class="text-rose-400 font-bold uppercase tracking-wide">⚠️ SUNDERED (-2 to AC)</span>
+                {:else}
+                  <span class="text-emerald-500 font-medium">Reinforced</span>
+                {/if}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Concord Currency Accounts -->
+        <div>
+          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Concord Currency Accounts</h4>
+          <div class="grid grid-cols-5 gap-2 bg-slate-950/90 border border-slate-800 rounded-xl p-3 text-center">
+            <div>
+              <span class="text-[9px] uppercase font-bold text-amber-500/80 block">Trade Bars (50gp)</span>
+              <span class="text-sm font-black text-amber-300 font-mono">{m.tradeBars50Gp ?? 0}</span>
+            </div>
+            <div>
+              <span class="text-[9px] uppercase font-bold text-amber-400/80 block">Sun Disks (10gp)</span>
+              <span class="text-sm font-black text-amber-400 font-mono">{m.sunDisks10Gp ?? 0}</span>
+            </div>
+            <div>
+              <span class="text-[9px] uppercase font-bold text-amber-300 block">Sovereigns (gp)</span>
+              <span class="text-sm font-black text-amber-200 font-mono">{m.sovereignsGp ?? 0}</span>
+            </div>
+            <div>
+              <span class="text-[9px] uppercase font-bold text-slate-400 block">Silver (sp)</span>
+              <span class="text-sm font-black text-slate-200 font-mono">{m.silverSp ?? 0}</span>
+            </div>
+            <div>
+              <span class="text-[9px] uppercase font-bold text-amber-700 block">Copper (cp)</span>
+              <span class="text-sm font-black text-amber-600 font-mono">{m.copperCp ?? 0}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 18 Standard 5e Skills -->
+        <div>
+          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">18 Standard 5e Skills</h4>
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+            {#each SKILL_DEFS as skill}
+              {@const isProf = m.skills?.[skill.name] ?? false}
+              {@const baseMod = abilityMods[skill.ability]}
+              {@const totalSkillMod = baseMod + (isProf ? prof : 0)}
+              <div class="bg-slate-950/60 border border-slate-800/80 rounded-lg px-3 py-1.5 flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full {isProf ? 'bg-indigo-400' : 'bg-slate-700'}"></span>
+                  <span class="text-slate-200 font-medium">{skill.name}</span>
+                  <span class="text-[9px] uppercase text-slate-500">({skill.ability})</span>
+                </div>
+                <span class="font-mono font-bold {isProf ? 'text-indigo-300' : 'text-slate-400'}">
+                  {totalSkillMod >= 0 ? `+${totalSkillMod}` : totalSkillMod}
+                </span>
+              </div>
+            {/each}
+          </div>
+        </div>
       </div>
     </div>
   </div>

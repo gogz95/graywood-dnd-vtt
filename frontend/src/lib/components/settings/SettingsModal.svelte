@@ -24,11 +24,12 @@
   import { audioEngine } from '../../audio/AudioEngine';
   import { uiTheme, type ThemeMode, type DisplayMode } from '../../stores/uiTheme.svelte';
   import KnowledgeBaseModal from '../ai/KnowledgeBaseModal.svelte';
+  import LoreIngestionSettingsTab from './LoreIngestionSettingsTab.svelte';
 
   let { isOpen = $bindable(false) }: { isOpen?: boolean } = $props();
   let showKbModal = $state(false);
 
-  type SettingsTab = 'campaign' | 'ai' | 'audio' | 'theme';
+  type SettingsTab = 'campaign' | 'lore' | 'ai' | 'audio' | 'theme';
   let activeTab = $state<SettingsTab>('campaign');
 
   // ── Campaign State ─────────────────────────────────────────────────────────
@@ -291,6 +292,15 @@
 
       <button
         type="button"
+        onclick={() => activeTab = 'lore'}
+        class="px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5
+          {activeTab === 'lore' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
+      >
+        <span>📚 Lore Ingestion</span>
+      </button>
+
+      <button
+        type="button"
         onclick={() => activeTab = 'ai'}
         class="px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5
           {activeTab === 'ai' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
@@ -423,6 +433,13 @@
             </div>
           </div>
         </div>
+      {/if}
+
+      <!-- ═════════════════════════════════════════════════════════════════════
+           TAB: GROUNDED LORE INGESTION & PURGE
+      ══════════════════════════════════════════════════════════════════════ -->
+      {#if activeTab === 'lore'}
+        <LoreIngestionSettingsTab />
       {/if}
 
       <!-- ═════════════════════════════════════════════════════════════════════

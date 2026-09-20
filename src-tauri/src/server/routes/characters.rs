@@ -1,4 +1,4 @@
-use crate::models::{Character, InventoryItem, SpellSlots};
+use crate::models::{Character, InventoryItem};
 use crate::server::error::ServerError;
 use crate::server::routes::ws::WsEvent;
 use crate::server::state::{AppState, DEFAULT_TOKEN_TTL_SECONDS};
