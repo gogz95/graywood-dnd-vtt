@@ -12,6 +12,7 @@
     type WaxSealType,
   } from '../../network/broadcastBridge';
   import { isWsConnectedStore } from '../../../stores/websocketStore';
+  import { generateProceduralContract, type ContractClassification } from '../../data/handoutTables';
 
   const STORAGE_HANDOUTS_KEY = 'vtt_campaign_handouts';
 
@@ -273,6 +274,28 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
   function insertSnippet(snippet: string) {
     docContent = docContent + '\n' + snippet;
   }
+
+  function handleGenerateContract(cat?: ContractClassification) {
+    const contract = generateProceduralContract(cat);
+    docTitle = contract.title;
+    docSubtitle = `${contract.commissioner} (${contract.originSettlement})`;
+    docTheme = 'contract';
+    docSealType = 'imperial_black';
+    docSealText = 'CHANCELLERY WITNESSED';
+    docContent = contract.markdownContent;
+    docDmNotes = contract.dmNotes;
+    broadcastStatus = {
+      type: 'success',
+      text: `Generated official ${contract.classification} contract (${contract.id})!`
+    };
+    setTimeout(() => { broadcastStatus = null; }, 3000);
+  }
+
+  function handlePrintExport() {
+    if (typeof window !== 'undefined') {
+      window.print();
+    }
+  }
 </script>
 
 <div class="h-full flex flex-col bg-slate-950 text-slate-100 overflow-hidden select-none">
@@ -283,8 +306,17 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
       <h1 class="text-xs font-bold uppercase tracking-wider text-slate-200">Parchment Handout Studio &amp; LAN Broadcast</h1>
     </div>
 
-    <!-- Center Broadcast Action Controls -->
+    <!-- Center Broadcast & Generator Action Controls -->
     <div class="flex items-center gap-2">
+      <button
+        onclick={() => handleGenerateContract()}
+        class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs rounded-lg transition-all shadow-md flex items-center gap-1.5"
+        title="Generate randomized procedural Adventurers Guild bounty/contract from Chancellery manifests"
+      >
+        <span>🎲</span>
+        <span>Generate Contract</span>
+      </button>
+
       <button
         onclick={handleBroadcastToParty}
         class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-all shadow-md flex items-center gap-1.5 {isCurrentlyBroadcast ? 'ring-2 ring-emerald-400 animate-pulse' : ''}"
@@ -304,6 +336,15 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
           <span>Dismiss Broadcast</span>
         </button>
       {/if}
+
+      <button
+        onclick={handlePrintExport}
+        class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 border border-slate-700"
+        title="Print document or Export directly to PDF"
+      >
+        <span>🖨️</span>
+        <span>Print / PDF</span>
+      </button>
     </div>
 
     <!-- Right Controls: Save / New / Zoom -->
@@ -352,9 +393,10 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
       <!-- Saved Handouts Selector & Preset Quick Picks -->
       <div class="p-4 border-b border-slate-800 space-y-3">
         <div>
-          <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Select Document</label>
+          <label for="handout-select-doc" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Select Document</label>
           <div class="flex items-center gap-2">
             <select
+              id="handout-select-doc"
               value={activeHandoutId}
               onchange={(e) => {
                 const target = savedHandouts.find(h => h.id === (e.target as HTMLSelectElement).value);
@@ -378,7 +420,7 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
 
         <!-- Preset Template Quick Picks -->
         <div>
-          <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Load Preset Template</label>
+          <span class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Load Preset Template</span>
           <div class="grid grid-cols-2 gap-1.5 text-[11px]">
             <button
               onclick={() => applyPreset('bounty')}
@@ -415,8 +457,9 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
       <!-- Document Metadata Controls -->
       <div class="p-4 border-b border-slate-800 space-y-3 text-xs">
         <div>
-          <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Title</label>
+          <label for="handout-doc-title" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Title</label>
           <input
+            id="handout-doc-title"
             type="text"
             bind:value={docTitle}
             placeholder="Document title…"
@@ -425,8 +468,9 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
         </div>
 
         <div>
-          <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Subtitle / Origin</label>
+          <label for="handout-doc-subtitle" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Subtitle / Origin</label>
           <input
+            id="handout-doc-subtitle"
             type="text"
             bind:value={docSubtitle}
             placeholder="e.g. By Order of the High Marshal…"
@@ -436,8 +480,9 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
 
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Parchment Theme</label>
+            <label for="handout-doc-theme" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Parchment Theme</label>
             <select
+              id="handout-doc-theme"
               bind:value={docTheme}
               class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-indigo-500"
             >
@@ -450,8 +495,9 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
           </div>
 
           <div>
-            <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Wax Seal</label>
+            <label for="handout-doc-seal" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Wax Seal</label>
             <select
+              id="handout-doc-seal"
               bind:value={docSealType}
               class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-indigo-500"
             >
@@ -465,8 +511,9 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
 
         {#if docSealType !== 'none'}
           <div>
-            <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Seal Inscription</label>
+            <label for="handout-doc-seal-text" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Seal Inscription</label>
             <input
+              id="handout-doc-seal-text"
               type="text"
               bind:value={docSealText}
               placeholder="SEALED &amp; WITNESSED"
@@ -490,8 +537,9 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
 
       <!-- Live Markdown Body Editor -->
       <div class="flex-1 p-4 flex flex-col min-h-[250px]">
-        <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Document Markdown Content</label>
+        <label for="handout-doc-content" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Document Markdown Content</label>
         <textarea
+          id="handout-doc-content"
           bind:value={docContent}
           placeholder="Type Markdown content here…"
           class="w-full flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 font-mono leading-relaxed focus:outline-none focus:border-indigo-500 resize-none"
@@ -500,11 +548,12 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
 
       <!-- Secret DM Notes (Never Broadcast) -->
       <div class="p-4 border-t border-slate-800 bg-amber-950/10">
-        <label class="text-[10px] uppercase font-bold text-amber-400 block mb-1 flex items-center gap-1">
+        <label for="handout-doc-dmnotes" class="text-[10px] uppercase font-bold text-amber-400 block mb-1 flex items-center gap-1">
           <span>🔒</span>
           <span>Secret DM Notes (Never Sent to Players)</span>
         </label>
         <textarea
+          id="handout-doc-dmnotes"
           bind:value={docDmNotes}
           rows="3"
           placeholder="Internal notes regarding true culprit, hidden motives, DC 15 Investigation clues…"

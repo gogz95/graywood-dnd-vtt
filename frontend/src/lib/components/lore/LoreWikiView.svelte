@@ -776,7 +776,7 @@
         <!-- Manifest Generation Controls -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800">
           <div>
-            <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Cargo Category</label>
+            <span class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Cargo Category</span>
             <div class="grid grid-cols-3 gap-1.5 text-xs">
               {#each ['CARAVAN', 'SHIP_CARGO', 'CONTRABAND'] as cat}
                 <button
@@ -790,7 +790,7 @@
           </div>
 
           <div>
-            <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Value Tier</label>
+            <span class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Value Tier</span>
             <div class="grid grid-cols-3 gap-1.5 text-xs">
               {#each ['MODEST', 'WEALTHY', 'ARISTOCRATIC'] as tier}
                 <button
@@ -899,7 +899,7 @@
           <!-- Controls -->
           <div class="space-y-4">
             <div>
-              <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Item Rarity</label>
+              <span class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Item Rarity</span>
               <div class="grid grid-cols-3 gap-1.5 text-xs">
                 {#each ['COMMON', 'UNCOMMON', 'RARE', 'VERY_RARE', 'LEGENDARY', 'ARTIFACT'] as rar}
                   <button
@@ -954,7 +954,7 @@
             </div>
 
             <div>
-              <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">Utility Features</label>
+              <span class="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">Utility Features</span>
               <div class="grid grid-cols-2 gap-1.5 text-xs">
                 {#each ['FLIGHT', 'TELEPORTATION', 'DAMAGE_RESISTANCE', 'EXTRA_ACTION', 'HEALING', 'SENSES'] as feat}
                   <button
@@ -1042,8 +1042,9 @@
 
       <div class="space-y-3 text-xs">
         <div>
-          <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Entity Type</label>
+          <label for="new-entity-type" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Entity Type</label>
           <select
+            id="new-entity-type"
             bind:value={newType}
             class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-indigo-500"
           >
@@ -1056,8 +1057,9 @@
         </div>
 
         <div>
-          <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Name</label>
+          <label for="new-entity-name" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Name</label>
           <input
+            id="new-entity-name"
             type="text"
             bind:value={newName}
             placeholder="Entity name…"
@@ -1066,8 +1068,9 @@
         </div>
 
         <div>
-          <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Brief Summary</label>
+          <label for="new-entity-summary" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Brief Summary</label>
           <input
+            id="new-entity-summary"
             type="text"
             bind:value={newSummary}
             placeholder="One-line summary description…"
@@ -1078,8 +1081,9 @@
         {#if newType === 'NPC'}
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Challenge Rating (CR)</label>
+              <label for="new-entity-cr" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Challenge Rating (CR)</label>
               <input
+                id="new-entity-cr"
                 type="number"
                 min="0"
                 max="30"
@@ -1088,8 +1092,9 @@
               />
             </div>
             <div>
-              <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Alignment</label>
+              <label for="new-entity-alignment" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Alignment</label>
               <input
+                id="new-entity-alignment"
                 type="text"
                 bind:value={newAlignment}
                 placeholder="e.g. Lawful Good"
@@ -1100,8 +1105,9 @@
         {/if}
 
         <div>
-          <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Tags (Comma-separated)</label>
+          <label for="new-entity-tags" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Tags (Comma-separated)</label>
           <input
+            id="new-entity-tags"
             type="text"
             bind:value={newTags}
             placeholder="mercenary, military, cr-8"
@@ -1136,8 +1142,9 @@
 
       <div class="space-y-3 text-xs">
         <div>
-          <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Relationship Type</label>
+          <label for="rel-type-select" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Relationship Type</label>
           <select
+            id="rel-type-select"
             bind:value={relType}
             class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-indigo-500 font-semibold"
           >
@@ -1150,8 +1157,9 @@
         </div>
 
         <div>
-          <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Target Entity</label>
+          <label for="rel-target-select" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Target Entity</label>
           <select
+            id="rel-target-select"
             bind:value={relTargetId}
             class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-indigo-500"
           >
@@ -1162,8 +1170,9 @@
         </div>
 
         <div>
-          <label class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Relationship Notes (Optional)</label>
+          <label for="rel-notes-input" class="text-[10px] uppercase font-bold text-slate-500 block mb-1">Relationship Notes (Optional)</label>
           <input
+            id="rel-notes-input"
             type="text"
             bind:value={relNotes}
             placeholder="e.g. Sworn blood pact signed after the siege…"

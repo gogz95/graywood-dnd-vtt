@@ -14,7 +14,7 @@
   import { canvasStore } from '../../../stores/canvasStore.svelte';
   import { sendWsEvent } from '../../../stores/websocketStore';
 
-  export interface PartyMember {
+  interface PartyMember {
     id: string;
     name: string;
     playerName: string;
@@ -965,7 +965,7 @@
 
         <!-- Condition toggles -->
         <div class="space-y-1.5 pt-2">
-          <label class="font-bold text-slate-400 uppercase tracking-wider text-[10px] block">Toggle Starting Conditions</label>
+          <span class="font-bold text-slate-400 uppercase tracking-wider text-[10px] block">Toggle Starting Conditions</span>
           <div class="flex flex-wrap gap-1.5">
             {#each DND_CONDITIONS as cond}
               <button

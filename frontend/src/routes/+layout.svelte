@@ -16,6 +16,9 @@
   import Sidebar, { type DmTab } from '../lib/components/navigation/Sidebar.svelte';
   import SoundboardDrawer   from '../lib/components/audio/SoundboardDrawer.svelte';
   import SettingsModal      from '../lib/components/settings/SettingsModal.svelte';
+  import FloatingPanel      from '../lib/components/ui/FloatingPanel.svelte';
+  import SourceExplorerDrawer from '../lib/components/sources/SourceExplorerDrawer.svelte';
+  import { floatingWindowsStore } from '../lib/stores/floatingWindowsStore.svelte';
   import { initAutoSaver, type CampaignBundle } from '../lib/utils/campaignPersistence';
   import { autoLoadFirstRunSeeds } from '../lib/db/seedLoader';
   import { registerGlobalDropZone, type DroppedAsset } from '../lib/utils/assetDrop';
@@ -184,9 +187,36 @@
       <button onclick={resetSetup}
         class="px-2 py-1 text-xs text-slate-500 hover:text-slate-300 rounded border border-slate-800 hover:border-slate-700 transition-colors">⚙ Setup</button>
       <span class="w-px h-4 bg-slate-800 mx-0.5"></span>
+
+      <!-- Global Floating Toggles (Exclusively in Top Navigation Bar) -->
+      <button
+        onclick={() => floatingWindowsStore.toggleWindow('sources')}
+        class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {floatingWindowsStore.windows.sources.isOpen ? 'bg-indigo-700 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
+        title="Local Source Engine & Rulebook Explorer (NotebookLM-Style)"
+      >
+        📚 Sources
+      </button>
+
+      <button
+        onclick={() => floatingWindowsStore.toggleWindow('copilot')}
+        class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {floatingWindowsStore.windows.copilot.isOpen ? 'bg-indigo-700 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
+        title="Session Co-Pilot (Live DM Terminal)"
+      >
+        🤖 Co-Pilot
+      </button>
+
+      <button
+        onclick={() => floatingWindowsStore.toggleWindow('archivist')}
+        class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {floatingWindowsStore.windows.archivist.isOpen ? 'bg-indigo-700 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
+        title="Rules Archivist (SRD & Lore RAG)"
+      >
+        📖 Archivist
+      </button>
+
       <button id="open-audio"
         onclick={() => { audioOpen = !audioOpen; if (audioOpen) settingsOpen = false; }}
-        class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {audioOpen ? 'bg-indigo-700/30 text-indigo-300 border border-indigo-700/40' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}">
+        class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {audioOpen ? 'bg-indigo-700/30 text-indigo-300 border border-indigo-700/40' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
+        title="Soundboard & Atmospheric Audio">
         🎵 Audio
       </button>
       <button id="open-settings"
@@ -366,4 +396,17 @@
   <SoundboardDrawer bind:isOpen={audioOpen} />
   <SettingsModal bind:isOpen={settingsOpen} />
   <PlayerHandoutModal />
+
+  <!-- Global Non-Blurring Floating Window Shells -->
+  <FloatingPanel id="sources" title="Local Source Engine & Rulebook Explorer" icon="📚">
+    <SourceExplorerDrawer />
+  </FloatingPanel>
+
+  <FloatingPanel id="copilot" title="AI DM Co-Pilot Terminal" icon="🤖">
+    <DualChatPanel initialMode="copilot" />
+  </FloatingPanel>
+
+  <FloatingPanel id="archivist" title="Rules Archivist (SRD & Lore RAG)" icon="📖">
+    <DualChatPanel initialMode="archivist" />
+  </FloatingPanel>
 </div>

@@ -144,6 +144,9 @@ function handleIncomingWsEvent(event: WsEvent): void {
 
     case 'BLACK_ORB_TOGGLE':
       applyBlackOrbToggleFromWs(event.character_id, event.is_orb_sealed);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:black-orb-toggle', { detail: event }));
+      }
       break;
 
     case 'DICE_ROLL':
@@ -210,14 +213,6 @@ function handleIncomingWsEvent(event: WsEvent): void {
       combatTurnStore.set(syncData);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('vtt:combat-turn-sync', { detail: syncData }));
-      }
-      break;
-    }
-
-    case 'BLACK_ORB_TOGGLE': {
-      applyBlackOrbToggleFromWs(event.character_id, event.is_orb_sealed);
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('vtt:black-orb-toggle', { detail: event }));
       }
       break;
     }

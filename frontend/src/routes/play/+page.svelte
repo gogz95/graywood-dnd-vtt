@@ -23,6 +23,9 @@
   import { audioEngine } from '../../lib/audio/AudioEngine';
   import ParchmentViewer from '../../lib/components/handouts/ParchmentViewer.svelte';
   import ManaRecoveryModal from '../../lib/components/party/ManaRecoveryModal.svelte';
+  import PetManagerDrawer from '../../lib/components/player/PetManagerDrawer.svelte';
+  import WhisperInboxModal from '../../lib/components/player/WhisperInboxModal.svelte';
+  import type { CompanionAnimal } from '../../lib/types/character';
   import {
     sendTradeOffer,
     acceptTradeOffer,
@@ -100,6 +103,7 @@
 
   // Equipment with Durability RP
   let equipment = $state<PlayerItem[]>([]);
+  let companions = $state<CompanionAnimal[]>([]);
 
   // Resource Bubbles
   let spellSlots = $state<Array<{ level: number; total: number; used: number }>>([]);
@@ -980,18 +984,7 @@
           📊
         </button>
 
-        <button
-          onclick={() => isWhispersDrawerOpen = !isWhispersDrawerOpen}
-          class="relative p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs"
-          title="Secret DM Whispers Inbox"
-        >
-          <span>🤫</span>
-          {#if $dmWhispersStore.length > 0}
-            <span class="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-slate-950 font-black rounded-full text-[9px] flex items-center justify-center shadow">
-              {$dmWhispersStore.length}
-            </span>
-          {/if}
-        </button>
+        <WhisperInboxModal characterId={character.id} bind:isOpen={isWhispersDrawerOpen} />
 
         <button
           onclick={disconnect}
@@ -1020,7 +1013,7 @@
     {/if}
 
     <!-- ── Main Scrollable Body ─────────────────────────────────────────── -->
-    <main class="flex-1 overflow-y-auto p-4 space-y-4 max-w-md mx-auto w-full pb-16">
+    <main class="flex-1 min-h-screen overflow-y-auto p-4 space-y-4 max-w-md mx-auto w-full pb-24">
 
       <!-- 1. VITALS BAR (HP, AC, Speed, Initiative) -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
@@ -1369,6 +1362,11 @@
             </div>
           {/each}
         </div>
+      </section>
+
+      <!-- Mount, Beast & Familiar Manager -->
+      <section class="space-y-3">
+        <PetManagerDrawer bind:companions />
       </section>
 
       <!-- 5. DIGITAL DICE ROLLER TRAY (When Enabled) -->

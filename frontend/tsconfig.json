@@ -13,7 +13,6 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
-    "types": ["vitest/globals"],
     "paths": {
       "pixi.js": ["../node_modules/pixi.js/lib/index.d.ts"],
       "visibility-polygon": ["../node_modules/visibility-polygon/index.d.ts"],
