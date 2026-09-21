@@ -13,11 +13,7 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type")]
 pub enum WsEvent {
     #[serde(rename = "TOKEN_MOVE")]
-    TokenMove {
-        id: String,
-        x: f64,
-        y: f64,
-    },
+    TokenMove { id: String, x: f64, y: f64 },
 
     #[serde(rename = "HP_UPDATE")]
     HpUpdate {
@@ -41,10 +37,7 @@ pub enum WsEvent {
     },
 
     #[serde(rename = "SYSTEM_MESSAGE")]
-    SystemMessage {
-        message: String,
-        timestamp: i64,
-    },
+    SystemMessage { message: String, timestamp: i64 },
 
     #[serde(rename = "DATE_ADVANCED")]
     DateAdvanced {
@@ -85,10 +78,7 @@ pub enum WsEvent {
     },
 }
 
-pub async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> Response {
+pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
@@ -119,18 +109,28 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     if let Ok(event) = serde_json::from_str::<WsEvent>(&text) {
                         // If the event affects persisted state, update SQLite asynchronously
                         match &event {
-                            WsEvent::HpUpdate { character_id, current_hp, temp_hp } => {
+                            WsEvent::HpUpdate {
+                                character_id,
+                                current_hp,
+                                temp_hp,
+                            } => {
                                 let conn = db.lock().await;
                                 let _ = conn.execute(
                                     "UPDATE characters SET current_hp = ?1, temp_hp = ?2 WHERE id = ?3",
                                     rusqlite::params![current_hp, temp_hp, character_id],
                                 );
                             }
-                            WsEvent::BlackOrbToggle { character_id, is_orb_sealed } => {
+                            WsEvent::BlackOrbToggle {
+                                character_id,
+                                is_orb_sealed,
+                            } => {
                                 let conn = db.lock().await;
                                 let _ = conn.execute(
                                     "UPDATE characters SET is_orb_sealed = ?1 WHERE id = ?2",
-                                    rusqlite::params![if *is_orb_sealed { 1 } else { 0 }, character_id],
+                                    rusqlite::params![
+                                        if *is_orb_sealed { 1 } else { 0 },
+                                        character_id
+                                    ],
                                 );
                             }
                             _ => {}

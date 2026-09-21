@@ -27,32 +27,92 @@ pub fn create_router(state: AppState) -> Router {
         .route("/", get(routes::assets::serve_index))
         .route("/assets/*path", get(routes::assets::serve_assets))
         // 2. Compendium Query Endpoints
-        .route("/api/compendium/classes", get(routes::compendium::get_classes))
-        .route("/api/compendium/spells", get(routes::compendium::get_spells))
-        .route("/api/characters/roster", get(routes::compendium::get_public_roster))
+        .route(
+            "/api/compendium/classes",
+            get(routes::compendium::get_classes),
+        )
+        .route(
+            "/api/compendium/spells",
+            get(routes::compendium::get_spells),
+        )
+        .route(
+            "/api/characters/roster",
+            get(routes::compendium::get_public_roster),
+        )
         // 3. PIN Authentication & Claim Protocol
-        .route("/api/characters/claim", post(routes::characters::claim_character))
-        .route("/api/characters/action", post(routes::characters::execute_character_action))
+        .route(
+            "/api/characters/claim",
+            post(routes::characters::claim_character),
+        )
+        .route(
+            "/api/characters/action",
+            post(routes::characters::execute_character_action),
+        )
         // 4. Campaign Timekeeper & Calendar Endpoints
-        .route("/api/campaign/calendar", get(routes::calendar::get_current_calendar))
-        .route("/api/campaign/advance", post(routes::calendar::advance_time))
-        .route("/api/campaign/export", post(routes::campaign::export_archive))
-        .route("/api/system/network-info", get(routes::campaign::get_network_info))
+        .route(
+            "/api/campaign/calendar",
+            get(routes::calendar::get_current_calendar),
+        )
+        .route(
+            "/api/campaign/advance",
+            post(routes::calendar::advance_time),
+        )
+        .route(
+            "/api/campaign/export",
+            post(routes::campaign::export_archive),
+        )
+        .route(
+            "/api/system/network-info",
+            get(routes::campaign::get_network_info),
+        )
         // 5. DM Encounter Tracker & Monster Spawning Endpoints
         .route("/api/encounter/active", get(routes::encounter::get_active))
-        .route("/api/encounter/next_turn", post(routes::encounter::advance_turn))
-        .route("/api/encounter/prev_turn", post(routes::encounter::rewind_turn))
-        .route("/api/encounter/adjust_hp", post(routes::encounter::modify_hp))
-        .route("/api/encounter/toggle_condition", post(routes::encounter::toggle_condition))
-        .route("/api/encounter/monsters", get(routes::encounter::get_monsters))
-        .route("/api/encounter/spawn_token", post(routes::encounter::spawn_token))
+        .route(
+            "/api/encounter/next_turn",
+            post(routes::encounter::advance_turn),
+        )
+        .route(
+            "/api/encounter/prev_turn",
+            post(routes::encounter::rewind_turn),
+        )
+        .route(
+            "/api/encounter/adjust_hp",
+            post(routes::encounter::modify_hp),
+        )
+        .route(
+            "/api/encounter/toggle_condition",
+            post(routes::encounter::toggle_condition),
+        )
+        .route(
+            "/api/encounter/monsters",
+            get(routes::encounter::get_monsters),
+        )
+        .route(
+            "/api/encounter/spawn_token",
+            post(routes::encounter::spawn_token),
+        )
         // 6. Essence Crafting Matrix & Sockets Endpoints
-        .route("/api/crafting/essences", get(routes::crafting::list_essences))
-        .route("/api/crafting/evaluate", post(routes::crafting::evaluate_matrix))
-        .route("/api/crafting/sockets/:item_id", get(routes::crafting::get_item_sockets))
-        .route("/api/crafting/socket", post(routes::crafting::socket_essence))
+        .route(
+            "/api/crafting/essences",
+            get(routes::crafting::list_essences),
+        )
+        .route(
+            "/api/crafting/evaluate",
+            post(routes::crafting::evaluate_matrix),
+        )
+        .route(
+            "/api/crafting/sockets/:item_id",
+            get(routes::crafting::get_item_sockets),
+        )
+        .route(
+            "/api/crafting/socket",
+            post(routes::crafting::socket_essence),
+        )
         // 7. Settlement Profile & Regional Notice Board Endpoints
-        .route("/api/settlements/ostrava", get(routes::settlement::get_ostrava_profile))
+        .route(
+            "/api/settlements/ostrava",
+            get(routes::settlement::get_ostrava_profile),
+        )
         // 8. WebSocket Synchronization Hub
         .route("/ws", get(routes::ws::ws_handler))
         // Catch-all fallback for client-side routing
@@ -76,7 +136,6 @@ pub async fn run_server(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use crate::db::init_in_memory_db;
     use crate::models::Character;
     use axum::{
@@ -84,6 +143,7 @@ mod tests {
         http::{header, Request, StatusCode},
     };
     use serde_json::{json, Value};
+    use std::path::PathBuf;
     use tower::ServiceExt;
 
     fn setup_test_app() -> (Router, AppState) {
@@ -200,10 +260,13 @@ mod tests {
                     .method("POST")
                     .uri("/api/characters/claim")
                     .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(json!({
-                        "character_id": "test-hero-1",
-                        "pin": "0000"
-                    }).to_string()))
+                    .body(Body::from(
+                        json!({
+                            "character_id": "test-hero-1",
+                            "pin": "0000"
+                        })
+                        .to_string(),
+                    ))
                     .unwrap(),
             )
             .await
@@ -218,10 +281,13 @@ mod tests {
                     .method("POST")
                     .uri("/api/characters/claim")
                     .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(json!({
-                        "character_id": "test-hero-1",
-                        "pin": "1357"
-                    }).to_string()))
+                    .body(Body::from(
+                        json!({
+                            "character_id": "test-hero-1",
+                            "pin": "1357"
+                        })
+                        .to_string(),
+                    ))
                     .unwrap(),
             )
             .await
@@ -243,14 +309,17 @@ mod tests {
                     .uri("/api/characters/action")
                     .header(header::CONTENT_TYPE, "application/json")
                     .header(header::AUTHORIZATION, format!("Bearer {}", token))
-                    .body(Body::from(json!({
-                        "character_id": "test-hero-1",
-                        "action": {
-                            "type": "MUTATE_HP",
-                            "current_hp": 28,
-                            "temp_hp": 6
-                        }
-                    }).to_string()))
+                    .body(Body::from(
+                        json!({
+                            "character_id": "test-hero-1",
+                            "action": {
+                                "type": "MUTATE_HP",
+                                "current_hp": 28,
+                                "temp_hp": 6
+                            }
+                        })
+                        .to_string(),
+                    ))
                     .unwrap(),
             )
             .await
@@ -265,7 +334,11 @@ mod tests {
         // Check that WebSocket broadcasted HP_UPDATE
         let broadcasted = rx.recv().await.unwrap();
         match broadcasted {
-            WsEvent::HpUpdate { character_id, current_hp, temp_hp } => {
+            WsEvent::HpUpdate {
+                character_id,
+                current_hp,
+                temp_hp,
+            } => {
                 assert_eq!(character_id, "test-hero-1");
                 assert_eq!(current_hp, 28);
                 assert_eq!(temp_hp, 6);
@@ -279,12 +352,7 @@ mod tests {
         let (app, _) = setup_test_app();
 
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
             .await
             .unwrap();
 

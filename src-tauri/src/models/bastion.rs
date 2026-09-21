@@ -92,7 +92,10 @@ impl BastionFacility {
         })
     }
 
-    pub fn insert(&self, conn: &Connection) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn insert(
+        &self,
+        conn: &Connection,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate()?;
         conn.execute(
             "INSERT INTO bastion_facilities (

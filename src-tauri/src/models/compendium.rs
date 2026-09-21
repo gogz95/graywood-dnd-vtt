@@ -158,9 +158,8 @@ impl CompendiumSpell {
 
 impl PublicCharacterRoster {
     pub fn list_public_roster(conn: &Connection) -> rusqlite::Result<Vec<Self>> {
-        let mut stmt = conn.prepare(
-            "SELECT id, name, is_orb_sealed FROM characters ORDER BY name ASC",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT id, name, is_orb_sealed FROM characters ORDER BY name ASC")?;
         let rows = stmt.query_map([], |row| {
             let is_orb_sealed_int: i32 = row.get("is_orb_sealed")?;
             Ok(Self {

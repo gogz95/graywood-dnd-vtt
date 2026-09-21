@@ -37,7 +37,7 @@ impl ElementalEssence {
             "SELECT id, name, category, tier, ingredient_points, weapon_bonus_dice,
                     weapon_damage_type, armor_reduction_type, armor_damage_type, description
              FROM elemental_essences
-             ORDER BY tier ASC, name ASC"
+             ORDER BY tier ASC, name ASC",
         )?;
 
         let iter = stmt.query_map([], |row| Self::from_row(row))?;
@@ -53,7 +53,7 @@ impl ElementalEssence {
             "SELECT id, name, category, tier, ingredient_points, weapon_bonus_dice,
                     weapon_damage_type, armor_reduction_type, armor_damage_type, description
              FROM elemental_essences
-             WHERE id = ?1"
+             WHERE id = ?1",
         )?;
 
         stmt.query_row([id], |row| Self::from_row(row)).optional()
@@ -85,7 +85,7 @@ impl ItemSocket {
             "SELECT id, item_id, socket_index, slotted_essence_id, created_at
              FROM item_sockets
              WHERE item_id = ?1
-             ORDER BY socket_index ASC"
+             ORDER BY socket_index ASC",
         )?;
 
         let iter = stmt.query_map([item_id], |row| Self::from_row(row))?;

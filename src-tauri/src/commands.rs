@@ -18,7 +18,10 @@ pub async fn export_campaign_archive_cmd(
 ) -> Result<String, String> {
     let out_path = Path::new(&output_archive_path);
     export_campaign_archive(&db_path, &assets_dir, out_path)?;
-    Ok(format!("Archive successfully exported to: {}", output_archive_path))
+    Ok(format!(
+        "Archive successfully exported to: {}",
+        output_archive_path
+    ))
 }
 
 /// IPC command to spawn a compendium monster directly onto the PixiJS canvas coordinates.
@@ -34,7 +37,12 @@ pub async fn spawn_combatant_token_cmd(
     // 1. Fetch monster definition from compendium
     let monster = MonsterStatBlock::find_by_id(&conn, &payload.monster_compendium_id)
         .map_err(|e| format!("Database error querying monster: {}", e))?
-        .ok_or_else(|| format!("Monster '{}' not found in compendium", payload.monster_compendium_id))?;
+        .ok_or_else(|| {
+            format!(
+                "Monster '{}' not found in compendium",
+                payload.monster_compendium_id
+            )
+        })?;
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -175,7 +183,8 @@ pub async fn pick_and_read_campaign_folder() -> Result<Vec<IngestedFileEntry>, S
                     ) {
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             let metadata = std::fs::metadata(&path).ok();
-                            let size_bytes = metadata.map(|m| m.len()).unwrap_or(content.len() as u64);
+                            let size_bytes =
+                                metadata.map(|m| m.len()).unwrap_or(content.len() as u64);
                             let rel_path = path
                                 .strip_prefix(&folder_path)
                                 .map(|p| p.to_string_lossy().to_string())
@@ -206,10 +215,12 @@ pub async fn pick_and_read_campaign_folder() -> Result<Vec<IngestedFileEntry>, S
 pub fn get_lan_ip_cmd() -> String {
     match std::net::UdpSocket::bind("0.0.0.0:0") {
         Ok(socket) => match socket.connect("8.8.8.8:80") {
-            Ok(()) => socket.local_addr().map(|a| a.ip().to_string()).unwrap_or_else(|_| "127.0.0.1".to_string()),
+            Ok(()) => socket
+                .local_addr()
+                .map(|a| a.ip().to_string())
+                .unwrap_or_else(|_| "127.0.0.1".to_string()),
             Err(_) => "127.0.0.1".to_string(),
         },
         Err(_) => "127.0.0.1".to_string(),
     }
 }
-

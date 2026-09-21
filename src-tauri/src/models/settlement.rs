@@ -42,7 +42,7 @@ impl SettlementProfile {
                     precursor_under_ruins_json, economic_enforcement_json,
                     municipal_laws_json, created_at
              FROM settlement_profiles
-             WHERE id = ?1"
+             WHERE id = ?1",
         )?;
 
         stmt.query_row([id], |row| Self::from_row(row)).optional()
@@ -97,7 +97,7 @@ impl SettlementContract {
                     reward_gold, reward_rp, min_level, expiration_days, is_completed, created_at
              FROM settlement_contracts
              WHERE settlement_id = ?1
-             ORDER BY min_level ASC, reward_gold DESC"
+             ORDER BY min_level ASC, reward_gold DESC",
         )?;
 
         let iter = stmt.query_map([settlement_id], |row| Self::from_row(row))?;

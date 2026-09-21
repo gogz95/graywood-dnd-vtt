@@ -112,13 +112,11 @@ pub async fn serve_assets(
     if candidate_file.exists() && candidate_file.is_file() {
         if let Ok(bytes) = tokio::fs::read(&candidate_file).await {
             let mime = mime_guess::from_path(&candidate_file).first_or_octet_stream();
-            let mut res = Response::builder()
-                .status(StatusCode::OK)
-                .header(
-                    header::CONTENT_TYPE,
-                    HeaderValue::from_str(mime.as_ref())
-                        .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
-                );
+            let mut res = Response::builder().status(StatusCode::OK).header(
+                header::CONTENT_TYPE,
+                HeaderValue::from_str(mime.as_ref())
+                    .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+            );
 
             // Explicit caching policy: Service worker must never be cached immutably
             if safe_path == "sw.js" || safe_path.ends_with("/sw.js") {

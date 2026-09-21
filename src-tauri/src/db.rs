@@ -82,11 +82,13 @@ mod tests {
         assert!(cantrips.len() >= 3);
         assert!(cantrips.iter().any(|s| s.name == "Fire Bolt"));
 
-        let wizard_spells = CompendiumSpell::query_spells(&conn, None, Some("Wizard")).expect("Query failed");
+        let wizard_spells =
+            CompendiumSpell::query_spells(&conn, None, Some("Wizard")).expect("Query failed");
         assert!(wizard_spells.iter().any(|s| s.name == "Fireball"));
         assert!(wizard_spells.iter().any(|s| s.name == "Wish"));
 
-        let lvl3_wizards = CompendiumSpell::query_spells(&conn, Some(3), Some("Wizard")).expect("Query failed");
+        let lvl3_wizards =
+            CompendiumSpell::query_spells(&conn, Some(3), Some("Wizard")).expect("Query failed");
         assert!(lvl3_wizards.iter().any(|s| s.name == "Fireball"));
         assert!(lvl3_wizards.iter().any(|s| s.name == "Counterspell"));
         assert!(!lvl3_wizards.iter().any(|s| s.name == "Revivify")); // Revivify is Cleric/Paladin/Artificer
@@ -197,15 +199,21 @@ mod tests {
         let updated_count = InventoryItem::apply_spoilage_batch(&conn, current_time).unwrap();
         assert_eq!(updated_count, 1);
 
-        let fresh_check = InventoryItem::find_by_id(&conn, "item-fresh-1").unwrap().unwrap();
+        let fresh_check = InventoryItem::find_by_id(&conn, "item-fresh-1")
+            .unwrap()
+            .unwrap();
         assert!(!fresh_check.is_spoiled);
         assert_eq!(fresh_check.base_value_cp, 1000);
 
-        let spoiled_check = InventoryItem::find_by_id(&conn, "item-expired-1").unwrap().unwrap();
+        let spoiled_check = InventoryItem::find_by_id(&conn, "item-expired-1")
+            .unwrap()
+            .unwrap();
         assert!(spoiled_check.is_spoiled);
         assert_eq!(spoiled_check.base_value_cp, 2500); // halved from 5000
 
-        let preserved_check = InventoryItem::find_by_id(&conn, "item-preserved-1").unwrap().unwrap();
+        let preserved_check = InventoryItem::find_by_id(&conn, "item-preserved-1")
+            .unwrap()
+            .unwrap();
         assert!(!preserved_check.is_spoiled);
         assert_eq!(preserved_check.base_value_cp, 8000);
     }
@@ -291,7 +299,9 @@ mod tests {
         assert_eq!(smithy.monthly_tax_cp(), 1000);
         assert_eq!(smithy.monthly_total_maintenance_cp(30), 22_000);
 
-        smithy.insert(&conn).expect("Failed to insert bastion facility");
+        smithy
+            .insert(&conn)
+            .expect("Failed to insert bastion facility");
 
         let fetched = BastionFacility::find_by_id(&conn, "bastion-fac-1")
             .unwrap()

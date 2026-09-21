@@ -2,11 +2,7 @@ use crate::models::{Character, InventoryItem};
 use crate::server::error::ServerError;
 use crate::server::routes::ws::WsEvent;
 use crate::server::state::{AppState, DEFAULT_TOKEN_TTL_SECONDS};
-use axum::{
-    extract::State,
-    http::HeaderMap,
-    Json,
-};
+use axum::{extract::State, http::HeaderMap, Json};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
@@ -40,20 +36,13 @@ pub enum CharacterAction {
         temp_hp: Option<i32>,
     },
     #[serde(rename = "SPEND_SPELL_SLOT")]
-    SpendSpellSlot {
-        slot_level: u8,
-    },
+    SpendSpellSlot { slot_level: u8 },
     #[serde(rename = "RESTORE_SPELL_SLOTS")]
     RestoreSpellSlots,
     #[serde(rename = "TOGGLE_BLACK_ORB")]
-    ToggleBlackOrb {
-        is_orb_sealed: bool,
-    },
+    ToggleBlackOrb { is_orb_sealed: bool },
     #[serde(rename = "TOGGLE_INVENTORY_PRESERVED")]
-    ToggleInventoryPreserved {
-        item_id: String,
-        is_preserved: bool,
-    },
+    ToggleInventoryPreserved { item_id: String, is_preserved: bool },
 }
 
 #[derive(Debug, Serialize)]
@@ -74,8 +63,9 @@ pub async fn claim_character(
     }
 
     let conn = state.db.lock().await;
-    let character = Character::find_by_id(&conn, &payload.character_id)?
-        .ok_or_else(|| ServerError::NotFound(format!("Character '{}' not found", payload.character_id)))?;
+    let character = Character::find_by_id(&conn, &payload.character_id)?.ok_or_else(|| {
+        ServerError::NotFound(format!("Character '{}' not found", payload.character_id))
+    })?;
 
     if character.pin != payload.pin {
         return Err(ServerError::InvalidPin);
@@ -149,11 +139,15 @@ pub async fn execute_character_action(
         &conn,
     )?;
 
-    let mut character = Character::find_by_id(&conn, &payload.character_id)?
-        .ok_or_else(|| ServerError::NotFound(format!("Character '{}' not found", payload.character_id)))?;
+    let mut character = Character::find_by_id(&conn, &payload.character_id)?.ok_or_else(|| {
+        ServerError::NotFound(format!("Character '{}' not found", payload.character_id))
+    })?;
 
     match payload.action {
-        CharacterAction::MutateHp { current_hp, temp_hp } => {
+        CharacterAction::MutateHp {
+            current_hp,
+            temp_hp,
+        } => {
             character.current_hp = current_hp;
             if let Some(thp) = temp_hp {
                 character.temp_hp = thp;
@@ -239,9 +233,13 @@ pub async fn execute_character_action(
                 is_orb_sealed,
             });
         }
-        CharacterAction::ToggleInventoryPreserved { item_id, is_preserved } => {
-            let item = InventoryItem::find_by_id(&conn, &item_id)?
-                .ok_or_else(|| ServerError::NotFound(format!("Inventory item '{}' not found", item_id)))?;
+        CharacterAction::ToggleInventoryPreserved {
+            item_id,
+            is_preserved,
+        } => {
+            let item = InventoryItem::find_by_id(&conn, &item_id)?.ok_or_else(|| {
+                ServerError::NotFound(format!("Inventory item '{}' not found", item_id))
+            })?;
 
             if item.character_id != character.id {
                 return Err(ServerError::Unauthorized(

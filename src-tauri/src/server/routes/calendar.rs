@@ -1,6 +1,8 @@
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
-use crate::systems::calendar::{advance_campaign_days, convert_epoch_to_calendars, CampaignAdvanceResult, MultiCalendarDate};
+use crate::systems::calendar::{
+    advance_campaign_days, convert_epoch_to_calendars, CampaignAdvanceResult, MultiCalendarDate,
+};
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 

@@ -58,7 +58,10 @@ pub struct NetworkInfoResponse {
 pub async fn get_network_info() -> Json<NetworkInfoResponse> {
     let local_ip = match std::net::UdpSocket::bind("0.0.0.0:0") {
         Ok(socket) => match socket.connect("8.8.8.8:80") {
-            Ok(()) => socket.local_addr().map(|a| a.ip().to_string()).unwrap_or_else(|_| "127.0.0.1".to_string()),
+            Ok(()) => socket
+                .local_addr()
+                .map(|a| a.ip().to_string())
+                .unwrap_or_else(|_| "127.0.0.1".to_string()),
             Err(_) => "127.0.0.1".to_string(),
         },
         Err(_) => "127.0.0.1".to_string(),

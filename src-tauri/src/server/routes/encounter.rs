@@ -1,9 +1,9 @@
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::systems::encounter::{
-    adjust_combatant_hp, get_active_encounter, next_turn, prev_turn,
-    spawn_combatant_token, toggle_combatant_condition, ActiveCombatant, Encounter,
-    MonsterStatBlock, SpawnCombatantRequest, SpawnCombatantResponse,
+    adjust_combatant_hp, get_active_encounter, next_turn, prev_turn, spawn_combatant_token,
+    toggle_combatant_condition, ActiveCombatant, Encounter, MonsterStatBlock,
+    SpawnCombatantRequest, SpawnCombatantResponse,
 };
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};

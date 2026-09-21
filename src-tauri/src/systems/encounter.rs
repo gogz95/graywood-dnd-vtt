@@ -191,8 +191,8 @@ pub fn next_turn(
     ws_sender: Option<&broadcast::Sender<WsEvent>>,
     encounter_id: &str,
 ) -> Result<(Encounter, Vec<ActiveCombatant>), Box<dyn std::error::Error + Send + Sync>> {
-    let (mut enc, combatants) = get_active_encounter(conn)?
-        .ok_or_else(|| "No active encounter found".to_string())?;
+    let (mut enc, combatants) =
+        get_active_encounter(conn)?.ok_or_else(|| "No active encounter found".to_string())?;
 
     if enc.id != encounter_id {
         return Err("Encounter ID mismatch".into());
@@ -240,8 +240,8 @@ pub fn prev_turn(
     ws_sender: Option<&broadcast::Sender<WsEvent>>,
     encounter_id: &str,
 ) -> Result<(Encounter, Vec<ActiveCombatant>), Box<dyn std::error::Error + Send + Sync>> {
-    let (mut enc, combatants) = get_active_encounter(conn)?
-        .ok_or_else(|| "No active encounter found".to_string())?;
+    let (mut enc, combatants) =
+        get_active_encounter(conn)?.ok_or_else(|| "No active encounter found".to_string())?;
 
     if enc.id != encounter_id {
         return Err("Encounter ID mismatch".into());
@@ -363,8 +363,13 @@ pub fn spawn_combatant_token(
     ws_sender: Option<&broadcast::Sender<WsEvent>>,
     req: SpawnCombatantRequest,
 ) -> Result<SpawnCombatantResponse, Box<dyn std::error::Error + Send + Sync>> {
-    let monster = MonsterStatBlock::find_by_id(conn, &req.monster_compendium_id)?
-        .ok_or_else(|| format!("Monster '{}' not found in compendium", req.monster_compendium_id))?;
+    let monster =
+        MonsterStatBlock::find_by_id(conn, &req.monster_compendium_id)?.ok_or_else(|| {
+            format!(
+                "Monster '{}' not found in compendium",
+                req.monster_compendium_id
+            )
+        })?;
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

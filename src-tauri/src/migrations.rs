@@ -89,11 +89,16 @@ pub fn export_campaign_archive(
     output_archive_path: &Path,
 ) -> Result<(), String> {
     if let Some(parent) = output_archive_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create output dir: {}", e))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create output dir: {}", e))?;
     }
 
-    let file = File::create(output_archive_path)
-        .map_err(|e| format!("Failed to create archive file '{:?}': {}", output_archive_path, e))?;
+    let file = File::create(output_archive_path).map_err(|e| {
+        format!(
+            "Failed to create archive file '{:?}': {}",
+            output_archive_path, e
+        )
+    })?;
 
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default()

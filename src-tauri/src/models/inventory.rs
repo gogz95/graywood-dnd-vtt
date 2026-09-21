@@ -93,7 +93,10 @@ impl InventoryItem {
         .optional()
     }
 
-    pub fn find_by_character_id(conn: &Connection, character_id: &str) -> rusqlite::Result<Vec<Self>> {
+    pub fn find_by_character_id(
+        conn: &Connection,
+        character_id: &str,
+    ) -> rusqlite::Result<Vec<Self>> {
         let mut stmt = conn.prepare(
             "SELECT id, character_id, name, quantity, weight_lbs,
                     current_rp, max_rp, is_preserved, harvest_timestamp,
@@ -140,7 +143,10 @@ impl InventoryItem {
                AND harvest_timestamp IS NOT NULL
                AND (?1 - harvest_timestamp) > ?2",
         )?;
-        let rows = stmt.query_map(params![current_epoch, SPOILAGE_THRESHOLD_SECONDS], Self::from_row)?;
+        let rows = stmt.query_map(
+            params![current_epoch, SPOILAGE_THRESHOLD_SECONDS],
+            Self::from_row,
+        )?;
         let mut items = Vec::new();
         for item_result in rows {
             items.push(item_result?);

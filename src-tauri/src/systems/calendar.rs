@@ -83,18 +83,18 @@ pub struct CampaignAdvanceResult {
 }
 
 const CHANCELLERY_MONTHS: [&str; 12] = [
-    "Deepfrost",    // Month 1
-    "Winterwane",   // Month 2
-    "Verdan",       // Month 3
-    "Bloomtide",    // Month 4
-    "Goldensun",    // Month 5
-    "Midyear",      // Month 6
-    "Harvestrise",  // Month 7
-    "Amberfall",    // Month 8
-    "Rustleaf",     // Month 9
-    "Chillwind",    // Month 10
-    "Shadowfrost",  // Month 11
-    "Yearsend",     // Month 12
+    "Deepfrost",   // Month 1
+    "Winterwane",  // Month 2
+    "Verdan",      // Month 3
+    "Bloomtide",   // Month 4
+    "Goldensun",   // Month 5
+    "Midyear",     // Month 6
+    "Harvestrise", // Month 7
+    "Amberfall",   // Month 8
+    "Rustleaf",    // Month 9
+    "Chillwind",   // Month 10
+    "Shadowfrost", // Month 11
+    "Yearsend",    // Month 12
 ];
 
 const AY_MODLAHD_MANSIONS: [&str; 12] = [
@@ -199,7 +199,9 @@ pub fn convert_epoch_to_calendars(epoch_days: u64) -> MultiCalendarDate {
             month_name: None,
             decade: None,
             day_of_decade: None,
-            intercalary_festival: Some("Night of the Long Vigil (Winter Solstice Festival)".to_string()),
+            intercalary_festival: Some(
+                "Night of the Long Vigil (Winter Solstice Festival)".to_string(),
+            ),
             formatted: format!(
                 "Year {} CS, Night of the Long Vigil (Winter Solstice Festival), Day 364 of 364",
                 chancellery_year
@@ -360,7 +362,8 @@ pub fn advance_campaign_days(
         )
         .optional()?;
 
-    let (prev_epoch_days, prev_epoch_seconds) = state_row.ok_or(CalendarError::StateUninitialized)?;
+    let (prev_epoch_days, prev_epoch_seconds) =
+        state_row.ok_or(CalendarError::StateUninitialized)?;
 
     let new_epoch_days = prev_epoch_days + (days as u64);
     let seconds_advanced = (days as i64) * 86400;
@@ -442,31 +445,50 @@ mod tests {
         let equinox1 = convert_epoch_to_calendars(90);
         assert_eq!(equinox1.chancellery.day_of_year, 91);
         assert!(equinox1.chancellery.intercalary_festival.is_some());
-        assert!(equinox1.chancellery.intercalary_festival.unwrap().contains("High Springtide"));
+        assert!(equinox1
+            .chancellery
+            .intercalary_festival
+            .unwrap()
+            .contains("High Springtide"));
         assert_eq!(equinox1.chancellery.month, None);
 
         // Day 91: First day after Spring Equinox -> Month 4 (Bloomtide), Decade 10, Day 1
         let day92_cal = convert_epoch_to_calendars(91);
         assert_eq!(day92_cal.chancellery.day_of_year, 92);
         assert_eq!(day92_cal.chancellery.month, Some(4));
-        assert_eq!(day92_cal.chancellery.month_name.as_deref(), Some("Bloomtide"));
+        assert_eq!(
+            day92_cal.chancellery.month_name.as_deref(),
+            Some("Bloomtide")
+        );
         assert_eq!(day92_cal.chancellery.decade, Some(10));
         assert_eq!(day92_cal.chancellery.day_of_decade, Some(1));
 
         // Day 181: Summer Solstice Festival (Day 182 of year)
         let solstice1 = convert_epoch_to_calendars(181);
         assert_eq!(solstice1.chancellery.day_of_year, 182);
-        assert!(solstice1.chancellery.intercalary_festival.unwrap().contains("Suncrest Zenith"));
+        assert!(solstice1
+            .chancellery
+            .intercalary_festival
+            .unwrap()
+            .contains("Suncrest Zenith"));
 
         // Day 272: Autumnal Equinox Festival (Day 273 of year)
         let equinox2 = convert_epoch_to_calendars(272);
         assert_eq!(equinox2.chancellery.day_of_year, 273);
-        assert!(equinox2.chancellery.intercalary_festival.unwrap().contains("Harvest Feast"));
+        assert!(equinox2
+            .chancellery
+            .intercalary_festival
+            .unwrap()
+            .contains("Harvest Feast"));
 
         // Day 363: Winter Solstice Festival (Day 364 of year)
         let solstice2 = convert_epoch_to_calendars(363);
         assert_eq!(solstice2.chancellery.day_of_year, 364);
-        assert!(solstice2.chancellery.intercalary_festival.unwrap().contains("Night of the Long Vigil"));
+        assert!(solstice2
+            .chancellery
+            .intercalary_festival
+            .unwrap()
+            .contains("Night of the Long Vigil"));
 
         // Day 364: Start of Year 1421 CS
         let year2 = convert_epoch_to_calendars(364);
@@ -580,7 +602,9 @@ mod tests {
         assert_eq!(advance2.new_epoch_days, 3);
         assert_eq!(advance2.spoiled_items_count, 1);
 
-        let spoiled_item = InventoryItem::find_by_id(&conn, "inv-harvest-1").unwrap().unwrap();
+        let spoiled_item = InventoryItem::find_by_id(&conn, "inv-harvest-1")
+            .unwrap()
+            .unwrap();
         assert!(spoiled_item.is_spoiled);
         assert_eq!(spoiled_item.base_value_cp, 1000); // halved from 2000
 
@@ -588,7 +612,11 @@ mod tests {
         // The default contracts in migration 003 have posted_epoch_days = 0, duration_days = 10.
         // At day 3, they are NOT expired yet.
         let expired_at_day_3: i64 = conn
-            .query_row("SELECT count(*) FROM contracts WHERE is_expired = 1", [], |r| r.get(0))
+            .query_row(
+                "SELECT count(*) FROM contracts WHERE is_expired = 1",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(expired_at_day_3, 0);
 
@@ -598,7 +626,11 @@ mod tests {
         assert!(advance3.expired_contracts_count >= 3);
 
         let expired_at_day_11: i64 = conn
-            .query_row("SELECT count(*) FROM contracts WHERE is_expired = 1", [], |r| r.get(0))
+            .query_row(
+                "SELECT count(*) FROM contracts WHERE is_expired = 1",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert!(expired_at_day_11 >= 3);
     }

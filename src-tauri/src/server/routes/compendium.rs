@@ -57,11 +57,7 @@ pub async fn get_spells(
     State(state): State<AppState>,
 ) -> Result<Json<CompendiumSpellsResponse>, ServerError> {
     let conn = state.db.lock().await;
-    let spells = CompendiumSpell::query_spells(
-        &conn,
-        filters.level,
-        filters.class.as_deref(),
-    )?;
+    let spells = CompendiumSpell::query_spells(&conn, filters.level, filters.class.as_deref())?;
     let count = spells.len();
 
     Ok(Json(CompendiumSpellsResponse {

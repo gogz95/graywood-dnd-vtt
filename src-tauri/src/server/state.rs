@@ -71,11 +71,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(
-        db: Connection,
-        token_secret: Vec<u8>,
-        assets_dir: PathBuf,
-    ) -> Self {
+    pub fn new(db: Connection, token_secret: Vec<u8>, assets_dir: PathBuf) -> Self {
         let (ws_sender, _) = broadcast::channel(512);
         let (db_queue, shared_db) = SerializedDbQueue::new(db);
 
@@ -89,7 +85,11 @@ impl AppState {
     }
 
     /// Generates a tamper-proof HMAC-SHA256 signed session token for a claimed character.
-    pub fn generate_token(&self, character_id: &str, ttl_seconds: i64) -> Result<(String, i64), ServerError> {
+    pub fn generate_token(
+        &self,
+        character_id: &str,
+        ttl_seconds: i64,
+    ) -> Result<(String, i64), ServerError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| ServerError::Internal(e.to_string()))?
@@ -110,7 +110,9 @@ impl AppState {
     pub fn verify_token(&self, token: &str) -> Result<String, ServerError> {
         let parts: Vec<&str> = token.split('.').collect();
         if parts.len() != 3 {
-            return Err(ServerError::Unauthorized("Malformed authentication token".to_string()));
+            return Err(ServerError::Unauthorized(
+                "Malformed authentication token".to_string(),
+            ));
         }
 
         let character_id = parts[0];
@@ -125,7 +127,9 @@ impl AppState {
             .as_secs() as i64;
 
         if now > expires_at {
-            return Err(ServerError::Unauthorized("Authentication token has expired".to_string()));
+            return Err(ServerError::Unauthorized(
+                "Authentication token has expired".to_string(),
+            ));
         }
 
         let payload = format!("{}:{}", character_id, expires_at);
@@ -135,7 +139,9 @@ impl AppState {
 
         let expected_sig = hex::encode(mac.finalize().into_bytes());
         if provided_sig != expected_sig {
-            return Err(ServerError::Unauthorized("Invalid token signature".to_string()));
+            return Err(ServerError::Unauthorized(
+                "Invalid token signature".to_string(),
+            ));
         }
 
         Ok(character_id.to_string())
