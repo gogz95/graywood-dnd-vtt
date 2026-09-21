@@ -65,6 +65,17 @@ export interface CompendiumFacility {
   origin: 'SRD-5.1' | 'USER_IMPORT';
 }
 
+export interface CompendiumMedia {
+  id: string;
+  name: string;
+  sourceBook: string;
+  mimeType: string;
+  createdAt: number;
+  url?: string;
+  blob?: Blob;
+  category?: string;
+}
+
 // ── Pure 5e SRD 5.1 Seed Records ─────────────────────────────────────────────
 
 const SRD_SPELLS: CompendiumSpell[] = [
@@ -513,6 +524,7 @@ export class CompendiumDatabase extends Dexie {
   subclasses!: Table<CompendiumSubclass, string>;
   monsters!: Table<CompendiumMonster, string>;
   facilities!: Table<CompendiumFacility, string>;
+  media!: Table<CompendiumMedia, string>;
 
   constructor() {
     super('vtt_compendium_database');
@@ -521,7 +533,8 @@ export class CompendiumDatabase extends Dexie {
       spells: 'id, name, level, school, *parentClass, sourceBook, packageId, origin',
       subclasses: 'id, parentClass, name, sourceBook, packageId, origin',
       monsters: 'id, name, cr, sourceBook, packageId, origin',
-      facilities: 'id, name, category, sourceBook, packageId, origin'
+      facilities: 'id, name, category, sourceBook, packageId, origin',
+      media: 'id, name, sourceBook, mimeType, createdAt'
     });
 
     this.on('populate', () => {

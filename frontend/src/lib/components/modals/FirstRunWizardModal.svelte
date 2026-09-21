@@ -19,7 +19,7 @@
   let step = $state<1 | 2 | 3 | 4>(1);
 
   // Step 1: Campaign Identity
-  let campaignName = $state('Dungeons of Graywood');
+  let campaignName = $state('Default Campaign');
   let dmName = $state('Dungeon Master');
   let tablePin = $state('1337');
 
@@ -78,7 +78,8 @@
   function finishSetup() {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('vtt_setup_completed', 'true');
-      localStorage.setItem('vtt_campaign_name', campaignName);
+      localStorage.setItem('hasCompletedWizard', 'true');
+      localStorage.setItem('vtt_campaign_name', campaignName || 'Default Campaign');
       localStorage.setItem('vtt_dm_name', dmName);
       localStorage.setItem('vtt_active_pin', tablePin);
     }
@@ -90,10 +91,24 @@
     }
 
     // Apply Rules Preset
+    const applyRule = (modId: string, state: boolean) => {
+      if (typeof (rulesEngine as any).setModuleEnabled === 'function') {
+        (rulesEngine as any).setModuleEnabled(modId, state);
+      } else if (typeof (rulesEngine as any).toggleRule === 'function') {
+        (rulesEngine as any).toggleRule(modId, state);
+      } else if ((rulesEngine as any).config && modId in (rulesEngine as any).config) {
+        (rulesEngine as any).config[modId] = state;
+      } else if (typeof (rulesEngine as any).toggleModule === 'function') {
+        if ((rulesEngine as any).isEnabled?.(modId) !== state) {
+          (rulesEngine as any).toggleModule(modId);
+        }
+      }
+    };
+
     if (ruleDexInit) {
-      rulesEngine.setModuleEnabled('enableTriStatInitiative', false);
+      applyRule('enableTriStatInitiative', false);
     }
-    rulesEngine.setModuleEnabled('enableDurabilitySystem', ruleDurability);
+    applyRule('enableDurabilitySystem', ruleDurability);
 
     isOpen = false;
     onComplete?.();
@@ -108,7 +123,7 @@
         <div class="flex items-center gap-2.5">
           <span class="text-xl">🎲</span>
           <div>
-            <h2 class="text-sm font-black text-slate-100 uppercase tracking-wider">Aleamos Initial Setup Wizard</h2>
+            <h2 class="text-sm font-black text-slate-100 uppercase tracking-wider">GRAYWOOD VTT SETUP WIZARD</h2>
             <p class="text-[11px] text-slate-400">Step {step} of 4: {step === 1 ? 'Campaign Identity' : step === 2 ? 'Display Preset' : step === 3 ? 'Rules Preset' : 'Compendium & Ingestion'}</p>
           </div>
         </div>
@@ -132,7 +147,7 @@
                 type="text"
                 bind:value={campaignName}
                 class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 font-semibold text-xs"
-                placeholder="e.g. Dungeons of Graywood"
+                placeholder="e.g. Default Campaign"
               />
             </div>
             <div class="space-y-1">

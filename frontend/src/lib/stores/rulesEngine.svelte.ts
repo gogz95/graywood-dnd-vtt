@@ -150,6 +150,14 @@ class RulesEngine {
     this.broadcast();
   }
 
+  setModuleEnabled(id: string, enabled: boolean, source?: string): void {
+    if (enabled) {
+      this.enableModule(id, source);
+    } else {
+      this.disableModule(id);
+    }
+  }
+
   toggleModule(id: string): void {
     this.modules = this.modules.map(m =>
       m.id === id ? { ...m, enabled: !m.enabled } : m

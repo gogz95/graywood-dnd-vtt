@@ -34,29 +34,38 @@ export interface VisionResult {
 /**
  * Converts tactical battlemap walls to 2D line segments, respecting window and door states.
  */
-export function wallsToLineSegments(walls: MapWall[]): LineSegment[] {
-  return walls.map((w) => {
-    let blocksVision = true;
-    let blocksMovement = true;
+export function wallsToLineSegments(walls: (MapWall | any)[]): LineSegment[] {
+  if (!walls || !Array.isArray(walls)) return [];
 
-    if (w.type === 'window') {
-      blocksVision = false; // Windows pass vision rays, block movement
-      blocksMovement = true;
-    } else if (w.type === 'door_open') {
-      blocksVision = false; // Open doors pass both
-      blocksMovement = false;
-    } else if (w.type === 'door_closed' || w.type === 'wall') {
-      blocksVision = true;
-      blocksMovement = true;
-    }
+  return walls
+    .filter(Boolean)
+    .map((w) => {
+      let blocksVision = true;
+      let blocksMovement = true;
 
-    return {
-      p1: { x: w.p1.x, y: w.p1.y },
-      p2: { x: w.p2.x, y: w.p2.y },
-      blocksVision,
-      blocksMovement,
-    };
-  });
+      if (w.type === 'window') {
+        blocksVision = false; // Windows pass vision rays, block movement
+        blocksMovement = true;
+      } else if (w.type === 'door_open') {
+        blocksVision = false; // Open doors pass both
+        blocksMovement = false;
+      } else if (w.type === 'door_closed' || w.type === 'wall') {
+        blocksVision = true;
+        blocksMovement = true;
+      }
+
+      const x1 = Number((w as any).x1 ?? (w as any).p1?.x ?? 0);
+      const y1 = Number((w as any).y1 ?? (w as any).p1?.y ?? 0);
+      const x2 = Number((w as any).x2 ?? (w as any).p2?.x ?? 0);
+      const y2 = Number((w as any).y2 ?? (w as any).p2?.y ?? 0);
+
+      return {
+        p1: { x: isNaN(x1) ? 0 : x1, y: isNaN(y1) ? 0 : y1 },
+        p2: { x: isNaN(x2) ? 0 : x2, y: isNaN(y2) ? 0 : y2 },
+        blocksVision,
+        blocksMovement,
+      };
+    });
 }
 
 /**
@@ -104,7 +113,32 @@ export function computeRaycastVisibility(
   maxRadiusPx: number,
   boundingBounds?: { minX: number; minY: number; maxX: number; maxY: number }
 ): VisionResult {
-  const visionWalls = walls.filter((w) => w.blocksVision);
+  const fallbackPolygon: Point2D[] = [];
+  const steps = 16;
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    fallbackPolygon.push({
+      x: (origin?.x ?? 0) + Math.cos(a) * (maxRadiusPx || 100),
+      y: (origin?.y ?? 0) + Math.sin(a) * (maxRadiusPx || 100),
+    });
+  }
+
+  if (!origin || isNaN(origin.x) || isNaN(origin.y) || !maxRadiusPx || maxRadiusPx <= 0) {
+    return {
+      origin: origin || { x: 0, y: 0 },
+      maxRadiusPx: maxRadiusPx || 100,
+      polygon: fallbackPolygon,
+    };
+  }
+
+  if (!walls || !Array.isArray(walls)) {
+    return { origin, maxRadiusPx, polygon: fallbackPolygon };
+  }
+
+  const validWalls = walls.filter(
+    (w) => w && w.p1 && w.p2 && !isNaN(w.p1.x) && !isNaN(w.p1.y) && !isNaN(w.p2.x) && !isNaN(w.p2.y)
+  );
+  const visionWalls = validWalls.filter((w) => w.blocksVision);
 
   // Define circular / rectangular boundary perimeter to constrain rays
   const bounds = boundingBounds || {

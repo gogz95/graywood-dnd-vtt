@@ -33,14 +33,32 @@ export function buildVisibilitySegments(
   const segments: [ [number, number], [number, number] ][] = [];
 
   // Add walls
-  for (const w of walls) {
-    segments.push([ [w.x1, w.y1], [w.x2, w.y2] ]);
+  if (Array.isArray(walls)) {
+    for (const w of walls) {
+      if (!w) continue;
+      const x1 = Number((w as any).x1 ?? (w as any).p1?.x ?? 0);
+      const y1 = Number((w as any).y1 ?? (w as any).p1?.y ?? 0);
+      const x2 = Number((w as any).x2 ?? (w as any).p2?.x ?? 0);
+      const y2 = Number((w as any).y2 ?? (w as any).p2?.y ?? 0);
+      if (!isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+        segments.push([ [x1, y1], [x2, y2] ]);
+      }
+    }
   }
 
   // Add closed doors (open doors do not block raycasts)
-  for (const d of doors) {
-    if (d.state === 'CLOSED') {
-      segments.push([ [d.x1, d.y1], [d.x2, d.y2] ]);
+  if (Array.isArray(doors)) {
+    for (const d of doors) {
+      if (!d) continue;
+      if (d.state === 'CLOSED') {
+        const x1 = Number((d as any).x1 ?? (d as any).p1?.x ?? 0);
+        const y1 = Number((d as any).y1 ?? (d as any).p1?.y ?? 0);
+        const x2 = Number((d as any).x2 ?? (d as any).p2?.x ?? 0);
+        const y2 = Number((d as any).y2 ?? (d as any).p2?.y ?? 0);
+        if (!isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+          segments.push([ [x1, y1], [x2, y2] ]);
+        }
+      }
     }
   }
 

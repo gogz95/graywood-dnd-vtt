@@ -5,6 +5,7 @@
 import JSZip from 'jszip';
 import { writable } from 'svelte/store';
 import { sourceDb, type SourceDocument, type SourceChunk } from '../db/sourceStore';
+import { compendiumDb } from '../db/compendiumDb';
 import { sniffMagicFormat, cleanTwoColumnTextStream } from '../workers/ingestionWorker';
 
 export interface IngestionProgressState {
@@ -56,9 +57,18 @@ export async function ingestUniversalFile(
 
   try {
     switch (ext) {
-      case 'zip': {
+      case 'zip':
+      case 'vttbundle': {
         const zipResults = await processZipArchive(file, fileName);
         results.push(...zipResults);
+        break;
+      }
+      case 'png':
+      case 'jpg':
+      case 'jpeg':
+      case 'webp': {
+        const imgResult = await processImageMedia(file, fileName, ext);
+        results.push(imgResult);
         break;
       }
       case 'pdf': {
@@ -544,8 +554,32 @@ function getExtension(name: string): string {
   return parts.length > 1 ? parts.pop()! : '';
 }
 
+async function processImageMedia(file: File | Blob, fileName: string, ext: string): Promise<IngestionFileResult> {
+  const mediaId = `media-${generateId()}`;
+  const now = Date.now();
+  const mimeType = file.type || `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+
+  await compendiumDb.media.put({
+    id: mediaId,
+    name: fileName,
+    sourceBook: fileName.split('/')[0] || 'Imported Media',
+    mimeType,
+    createdAt: now,
+    blob: file,
+  });
+
+  return {
+    fileName,
+    format: ext.toUpperCase(),
+    chunksCount: 1,
+    sizeBytes: file.size,
+    categories: ['Media', 'Image'],
+    success: true,
+  };
+}
+
 function matchesAllowedExtension(ext: string): boolean {
-  return ['md', 'txt', 'json', 'jsonl', 'csv', 'tsv', 'ds', 'dd2vtt', 'uvtt', 'pdf'].includes(ext);
+  return ['md', 'txt', 'json', 'jsonl', 'csv', 'tsv', 'ds', 'dd2vtt', 'uvtt', 'pdf', 'vttbundle', 'png', 'jpg', 'jpeg', 'webp'].includes(ext);
 }
 
 function generateId(): string {

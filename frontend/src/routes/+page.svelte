@@ -21,6 +21,11 @@
   import OmnibarPalette from '../lib/components/navigation/OmnibarPalette.svelte';
   import BestiaryDrawer from '../lib/components/bestiary/BestiaryDrawer.svelte';
   import CalendarDisplayWidget from '../lib/components/navigation/CalendarDisplayWidget.svelte';
+  import Header from '../lib/components/navigation/Header.svelte';
+  import { uiStore } from '../lib/stores/uiStore.svelte';
+  import FullBestiaryView from '../lib/components/bestiary/FullBestiaryView.svelte';
+  import MapManagerModal from '../lib/components/map/MapManagerModal.svelte';
+  import UnifiedHoldingsView from '../lib/components/downtime/UnifiedHoldingsView.svelte';
 
   // Aleamos Downtime, Logistics & Crafting
   import AlchemyWorkbench from '../lib/components/crafting/AlchemyWorkbench.svelte';
@@ -54,6 +59,25 @@
   let isSettingsOpen = $state(false);
   let isPlayerPortalOpen = $state(false);
   let isBestiaryOpen = $state(false);
+  let isMapManagerOpen = $state(false);
+
+  $effect(() => {
+    if (uiStore.activeView === 'canvas') {
+      activeTab = 'battlemat';
+      dmMapMode = 'tactical';
+    } else if (uiStore.activeView === 'atlas') {
+      activeTab = 'battlemat';
+      dmMapMode = 'atlas';
+    } else if (uiStore.activeView === 'bestiary') {
+      // Bestiary handles full-page overlay
+    } else if (uiStore.activeView === 'compendium') {
+      activeTab = 'lore';
+    } else if (uiStore.activeView === 'party') {
+      activeTab = 'party';
+    } else if (uiStore.activeView === 'journal') {
+      activeTab = 'handouts';
+    }
+  });
 
   let stopAutoSaver: (() => void) | null = null;
   let dropCleanup: (() => void) | null = null;
@@ -93,107 +117,12 @@
   <!-- ═════════════════════════════════════════════════════════════════════════
        1. GLOBAL WORKSPACE HEADER
   ══════════════════════════════════════════════════════════════════════════ -->
-  <header class="h-11 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 z-30 shrink-0">
-    <!-- Left: Brand & Campaign info -->
-    <div class="flex items-center gap-3 min-w-0">
-      <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/60"></div>
-      <span class="font-black text-xs text-slate-200 uppercase tracking-widest whitespace-nowrap">Aleamos Workstation</span>
-      <span class="text-slate-700 text-xs">|</span>
-      <span class="text-xs text-slate-400 font-semibold truncate">{campaignName}</span>
-    </div>
-
-    <!-- Center: In-World Campaign Calendar & Timekeeping -->
-    <CalendarDisplayWidget />
-
-    <!-- Right: Projector Casting, Player Portal launcher, Right Dock toggles, Audio, Settings -->
-    <div class="flex items-center gap-2 shrink-0">
-
-      <!-- Projector Casting Switchboard -->
-      <ProjectorCastingBar />
-
-      <span class="w-px h-4 bg-slate-800 mx-0.5"></span>
-
-      <!-- Player Join Portal Button -->
-      <div>
-        <button
-          onclick={() => isPlayerPortalOpen = true}
-          class="px-3 py-1 text-xs font-bold rounded-lg border transition-all flex items-center gap-1.5 {isPlayerPortalOpen
-            ? 'bg-amber-600 text-slate-950 border-amber-500 shadow-sm'
-            : 'bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-300 border-indigo-800/50'}"
-          title="Open Scannable QR Code & Player Mobile Companion Portal"
-        >
-          <span>📱</span>
-          <span>Player Join Portal</span>
-        </button>
-      </div>
-
-      <span class="w-px h-4 bg-slate-800 mx-1"></span>
-
-      <!-- Global Floating Tools Toggles (Top Navigation Bar Beside Settings) -->
-      <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
-        <button
-          type="button"
-          onclick={() => floatingWindowsStore.toggleWindow('sources')}
-          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {floatingWindowsStore.windows.sources.isOpen ? 'bg-indigo-700 text-white' : 'text-slate-400 hover:text-slate-200'}"
-          title="Local Sources Engine & Rulebook Explorer"
-        >
-          📚 Sources
-        </button>
-        <button
-          type="button"
-          onclick={() => floatingWindowsStore.toggleWindow('copilot')}
-          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {floatingWindowsStore.windows.copilot.isOpen ? 'bg-indigo-700 text-white' : 'text-slate-400 hover:text-slate-200'}"
-          title="Session Co-Pilot Terminal"
-        >
-          🤖 Co-Pilot
-        </button>
-        <button
-          type="button"
-          onclick={() => floatingWindowsStore.toggleWindow('archivist')}
-          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {floatingWindowsStore.windows.archivist.isOpen ? 'bg-indigo-700 text-white' : 'text-slate-400 hover:text-slate-200'}"
-          title="Rules Archivist (SRD & Lore RAG)"
-        >
-          📖 Archivist
-        </button>
-        <button
-          type="button"
-          onclick={() => floatingWindowsStore.toggleWindow('audio')}
-          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {floatingWindowsStore.windows.audio.isOpen ? 'bg-indigo-700 text-white' : 'text-slate-400 hover:text-slate-200'}"
-          title="Audio Studio & Soundboard"
-        >
-          🎵 Audio
-        </button>
-        <button
-          type="button"
-          onclick={() => isBestiaryOpen = !isBestiaryOpen}
-          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {isBestiaryOpen ? 'bg-amber-600 text-white font-black shadow-sm' : 'text-slate-400 hover:text-slate-200'}"
-          title="5e SRD Bestiary & Monster Compendium"
-        >
-          🐉 Bestiary
-        </button>
-        <button
-          type="button"
-          onclick={() => chatStore.toggle()}
-          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {chatStore.isOpen ? 'bg-amber-500 text-slate-950 font-black' : 'text-amber-400/90 hover:text-amber-300'}"
-          title="Session Chat & Universal Dice Log"
-        >
-          🎲 Dice &amp; Chat
-        </button>
-      </div>
-
-      <span class="w-px h-4 bg-slate-800 mx-1"></span>
-
-      <!-- Settings Modal Button -->
-      <button
-        type="button"
-        onclick={() => isSettingsOpen = true}
-        class="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors text-sm"
-        title="Settings & Campaign Persistence"
-      >
-        ⚙️
-      </button>
-    </div>
-  </header>
+  <Header
+    {campaignName}
+    onOpenSettings={() => uiStore.isSettingsOpen = true}
+    onOpenPlayerPortal={() => isPlayerPortalOpen = true}
+    onToggleCombat={() => activeTab = activeTab === 'encounter' ? 'battlemat' : 'encounter'}
+  />
 
   <!-- ═════════════════════════════════════════════════════════════════════════
        2. WORKSPACE BODY: SIDEBAR + CENTRAL FULL-WIDTH STAGE
@@ -209,8 +138,13 @@
       <InitiativeRibbon isDm={true} />
 
       <div class="flex-1 relative overflow-hidden">
+        <!-- 🐉 Full-Page Bestiary View (Elevated Full-Site Tab) -->
+        <div class="absolute inset-0 z-10 {uiStore.activeView === 'bestiary' ? '' : 'hidden'}">
+          <FullBestiaryView />
+        </div>
+
         <!-- 👥 Party Roster with nested Economy/Stash -->
-        <div class="absolute inset-0 {activeTab === 'party' ? '' : 'hidden'}">
+        <div class="absolute inset-0 {uiStore.activeView !== 'bestiary' && activeTab === 'party' ? '' : 'hidden'}">
           <PartyRosterView />
         </div>
 
@@ -246,19 +180,9 @@
           {/if}
         </div>
 
-        <!-- ⚗️ Alchemy Lab & Crafting Workbench -->
-        <div class="absolute inset-0 {activeTab === 'alchemy' ? '' : 'hidden'}">
-          <AlchemyWorkbench />
-        </div>
-
-        <!-- 📋 Guild Notice Board -->
-        <div class="absolute inset-0 {activeTab === 'guild' ? '' : 'hidden'}">
-          <GuildNoticeBoard />
-        </div>
-
-        <!-- 🏰 Stronghold / Bastion Zero-State Manager -->
-        <div class="absolute inset-0 {activeTab === 'stronghold' ? '' : 'hidden'}">
-          <BastionManagerView />
+        <!-- 🏰 Unified Holdings & Downtime (Strongholds, Guild, Crafting) -->
+        <div class="absolute inset-0 {uiStore.activeView !== 'bestiary' && (activeTab === 'holdings' || activeTab === 'alchemy' || activeTab === 'guild' || activeTab === 'stronghold') ? '' : 'hidden'}">
+          <UnifiedHoldingsView />
         </div>
 
         <!-- 📚 Lore Wiki & Relational Graph -->
@@ -276,9 +200,9 @@
   </div>
 
   <!-- Global Non-Blocking Floating Panels, Modals, and Overlays -->
-  <SoundboardDrawer />
+  <SoundboardDrawer bind:isOpen={uiStore.isSoundboardOpen} />
   <BestiaryDrawer bind:isOpen={isBestiaryOpen} />
-  <SettingsModal bind:isOpen={isSettingsOpen} />
+  <SettingsModal bind:isOpen={uiStore.isSettingsOpen} />
   <PlayerCompanionPortalModal bind:isOpen={isPlayerPortalOpen} />
   <PlayerHandoutModal />
 
@@ -305,4 +229,7 @@
 
   <!-- Initial Setup Wizard Modal -->
   <FirstRunWizardModal />
+
+  <!-- Universal Map Manager Modal -->
+  <MapManagerModal bind:isOpen={isMapManagerOpen} />
 </div>

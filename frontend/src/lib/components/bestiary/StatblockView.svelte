@@ -102,11 +102,7 @@
     }
 
     // Send action narrative card to chat
-    chatStore.postMessage({
-      sender: monster.name,
-      channel: 'public',
-      text: `**${act.name}**: ${act.description}`
-    });
+    chatStore.sendMessage(`**${act.name}**: ${act.description}`, monster.name);
   }
 
   function handleAdd() {

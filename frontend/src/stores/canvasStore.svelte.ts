@@ -196,11 +196,19 @@ class CanvasStoreClass {
   }
 
   private broadcast(type: string, payload: unknown) {
-    if (!this.channel) return;
+    if (!this.channel || this.isBroadcasting) return;
     this.isBroadcasting = true;
     try {
-      this.channel.postMessage({ type, payload, timestamp: Date.now() });
+      let cleanPayload: any;
+      try {
+        cleanPayload = $state.snapshot(payload);
+      } catch {
+        cleanPayload = JSON.parse(JSON.stringify(payload));
+      }
+      this.channel.postMessage({ type, payload: cleanPayload, timestamp: Date.now() });
       this.persist();
+    } catch (err) {
+      console.warn('Failed to broadcast battlemat message:', err);
     } finally {
       this.isBroadcasting = false;
     }
@@ -297,12 +305,36 @@ class CanvasStoreClass {
 
     // Mark surrounding cells as explored
     this.exploreAround(gx, gy, 4);
-    this.broadcast('TOKENS_SYNC', this.tokens);
+
+    const cleanTokens = this.tokens.map(t => ({
+      id: t.id,
+      name: t.name,
+      x: t.x,
+      y: t.y,
+      color: t.color,
+      isPlayer: t.isPlayer,
+      hp: t.hp,
+      maxHp: t.maxHp,
+      tempHp: t.tempHp,
+      ac: t.ac,
+      isVisible: t.isVisible,
+      conditions: [...(t.conditions || [])],
+      isOrbSealed: t.isOrbSealed,
+      sizeInCells: t.sizeInCells,
+      sightRadiusFeet: t.sightRadiusFeet,
+    }));
+    this.broadcast('TOKENS_SYNC', cleanTokens);
   }
 
   updateToken(id: string, patch: Partial<CanvasToken>) {
     this.tokens = this.tokens.map(t => t.id === id ? { ...t, ...patch } : t);
-    this.broadcast('TOKEN_UPDATE', { id, ...patch });
+    const cleanPatch: Record<string, any> = { id };
+    for (const [k, v] of Object.entries(patch)) {
+      if (typeof v !== 'function' && typeof v !== 'symbol') {
+        cleanPatch[k] = Array.isArray(v) ? [...v] : v;
+      }
+    }
+    this.broadcast('TOKEN_UPDATE', cleanPatch);
   }
 
   toggleTokenCondition(tokenId: string, condition: string) {

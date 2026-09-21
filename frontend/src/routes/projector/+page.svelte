@@ -30,6 +30,7 @@
   import InitiativeRibbon from '../../lib/components/combat/InitiativeRibbon.svelte';
   import { projectorStore } from '../../lib/stores/projectorStore.svelte';
   import AtlasMapView from '../../lib/components/map/AtlasMapView.svelte';
+  import { broadcaster, type HandoutPayload } from '../../lib/services/broadcaster';
 
   let canvasEl = $state<HTMLCanvasElement | null>(null);
   let ctx: CanvasRenderingContext2D | null = null;
@@ -37,6 +38,7 @@
   let animTime = $state(0);
   let activeVisionPolygons = $state<VisionPolygonResult[]>([]);
   let cleanupSync: (() => void) | null = null;
+  let activeHandout = $state<HandoutPayload | null>(null);
 
   // Filtered tokens: strictly hide DM-invisible creatures
   let visibleTokens = $derived(
@@ -161,9 +163,18 @@
     }
     rafId = requestAnimationFrame(loop);
 
+    const unsubBroadcaster = broadcaster.subscribe((event) => {
+      if (event.type === 'SHOW_HANDOUT') {
+        activeHandout = event.payload;
+      } else if (event.type === 'HIDE_HANDOUT') {
+        activeHandout = null;
+      }
+    });
+
     return () => {
       window.removeEventListener('resize', syncCanvasDimensions);
       cleanupSync?.();
+      unsubBroadcaster();
       if (rafId) cancelAnimationFrame(rafId);
     };
   });
@@ -409,7 +420,7 @@
 </script>
 
 <svelte:head>
-  <title>Projector Battle Mat — Aleamos 5e VTT</title>
+  <title>Projector Battle Mat — Graywood 5e VTT</title>
 </svelte:head>
 
 {#if projectorStore.castSource === 'blackout'}
@@ -558,5 +569,40 @@
       {/if}
     </div>
 
+  </div>
+{/if}
+
+{#if activeHandout}
+  <!-- Animated High-Resolution Player Handout Modal Overlay -->
+  <div
+    class="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in select-none"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Broadcast Handout"
+  >
+    <div class="relative max-w-4xl max-h-[90vh] bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col items-center p-4">
+      <div class="w-full flex justify-between items-center pb-3 border-b border-slate-800">
+        <div>
+          <h2 class="text-base font-black text-amber-300 uppercase tracking-widest">{activeHandout.title}</h2>
+          {#if activeHandout.caption}
+            <p class="text-xs text-slate-400 mt-0.5">{activeHandout.caption}</p>
+          {/if}
+        </div>
+        <button
+          type="button"
+          onclick={() => activeHandout = null}
+          class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-colors"
+        >
+          ✕
+        </button>
+      </div>
+      <div class="mt-4 flex-1 overflow-hidden flex items-center justify-center">
+        <img
+          src={activeHandout.url}
+          alt={activeHandout.title}
+          class="max-w-full max-h-[70vh] object-contain rounded-xl shadow-2xl border border-slate-800"
+        />
+      </div>
+    </div>
   </div>
 {/if}
