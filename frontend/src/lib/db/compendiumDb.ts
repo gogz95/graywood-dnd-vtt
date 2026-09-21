@@ -520,6 +520,11 @@ const SRD_FACILITIES: CompendiumFacility[] = [
   }
 ];
 
+export interface CampaignFlag {
+  key: string;
+  value: any;
+}
+
 export class CompendiumDatabase extends Dexie {
   spells!: Table<CompendiumSpell, string>;
   subclasses!: Table<CompendiumSubclass, string>;
@@ -527,6 +532,7 @@ export class CompendiumDatabase extends Dexie {
   facilities!: Table<CompendiumFacility, string>;
   media!: Table<CompendiumMedia, string>;
   ingestedTables!: Table<IngestedTable, number>;
+  campaignFlags!: Table<CampaignFlag, string>;
 
   constructor() {
     super('vtt_compendium_database');
@@ -541,6 +547,10 @@ export class CompendiumDatabase extends Dexie {
 
     this.version(2).stores({
       ingestedTables: '++id, name, category, source'
+    });
+
+    this.version(3).stores({
+      campaignFlags: 'key'
     });
 
     this.on('populate', () => {

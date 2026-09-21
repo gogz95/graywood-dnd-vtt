@@ -9,7 +9,7 @@
   import { projectorStore, type ProjectorCastSource } from '../../stores/projectorStore.svelte';
   import StatblockView from '../bestiary/StatblockView.svelte';
 
-  export interface OmnibarItem {
+  interface OmnibarItem {
     id: string;
     category: 'spell' | 'monster' | 'subclass' | 'facility' | 'poi' | 'command';
     icon: string;
