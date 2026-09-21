@@ -90,8 +90,8 @@ class CompendiumStore {
       if ('facilities' in compendiumDb) {
         this.facilities = await compendiumDb.facilities.toArray();
       }
-      if ('tables' in compendiumDb) {
-        this.tables = await compendiumDb.tables.toArray();
+      if ('ingestedTables' in compendiumDb) {
+        this.tables = await compendiumDb.ingestedTables.toArray();
       }
       this.updatePackageSummaries();
     } catch (err) {

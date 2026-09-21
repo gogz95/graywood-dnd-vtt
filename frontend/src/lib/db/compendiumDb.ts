@@ -526,7 +526,7 @@ export class CompendiumDatabase extends Dexie {
   monsters!: Table<CompendiumMonster, string>;
   facilities!: Table<CompendiumFacility, string>;
   media!: Table<CompendiumMedia, string>;
-  tables!: Table<IngestedTable, number>;
+  ingestedTables!: Table<IngestedTable, number>;
 
   constructor() {
     super('vtt_compendium_database');
@@ -540,7 +540,7 @@ export class CompendiumDatabase extends Dexie {
     });
 
     this.version(2).stores({
-      tables: '++id, name, category, source'
+      ingestedTables: '++id, name, category, source'
     });
 
     this.on('populate', () => {

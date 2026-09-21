@@ -369,8 +369,8 @@ export async function extractAndStoreCompendiumSource(
   if (monstersExtracted.length > 0) {
     await compendiumDb.monsters.bulkPut(monstersExtracted);
   }
-  if (tablesExtracted.length > 0 && 'tables' in compendiumDb) {
-    await compendiumDb.tables.bulkAdd(tablesExtracted);
+  if (tablesExtracted.length > 0 && 'ingestedTables' in compendiumDb) {
+    await compendiumDb.ingestedTables.bulkAdd(tablesExtracted);
   }
 
   await notifyMonstersUpdated();

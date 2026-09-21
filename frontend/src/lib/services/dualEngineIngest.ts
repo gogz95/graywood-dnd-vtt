@@ -160,7 +160,7 @@ export async function executeIngestion(
   const monstersToSave = result.monsters;
   const spellsToSave = result.spells;
 
-  await compendiumDb.transaction('rw', [compendiumDb.monsters, compendiumDb.spells, compendiumDb.tables], async () => {
+  await compendiumDb.transaction('rw', [compendiumDb.monsters, compendiumDb.spells, compendiumDb.ingestedTables], async () => {
     if (monstersToSave.length > 0) {
       await compendiumDb.monsters.bulkPut(monstersToSave);
     }
@@ -168,7 +168,7 @@ export async function executeIngestion(
       await compendiumDb.spells.bulkPut(spellsToSave);
     }
     if (tablesToSave.length > 0) {
-      await compendiumDb.tables.bulkAdd(tablesToSave);
+      await compendiumDb.ingestedTables.bulkAdd(tablesToSave);
     }
   });
 

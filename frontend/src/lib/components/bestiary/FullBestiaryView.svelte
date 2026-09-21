@@ -44,13 +44,15 @@
     ...new Set(bestiaryStore.allMonsters.map(m => m.sourceBook || m.origin || 'SRD 5.1').filter(Boolean))
   ]);
 
-  onMount(async () => {
-    if (bestiaryStore.allMonsters.length === 0) {
-      await bestiaryStore.init();
-    }
-    if (!bestiaryStore.activeMonster && bestiaryStore.allMonsters.length > 0) {
-      bestiaryStore.activeMonster = bestiaryStore.allMonsters[0];
-    }
+  onMount(() => {
+    (async () => {
+      if (bestiaryStore.allMonsters.length === 0) {
+        await bestiaryStore.init();
+      }
+      if (!bestiaryStore.activeMonster && bestiaryStore.allMonsters.length > 0) {
+        bestiaryStore.activeMonster = bestiaryStore.allMonsters[0];
+      }
+    })();
 
     const reload = async () => {
       await bestiaryStore.refreshFromDb();
