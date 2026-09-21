@@ -352,7 +352,7 @@
           {holding ? holding.name : 'Stronghold & Bastion Holdings'}
         </h1>
         <p class="text-xs text-slate-400">
-          {holding ? `Chartered by ${holding.authority}` : 'Aleamos Municipal Land Charters & Feudal Expansion Engine'}
+          {holding ? `Chartered by ${holding.authority}` : 'Municipal Land Charters & Feudal Expansion Engine'}
         </p>
       </div>
     </div>

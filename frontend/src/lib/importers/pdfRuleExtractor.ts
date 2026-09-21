@@ -11,6 +11,9 @@ import {
   type CompendiumFacility
 } from '../db/compendiumDb';
 import { detectHomebrewRules, type RuleDetectionResult } from './ruleDetector';
+import { notifyMonstersUpdated } from '../services/ingestPipeline';
+
+import type { IngestedTable } from '../types/compendium';
 
 export interface ExtractionResult {
   packageId: string;
@@ -19,6 +22,7 @@ export interface ExtractionResult {
   subclassesExtracted: CompendiumSubclass[];
   monstersExtracted: CompendiumMonster[];
   facilitiesExtracted: CompendiumFacility[];
+  tablesExtracted: IngestedTable[];
   detectedHomebrewRules: RuleDetectionResult[];
   rawChunks: string[];
 }
@@ -318,6 +322,40 @@ export async function extractAndStoreCompendiumSource(
   const facilitiesExtracted = parseFacilitiesFromText(fullText, fileName, packageId);
   const monstersExtracted = parseMonstersFromText(fullText, fileName, packageId);
 
+  // Extract GFM pipe tables
+  const tablesExtracted: IngestedTable[] = [];
+  const tableRegex = /((?:^[ \t]*\|[^\n]+\|[ \t]*(?:\n|$))+)/gm;
+  let tableMatch: RegExpExecArray | null;
+  let tableIdx = 1;
+  while ((tableMatch = tableRegex.exec(fullText)) !== null) {
+    const rawTable = tableMatch[1].trim();
+    const lines = rawTable.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length >= 2) {
+      const parseCells = (rowStr: string): string[] => {
+        return rowStr.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      };
+      const headers = parseCells(lines[0]);
+      const hasSeparator = /^\|?([ \t]*:?-+:?[ \t]*\|)+[ \t]*:?-+:?[ \t]*\|?$/.test(lines[1]);
+      const bodyLines = hasSeparator ? lines.slice(2) : lines.slice(1);
+      const rows = bodyLines.map(parseCells);
+      const precedingText = fullText.slice(Math.max(0, tableMatch.index - 200), tableMatch.index);
+      const titleMatch = precedingText.match(/(?:^|\n)(?:#{1,6}\s+)?([^\n]+)\n*$/);
+      const name = titleMatch ? titleMatch[1].replace(/^[#\s*_-]+|[#\s*_-]+$/g, '').trim() : `Table ${tableIdx}`;
+      const diceMatch = (name + ' ' + headers.join(' ')).match(/\b(d\d+|1?d[468]|1?d10|1?d12|1?d20|1?d100)\b/i);
+
+      tablesExtracted.push({
+        name: name || `Table ${tableIdx}`,
+        category: 'Roll Table',
+        source: fileName,
+        headers,
+        rows,
+        diceFormula: diceMatch ? diceMatch[1].toLowerCase() : undefined,
+        rawMarkdown: rawTable
+      });
+      tableIdx++;
+    }
+  }
+
   // Bulk persist to compendiumDb
   if (spellsExtracted.length > 0) {
     await compendiumDb.spells.bulkPut(spellsExtracted);
@@ -331,6 +369,11 @@ export async function extractAndStoreCompendiumSource(
   if (monstersExtracted.length > 0) {
     await compendiumDb.monsters.bulkPut(monstersExtracted);
   }
+  if (tablesExtracted.length > 0 && 'tables' in compendiumDb) {
+    await compendiumDb.tables.bulkAdd(tablesExtracted);
+  }
+
+  await notifyMonstersUpdated();
 
   // Scan text chunks with Phase 2 heuristic detector
   const detectedHomebrewRules = detectHomebrewRules(chunks);
@@ -342,6 +385,7 @@ export async function extractAndStoreCompendiumSource(
     subclassesExtracted,
     monstersExtracted,
     facilitiesExtracted,
+    tablesExtracted,
     detectedHomebrewRules,
     rawChunks: chunks
   };

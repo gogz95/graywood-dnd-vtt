@@ -220,7 +220,7 @@
 
       <!-- Formula reference box -->
       <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-1.5 text-[11px] text-slate-400">
-        <div class="font-bold text-slate-300 uppercase text-[10px] tracking-wider">Aleamos Crafting Rules</div>
+        <div class="font-bold text-slate-300 uppercase text-[10px] tracking-wider">Downtime Crafting Rules</div>
         <div class="flex justify-between">
           <span>First Ingredient:</span>
           <span class="font-mono text-indigo-300 font-bold">10 pts</span>

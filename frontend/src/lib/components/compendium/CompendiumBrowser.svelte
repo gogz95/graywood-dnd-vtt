@@ -1,6 +1,7 @@
 <script lang="ts">
   // CompendiumBrowser.svelte — SRD compendium with import, search, tag filtering, "Add to Combat", and "Send to Party Stash"
 
+  import { onMount } from 'svelte';
   import { sessionStore } from '../../../stores/sessionStore';
   import { audioEngine } from '../../audio/AudioEngine';
   import { importCompendiumJson } from '../../importers/compendiumImporter';
@@ -60,6 +61,22 @@
   })());
 
   $effect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(importedEntries)); });
+
+  onMount(() => {
+    const reload = () => {
+      try {
+        importedEntries = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as CompendiumEntry[];
+      } catch {
+        importedEntries = [];
+      }
+    };
+    window.addEventListener('compendium:monsters-updated', reload);
+    window.addEventListener('compendium:data-synchronized', reload);
+    return () => {
+      window.removeEventListener('compendium:monsters-updated', reload);
+      window.removeEventListener('compendium:data-synchronized', reload);
+    };
+  });
 
   let allEntries = $derived<CompendiumEntry[]>([...SRD_ENTRIES, ...importedEntries]);
 

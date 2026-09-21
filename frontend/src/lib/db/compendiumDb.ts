@@ -4,6 +4,7 @@
 // Supports modular user package imports and atomic package purging without touching SRD records.
 
 import Dexie, { type Table } from 'dexie';
+import type { IngestedTable } from '../types/compendium';
 
 export interface CompendiumSpell {
   id: string;
@@ -525,6 +526,7 @@ export class CompendiumDatabase extends Dexie {
   monsters!: Table<CompendiumMonster, string>;
   facilities!: Table<CompendiumFacility, string>;
   media!: Table<CompendiumMedia, string>;
+  tables!: Table<IngestedTable, number>;
 
   constructor() {
     super('vtt_compendium_database');
@@ -535,6 +537,10 @@ export class CompendiumDatabase extends Dexie {
       monsters: 'id, name, cr, sourceBook, packageId, origin',
       facilities: 'id, name, category, sourceBook, packageId, origin',
       media: 'id, name, sourceBook, mimeType, createdAt'
+    });
+
+    this.version(2).stores({
+      tables: '++id, name, category, source'
     });
 
     this.on('populate', () => {

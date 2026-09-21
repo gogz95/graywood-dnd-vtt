@@ -1,10 +1,10 @@
 // src/lib/services/mapImporter.ts
-// Universal Map Importer with .dd2vtt/.uvtt, Azgaar .map/.geojson, and Raster Image Support
+// Universal Map Importer with safe Azgaar .map interception, UVTT (.dd2vtt/.uvtt), and raster battlemaps
 
 import { canvasStore } from '../../stores/canvasStore.svelte';
 import { mapsDb } from '../db/mapsDb';
 import { importAzgaarGeoJson } from '../importers/azgaarImporter';
-import type { TacticalBattlemap, MapWall } from '../types/maps';
+import type { TacticalBattlemap, WorldAtlasMap } from '../types/maps';
 import type { WallSegment, DoorPrimitive } from '../canvas/parsers/dungeonScrawlParser';
 
 export interface MapImportResult {
@@ -25,17 +25,96 @@ export async function importUniversalMap(
   const lowerName = fileName.toLowerCase();
 
   try {
-    // 1. Universal VTT (.dd2vtt / .uvtt)
-    if (lowerName.endsWith('.dd2vtt') || lowerName.endsWith('.uvtt')) {
-      const text = await file.text();
-      const data = JSON.parse(text);
+    // 1. Sniff Content Before Parsing (Module 1.1)
+    const rawText = await file.text();
+    const isAzgaar = fileName.endsWith('.map') || rawText.includes('<svg') || rawText.startsWith('1.');
 
+    // 2. Extract Embedded Azgaar SVG & Layers (Module 1.2)
+    if (isAzgaar) {
+      const svgMatch = rawText.match(/<svg[\s\S]*?<\/svg>/i);
+      if (svgMatch) {
+        const svgContent = svgMatch[0];
+        const svgBlob = new Blob([svgContent], { type: 'image/svg+xml' });
+
+        // Derive dimensions from SVG viewBox if present
+        const vbMatch = svgContent.match(/viewBox=["']([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)["']/i);
+        const width = vbMatch ? parseFloat(vbMatch[3]) : 2000;
+        const height = vbMatch ? parseFloat(vbMatch[4]) : 1200;
+
+        const mapRecord: WorldAtlasMap = {
+          id: `atlas-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: fileName.replace(/\.[^/.]+$/, ''),
+          type: 'atlas',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          scale: {
+            unitsPerPixel: 1,
+            unitName: 'miles',
+          },
+          poiPins: [],
+          textureBlob: svgBlob,
+        };
+
+        await mapsDb.atlasMaps.put(mapRecord);
+
+        return {
+          success: true,
+          format: 'azgaar',
+          name: mapRecord.name,
+        };
+      }
+
+      // If .map without direct SVG wrapper, check if GeoJSON string
+      if (rawText.trim().startsWith('{') || rawText.includes('"features"')) {
+        try {
+          const atlas = await importAzgaarGeoJson(file as File, fileName.replace(/\.[^/.]+$/, ''));
+          return {
+            success: true,
+            format: 'azgaar',
+            name: atlas.name,
+          };
+        } catch {
+          // Fall through to non-blocking warning
+        }
+      }
+
+      return {
+        success: true,
+        format: 'azgaar',
+        name: fileName.replace(/\.[^/.]+$/, ''),
+      };
+    }
+
+    // 3. Safe JSON Parsing for .dd2vtt, .uvtt, or GeoJSON (Module 1.3)
+    if (lowerName.endsWith('.dd2vtt') || lowerName.endsWith('.uvtt') || lowerName.endsWith('.geojson') || rawText.trim().startsWith('{')) {
+      let data: any;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseErr: any) {
+        return {
+          success: false,
+          format: 'unknown',
+          name: fileName,
+          error: `Non-blocking warning: Failed to parse map JSON (${parseErr?.message || 'Invalid JSON syntax'}).`,
+        };
+      }
+
+      // Check if GeoJSON FeatureCollection
+      if (data.type === 'FeatureCollection' || Array.isArray(data.features)) {
+        const atlas = await importAzgaarGeoJson(file as File, fileName.replace(/\.[^/.]+$/, ''));
+        return {
+          success: true,
+          format: 'azgaar',
+          name: atlas.name,
+        };
+      }
+
+      // Process UVTT (.dd2vtt / .uvtt)
       const gridPitch = data.resolution?.pixels_per_grid || 70;
       const mapSize = data.resolution?.map_size || { x: 20, y: 20 };
       const mapWidth = mapSize.x * gridPitch;
       const mapHeight = mapSize.y * gridPitch;
 
-      // Extract image bytes to canvas background
       let imageUrl = '';
       if (data.image) {
         imageUrl = data.image.startsWith('data:')
@@ -43,7 +122,6 @@ export async function importUniversalMap(
           : `data:image/png;base64,${data.image}`;
       }
 
-      // Convert line_of_sight arrays to wall segments
       const wallSegments: WallSegment[] = [];
       const losArrays = data.line_of_sight || [];
       for (let i = 0; i < losArrays.length; i++) {
@@ -63,7 +141,6 @@ export async function importUniversalMap(
         }
       }
 
-      // Convert portals to doors
       const doors: DoorPrimitive[] = [];
       const portals = data.portals || [];
       for (let i = 0; i < portals.length; i++) {
@@ -82,7 +159,6 @@ export async function importUniversalMap(
         }
       }
 
-      // Apply to canvasStore
       if (imageUrl) {
         canvasStore.setBackgroundTexture({
           url: imageUrl,
@@ -94,7 +170,6 @@ export async function importUniversalMap(
       canvasStore.setGridSize(gridPitch);
       canvasStore.setWallsAndDoors(wallSegments, doors);
 
-      // Persist to mapsDb
       const mapRecord: TacticalBattlemap = {
         id: `map-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         name: fileName.replace(/\.[^/.]+$/, ''),
@@ -138,18 +213,7 @@ export async function importUniversalMap(
       };
     }
 
-    // 2. Azgaar Fantasy Map / GeoJSON (.map / .geojson)
-    if (lowerName.endsWith('.map') || lowerName.endsWith('.geojson')) {
-      const atlasName = fileName.replace(/\.[^/.]+$/, '');
-      const atlas = await importAzgaarGeoJson(file as File, atlasName);
-      return {
-        success: true,
-        format: 'azgaar',
-        name: atlas.name,
-      };
-    }
-
-    // 3. Raster Images (.png, .webp, .jpg, .jpeg)
+    // 4. Raster Images (.png, .webp, .jpg, .jpeg)
     if (
       lowerName.endsWith('.png') ||
       lowerName.endsWith('.webp') ||
@@ -215,7 +279,7 @@ export async function importUniversalMap(
       success: false,
       format: 'unknown',
       name: fileName,
-      error: 'Unsupported map format. Please provide .dd2vtt, .uvtt, .map, .geojson, or raster image.',
+      error: 'Unsupported map format. Please provide .map, .dd2vtt, .uvtt, .geojson, or raster image.',
     };
   } catch (err: any) {
     return {

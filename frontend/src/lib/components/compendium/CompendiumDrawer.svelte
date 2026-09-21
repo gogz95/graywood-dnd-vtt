@@ -203,6 +203,15 @@
 
   onMount(() => {
     loadAllEntities();
+    const reload = async () => {
+      await loadAllEntities();
+    };
+    window.addEventListener('compendium:monsters-updated', reload);
+    window.addEventListener('compendium:data-synchronized', reload);
+    return () => {
+      window.removeEventListener('compendium:monsters-updated', reload);
+      window.removeEventListener('compendium:data-synchronized', reload);
+    };
   });
 
   $effect(() => {

@@ -4,6 +4,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { bestiaryStore } from '../../stores/bestiaryStore.svelte';
+  import { compendiumStore } from '../../stores/compendiumStore.svelte';
   import type { CompendiumMonster } from '../../db/compendiumDb';
   import { canvasStore, type CanvasToken } from '../../../stores/canvasStore.svelte';
   import { encounterStore } from '../../stores/bestiaryStore.svelte';
@@ -38,7 +39,10 @@
     'Undead',
   ];
 
-  const SOURCE_OPTIONS = ['all', 'SRD 5.1', '2024 Core', 'USER_IMPORT'];
+  let availableSources = $derived([
+    'all',
+    ...new Set(bestiaryStore.allMonsters.map(m => m.sourceBook || m.origin || 'SRD 5.1').filter(Boolean))
+  ]);
 
   onMount(async () => {
     if (bestiaryStore.allMonsters.length === 0) {
@@ -47,6 +51,21 @@
     if (!bestiaryStore.activeMonster && bestiaryStore.allMonsters.length > 0) {
       bestiaryStore.activeMonster = bestiaryStore.allMonsters[0];
     }
+
+    const reload = async () => {
+      await bestiaryStore.refreshFromDb();
+      await compendiumStore.refreshFromDb?.();
+      if (!bestiaryStore.activeMonster && bestiaryStore.allMonsters.length > 0) {
+        bestiaryStore.activeMonster = bestiaryStore.allMonsters[0];
+      }
+    };
+
+    window.addEventListener('compendium:monsters-updated', reload);
+    window.addEventListener('compendium:data-synchronized', reload);
+    return () => {
+      window.removeEventListener('compendium:monsters-updated', reload);
+      window.removeEventListener('compendium:data-synchronized', reload);
+    };
   });
 
   // Filtered monsters reactive derived
@@ -77,13 +96,8 @@
 
       // Sourcebook
       if (selectedSource !== 'all') {
-        if (selectedSource === 'SRD 5.1' && m.origin !== 'SRD-5.1' && m.sourceBook !== 'SRD 5.1') {
-          return false;
-        }
-        if (selectedSource === '2024 Core' && !m.sourceBook.includes('2024')) {
-          return false;
-        }
-        if (selectedSource === 'USER_IMPORT' && m.origin !== 'USER_IMPORT') {
+        const monsterSource = m.sourceBook || m.origin || 'SRD 5.1';
+        if (monsterSource !== selectedSource) {
           return false;
         }
       }
@@ -255,7 +269,7 @@
           bind:value={selectedSource}
           class="w-full bg-slate-900 border border-slate-800 rounded p-1 text-[10px] text-slate-200 focus:outline-none focus:border-indigo-500"
         >
-          {#each SOURCE_OPTIONS as src}
+          {#each availableSources as src}
             <option value={src}>{src === 'all' ? 'All Sources' : src}</option>
           {/each}
         </select>

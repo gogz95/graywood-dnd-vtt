@@ -2,17 +2,17 @@
 // Cross-window and LAN Handout & Media Broadcasting Service
 
 export interface HandoutPayload {
-  mediaId: string;
-  url: string;
   title: string;
+  url: string;
   caption?: string;
+  mediaId?: string;
 }
 
 export type BroadcastHandoutEvent =
   | { type: 'SHOW_HANDOUT'; payload: HandoutPayload }
   | { type: 'HIDE_HANDOUT' };
 
-const CHANNEL_NAME = 'vtt_handout_channel';
+const CHANNEL_NAME = 'graywood_vtt_channel';
 const STORAGE_KEY = 'vtt_active_projector_handout';
 
 class BroadcasterService {

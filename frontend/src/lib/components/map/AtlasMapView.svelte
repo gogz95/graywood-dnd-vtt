@@ -6,6 +6,7 @@
   import { mapsDb } from '../../db/mapsDb';
   import type { WorldAtlasMap, MapPoiPin, TacticalBattlemap } from '../../types/maps';
   import { importAzgaarGeoJson } from '../../importers/azgaarImporter';
+  import { importUniversalMap } from '../../services/mapImporter';
   import { projectorStore } from '../../stores/projectorStore.svelte';
   import AtlasRuler from '../atlas/AtlasRuler.svelte';
 
@@ -82,20 +83,49 @@
     }
   }
 
+  let activeSvgUrl = $state<string | null>(null);
+
+  $effect(() => {
+    if (currentAtlas?.textureBlob) {
+      const url = URL.createObjectURL(currentAtlas.textureBlob);
+      activeSvgUrl = url;
+      return () => {
+        URL.revokeObjectURL(url);
+      };
+    } else {
+      activeSvgUrl = null;
+    }
+  });
+
   async function handleFileUpload(e: Event) {
     const input = e.target as HTMLInputElement;
     if (!input.files || input.files.length === 0) return;
     const file = input.files[0];
     isUploading = true;
     try {
-      const imported = await importAzgaarGeoJson(file, file.name.replace(/\.[^/.]+$/, ''));
-      allAtlases = [...allAtlases, imported];
-      currentAtlas = imported;
-      if (isDm) {
-        projectorStore.setActiveMap(imported.id);
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith('.map') || lower.endsWith('.svg')) {
+        const res = await importUniversalMap(file, file.name);
+        if (res.success) {
+          await loadAtlases();
+          const target = allAtlases.find(a => a.name === res.name) || allAtlases[allAtlases.length - 1];
+          if (target) {
+            currentAtlas = target;
+            if (isDm) projectorStore.setActiveMap(target.id);
+          }
+        } else {
+          alert(`Import warning: ${res.error || 'Failed to parse map'}`);
+        }
+      } else {
+        const imported = await importAzgaarGeoJson(file, file.name.replace(/\.[^/.]+$/, ''));
+        allAtlases = [...allAtlases, imported];
+        currentAtlas = imported;
+        if (isDm) {
+          projectorStore.setActiveMap(imported.id);
+        }
       }
     } catch (err: any) {
-      alert(`Import failed: ${err?.message || 'Invalid GeoJSON'}`);
+      alert(`Import failed: ${err?.message || 'Invalid map file'}`);
     } finally {
       isUploading = false;
       input.value = '';
@@ -224,11 +254,11 @@
         <span class="text-slate-500 italic">No Atlas Maps Loaded</span>
       {/if}
 
-      <!-- Upload Azgaar GeoJSON Button -->
+      <!-- Upload Azgaar / Vector Map Button -->
       <label class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-bold cursor-pointer transition-colors flex items-center gap-1">
         <span>📥</span>
-        <span>{isUploading ? 'Importing…' : 'Import Azgaar (.geojson)'}</span>
-        <input type="file" accept=".geojson,.json" onchange={handleFileUpload} class="hidden" disabled={isUploading} />
+        <span>{isUploading ? 'Importing…' : 'Import Map (.map, .geojson)'}</span>
+        <input type="file" accept=".map,.geojson,.json" onchange={handleFileUpload} class="hidden" disabled={isUploading} />
       </label>
 
       <!-- Overland Ruler Button -->
@@ -261,6 +291,13 @@
     style="transform: translate({panX}px, {panY}px) scale({zoom}); cursor: {isDragging ? 'grabbing' : 'grab'};"
   >
     {#if currentAtlas}
+      {#if activeSvgUrl}
+        <img
+          src={activeSvgUrl}
+          alt={currentAtlas.name}
+          class="absolute inset-0 w-[4000px] h-[3000px] object-contain pointer-events-none"
+        />
+      {/if}
       <!-- Render Vector Layers if available -->
       <svg class="absolute inset-0 w-[4000px] h-[3000px] pointer-events-none" viewBox="0 0 4000 3000">
         <!-- Borders -->

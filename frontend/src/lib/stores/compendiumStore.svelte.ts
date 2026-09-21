@@ -9,6 +9,7 @@ import {
   type CompendiumMonster,
   type CompendiumFacility
 } from '../db/compendiumDb';
+import type { IngestedTable } from '../types/compendium';
 import { extractAndStoreCompendiumSource, type ExtractionResult } from '../importers/pdfRuleExtractor';
 
 export interface PackageSummary {
@@ -27,6 +28,7 @@ class CompendiumStore {
   subclasses = $state<CompendiumSubclass[]>([]);
   monsters = $state<CompendiumMonster[]>([]);
   facilities = $state<CompendiumFacility[]>([]);
+  tables = $state<IngestedTable[]>([]);
   packages = $state<PackageSummary[]>([]);
   isLoading = $state(true);
 
@@ -74,6 +76,27 @@ class CompendiumStore {
     });
 
     this.subs = [spellsSub, subSub, monsterSub, facilitySub];
+  }
+
+  async refreshFromDb(): Promise<void> {
+    try {
+      this.monsters = await compendiumDb.monsters.toArray();
+      if ('spells' in compendiumDb) {
+        this.spells = await compendiumDb.spells.toArray();
+      }
+      if ('subclasses' in compendiumDb) {
+        this.subclasses = await compendiumDb.subclasses.toArray();
+      }
+      if ('facilities' in compendiumDb) {
+        this.facilities = await compendiumDb.facilities.toArray();
+      }
+      if ('tables' in compendiumDb) {
+        this.tables = await compendiumDb.tables.toArray();
+      }
+      this.updatePackageSummaries();
+    } catch (err) {
+      console.warn('Failed to refresh compendiumStore from DB:', err);
+    }
   }
 
   private updatePackageSummaries() {

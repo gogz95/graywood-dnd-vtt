@@ -23,13 +23,24 @@ export class BestiaryStore {
     this.isLoading = true;
     try {
       await compendiumDb.ensureSrdBaseline();
-      const list = await compendiumDb.monsters.toArray();
-      this.allMonsters = list;
+      await this.refreshFromDb();
     } catch (err) {
       console.warn('Failed to initialize bestiary store from compendiumDb:', err);
     } finally {
       this.isLoading = false;
     }
+  }
+
+  get monsters(): CompendiumMonster[] {
+    return this.allMonsters;
+  }
+  set monsters(val: CompendiumMonster[]) {
+    this.allMonsters = val;
+  }
+
+  async refreshFromDb(): Promise<void> {
+    const list = await compendiumDb.monsters.toArray();
+    this.allMonsters = list;
   }
 
   filteredMonsters = $derived.by(() => {

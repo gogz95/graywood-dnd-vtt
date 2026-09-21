@@ -163,6 +163,20 @@
     }
     rafId = requestAnimationFrame(loop);
 
+    const channel = typeof window !== 'undefined' && 'BroadcastChannel' in window
+      ? new BroadcastChannel('graywood_vtt_channel')
+      : null;
+
+    if (channel) {
+      channel.onmessage = (e: MessageEvent) => {
+        if (e.data?.type === 'SHOW_HANDOUT') {
+          activeHandout = e.data.payload;
+        } else if (e.data?.type === 'HIDE_HANDOUT') {
+          activeHandout = null;
+        }
+      };
+    }
+
     const unsubBroadcaster = broadcaster.subscribe((event) => {
       if (event.type === 'SHOW_HANDOUT') {
         activeHandout = event.payload;
@@ -174,6 +188,7 @@
     return () => {
       window.removeEventListener('resize', syncCanvasDimensions);
       cleanupSync?.();
+      channel?.close();
       unsubBroadcaster();
       if (rafId) cancelAnimationFrame(rafId);
     };
@@ -575,12 +590,20 @@
 {#if activeHandout}
   <!-- Animated High-Resolution Player Handout Modal Overlay -->
   <div
-    class="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in select-none"
+    class="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in select-none cursor-pointer"
     role="dialog"
     aria-modal="true"
     aria-label="Broadcast Handout"
+    onclick={() => activeHandout = null}
   >
-    <div class="relative max-w-4xl max-h-[90vh] bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col items-center p-4">
+    <!-- Inner dialog stopping backdrop propagation -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+      class="relative max-w-4xl max-h-[90vh] bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col items-center p-4 cursor-default"
+      onclick={(e) => e.stopPropagation()}
+      role="document"
+    >
       <div class="w-full flex justify-between items-center pb-3 border-b border-slate-800">
         <div>
           <h2 class="text-base font-black text-amber-300 uppercase tracking-widest">{activeHandout.title}</h2>

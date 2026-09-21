@@ -7,6 +7,7 @@
   import { rulesEngine } from '../../stores/rulesEngine.svelte';
   import { projectorStore } from '../../stores/projectorStore.svelte';
   import { ingestUniversalFile } from '../../importers/universalIngestionEngine';
+  import { importUniversalMap } from '../../services/mapImporter';
 
   let {
     isOpen = $bindable(false),
@@ -39,12 +40,22 @@
 
   onMount(() => {
     if (typeof localStorage !== 'undefined') {
-      const completed = localStorage.getItem('vtt_setup_completed');
+      const completed = localStorage.getItem('graywood_wizard_completed') || localStorage.getItem('vtt_setup_completed');
       if (completed !== 'true') {
         isOpen = true;
       }
     }
   });
+
+  function dismissWizard() {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('graywood_wizard_completed', 'true');
+      localStorage.setItem('vtt_setup_completed', 'true');
+      localStorage.setItem('hasCompletedWizard', 'true');
+    }
+    isOpen = false;
+    onComplete?.();
+  }
 
   async function handleSeedSrd() {
     isSeeding = true;
@@ -67,7 +78,12 @@
     for (let i = 0; i < e.dataTransfer.files.length; i++) {
       const file = e.dataTransfer.files[i];
       try {
-        await ingestUniversalFile(file, file.name);
+        const lower = file.name.toLowerCase();
+        if (lower.endsWith('.map') || lower.endsWith('.dd2vtt') || lower.endsWith('.uvtt')) {
+          await importUniversalMap(file, file.name);
+        } else {
+          await ingestUniversalFile(file, file.name);
+        }
         importedFiles = [...importedFiles, file.name];
       } catch {
         // ignore
@@ -76,7 +92,9 @@
   }
 
   function finishSetup() {
+    isOpen = false;
     if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('graywood_wizard_completed', 'true');
       localStorage.setItem('vtt_setup_completed', 'true');
       localStorage.setItem('hasCompletedWizard', 'true');
       localStorage.setItem('vtt_campaign_name', campaignName || 'Default Campaign');
@@ -110,7 +128,6 @@
     }
     applyRule('enableDurabilitySystem', ruleDurability);
 
-    isOpen = false;
     onComplete?.();
   }
 </script>
@@ -127,11 +144,21 @@
             <p class="text-[11px] text-slate-400">Step {step} of 4: {step === 1 ? 'Campaign Identity' : step === 2 ? 'Display Preset' : step === 3 ? 'Rules Preset' : 'Compendium & Ingestion'}</p>
           </div>
         </div>
-        <!-- Step Indicators -->
-        <div class="flex items-center gap-1.5">
-          {#each [1, 2, 3, 4] as s}
-            <div class="w-6 h-1.5 rounded-full {step === s ? 'bg-indigo-500' : step > s ? 'bg-emerald-500' : 'bg-slate-800'} transition-all"></div>
-          {/each}
+        <!-- Step Indicators & Dismiss Button -->
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-1.5">
+            {#each [1, 2, 3, 4] as s}
+              <div class="w-6 h-1.5 rounded-full {step === s ? 'bg-indigo-500' : step > s ? 'bg-emerald-500' : 'bg-slate-800'} transition-all"></div>
+            {/each}
+          </div>
+          <button
+            type="button"
+            onclick={dismissWizard}
+            class="px-2 py-1 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold transition-colors"
+            title="Skip Setup Wizard"
+          >
+            ✕ Skip
+          </button>
         </div>
       </div>
 
