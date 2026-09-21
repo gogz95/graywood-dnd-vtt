@@ -1,8 +1,8 @@
-# Local Area Network (LAN) Setup & Troubleshooting Guide
+# Graywood VTT — Local Area Network (LAN) Setup & Troubleshooting Guide
 
-This guide outlines the networking configuration required to host local multiplayer tabletop sessions using the embedded Axum server (`port 8080`).
+This guide outlines the networking configuration required to host local multiplayer tabletop sessions using Graywood VTT's embedded Axum server (`port 8080`).
 
-Because the VTT operates as an offline-first desktop application, no external servers, port forwarding, or internet access are required. Players connect directly to the Dungeon Master's host machine across the local Wi-Fi or Ethernet network.
+Because Graywood VTT operates as an offline-first desktop workstation, no external servers, port forwarding, or internet access are required. Players connect directly to the Dungeon Master's host machine across the local Wi-Fi or Ethernet network.
 
 ---
 

@@ -1,6 +1,11 @@
-# System Architecture & Technical Specifications
+# Graywood VTT — System Architecture & Technical Specifications
 
-This document outlines the technical architecture, data contracts, and subsystems comprising the generic, offline-first D&D 5e / 5.5e Virtual Tabletop (VTT) Desktop Workstation.
+This document outlines the technical architecture, data contracts, and subsystems comprising **Graywood VTT**, a high-performance, offline-first D&D 5e / 5.5e Virtual Tabletop & DM Workstation.
+
+For detailed subsystem specifications, see:
+- [Client Storage & Reactive Store Architecture](architecture/storage.md)
+- [Dual-Engine Source Ingestion Specification](architecture/ingestion.md)
+- [Multi-Window & Projector Broadcasting Architecture](architecture/projector.md)
 
 The system is designed for complete offline operational autonomy with a $0 recurring budget, operating locally without external cloud dependencies, remote servers, or telemetric callbacks.
 
