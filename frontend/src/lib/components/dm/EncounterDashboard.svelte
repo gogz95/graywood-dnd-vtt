@@ -12,6 +12,11 @@
   } from '../../../stores/sessionStore';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
   import HarvestCalculatorModal from '../harvest/HarvestCalculatorModal.svelte';
+  import MonsterStatBlockModal from '../combat/MonsterStatBlockModal.svelte';
+  import DeathSaveTracker from '../combat/DeathSaveTracker.svelte';
+  import { chatStore } from '../../stores/chatStore.svelte';
+  import { compendiumStore } from '../../stores/compendiumStore.svelte';
+  import type { CompendiumMonster } from '../../db/compendiumDb';
 
   const STORAGE_KEY = 'vtt_encounters';
   const CONDITIONS = ['Blinded','Charmed','Deafened','Frightened','Grappled',
@@ -44,6 +49,8 @@
   let roster = $state<any[]>([]);
   let isHarvestModalOpen = $state(false);
   let harvestCombatant = $state<ActiveCombatant | null>(null);
+  let isStatblockOpen = $state(false);
+  let statblockMonsterName = $state('');
 
   function openHarvest(comb: ActiveCombatant) {
     harvestCombatant = comb;
@@ -135,6 +142,24 @@
   let newIsMonster     = $state(false);
   let showAddCombatant = $state(false);
   let showInitRoller   = $state(false);
+  let monsterSearchQuery = $state('');
+  let showMonsterDropdown = $state(false);
+
+  const monsterSuggestions = $derived<CompendiumMonster[]>(
+    monsterSearchQuery.trim() ? compendiumStore.searchMonsters(monsterSearchQuery).slice(0, 8) : []
+  );
+
+  function handleSelectCompendiumMonster(m: CompendiumMonster) {
+    newCombatantName = m.name;
+    newCombatantHp = m.hp;
+    newCombatantAc = m.ac;
+    const dex = m.stats?.dex ?? 10;
+    const dexMod = Math.floor((dex - 10) / 2);
+    newCombatantInit = 10 + dexMod;
+    newIsMonster = true;
+    monsterSearchQuery = m.name;
+    showMonsterDropdown = false;
+  }
 
   function addCombatant() {
     if (!activeEncounterId || !newCombatantName.trim()) return;
@@ -151,6 +176,8 @@
     };
     saveAll(allEncounters);
     newCombatantName = ''; newCombatantInit = 10; newCombatantHp = 20; newCombatantAc = 12; newIsMonster = false;
+    monsterSearchQuery = '';
+    showMonsterDropdown = false;
     showAddCombatant = false;
   }
 
@@ -408,27 +435,74 @@
         >⚔️ Begin Combat</button>
       </div>
 
-      <!-- Add combatant inline form -->
+      <!-- Add combatant inline form with Compendium Monster Autocomplete -->
       {#if showAddCombatant}
-        <div class="px-4 py-3 border-b border-slate-800 bg-slate-900/60 shrink-0 grid grid-cols-5 gap-2 text-xs">
-          <input type="text" bind:value={newCombatantName} placeholder="Name…" class="col-span-2 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-indigo-500" />
-          <div class="space-y-0.5">
-            <span class="text-[9px] text-slate-600 uppercase">Init</span>
-            <input type="number" bind:value={newCombatantInit} class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono" />
+        <div class="px-4 py-3 border-b border-slate-800 bg-slate-900/60 shrink-0 space-y-2 text-xs">
+          <div class="grid grid-cols-5 gap-2 relative">
+            <div class="col-span-2 relative">
+              <span class="text-[9px] text-slate-500 uppercase font-bold block mb-0.5">Monster / Actor Name</span>
+              <input
+                type="text"
+                bind:value={newCombatantName}
+                oninput={() => {
+                  monsterSearchQuery = newCombatantName;
+                  showMonsterDropdown = true;
+                }}
+                onfocus={() => {
+                  if (newCombatantName) {
+                    monsterSearchQuery = newCombatantName;
+                    showMonsterDropdown = true;
+                  }
+                }}
+                placeholder="Search SRD Monster (e.g. Goblin)…"
+                class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-indigo-500"
+              />
+
+              <!-- Autocomplete dropdown suggestions -->
+              {#if showMonsterDropdown && monsterSuggestions.length > 0}
+                <div class="absolute left-0 top-full mt-1 w-72 bg-slate-900 border border-indigo-500/50 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto p-1">
+                  {#each monsterSuggestions as m}
+                    <button
+                      type="button"
+                      onclick={() => handleSelectCompendiumMonster(m)}
+                      class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-indigo-950/70 hover:text-indigo-200 flex items-center justify-between transition-colors text-xs"
+                    >
+                      <div>
+                        <span class="font-bold text-slate-200 block">{m.name}</span>
+                        <span class="text-[10px] text-slate-400 font-mono">CR {m.cr} · {m.type}</span>
+                      </div>
+                      <div class="text-right text-[10px] font-mono text-emerald-400">
+                        <span>HP {m.hp}</span> · <span class="text-sky-400">AC {m.ac}</span>
+                      </div>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+
+            <div class="space-y-0.5">
+              <span class="text-[9px] text-slate-500 uppercase font-bold block mb-0.5">Init</span>
+              <input type="number" bind:value={newCombatantInit} class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono" />
+            </div>
+            <div class="space-y-0.5">
+              <span class="text-[9px] text-slate-500 uppercase font-bold block mb-0.5">HP</span>
+              <input type="number" bind:value={newCombatantHp} class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono" />
+            </div>
+            <div class="space-y-0.5">
+              <span class="text-[9px] text-slate-500 uppercase font-bold block mb-0.5">AC</span>
+              <input type="number" bind:value={newCombatantAc} class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono" />
+            </div>
           </div>
-          <div class="space-y-0.5">
-            <span class="text-[9px] text-slate-600 uppercase">HP</span>
-            <input type="number" bind:value={newCombatantHp} class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono" />
+
+          <div class="flex items-center justify-between pt-1">
+            <label class="flex items-center gap-1.5 text-slate-400 cursor-pointer">
+              <input type="checkbox" bind:checked={newIsMonster} class="rounded accent-indigo-500" /> Monster / NPC
+            </label>
+            <div class="flex items-center gap-2">
+              <button onclick={() => { showAddCombatant = false; showMonsterDropdown = false; }} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded transition-colors">Cancel</button>
+              <button onclick={addCombatant} disabled={!newCombatantName.trim()} class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold rounded transition-colors shadow">Add to Staging</button>
+            </div>
           </div>
-          <div class="space-y-0.5">
-            <span class="text-[9px] text-slate-600 uppercase">AC</span>
-            <input type="number" bind:value={newCombatantAc} class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono" />
-          </div>
-          <label class="flex items-center gap-1.5 col-span-2 text-slate-400 cursor-pointer">
-            <input type="checkbox" bind:checked={newIsMonster} class="rounded" /> Monster / NPC
-          </label>
-          <button onclick={addCombatant} disabled={!newCombatantName.trim()} class="col-span-2 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold rounded transition-colors">Add</button>
-          <button onclick={() => showAddCombatant = false} class="py-1.5 bg-slate-800 text-slate-400 rounded hover:bg-slate-700 transition-colors">✕</button>
         </div>
       {/if}
     {/if}
@@ -516,6 +590,29 @@
               </button>
             {/if}
 
+            <!-- Monster Statblock & Roll Shortcuts -->
+            {#if comb.is_monster}
+              <button
+                type="button"
+                onclick={(e) => { e.stopPropagation(); statblockMonsterName = comb.name; isStatblockOpen = true; }}
+                class="px-2 py-1 bg-stone-800 hover:bg-stone-700 text-amber-300 text-[10px] font-bold rounded border border-amber-700/50 transition-colors flex items-center gap-1"
+                title="Open Complete SRD Monster Statblock with Click-to-Roll Actions"
+              >
+                <span>📖</span> Statblock
+              </button>
+              <button
+                type="button"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  chatStore.roll('1d20+4', { label: `${comb.name}: Melee Attack`, actorName: comb.name, actionType: 'attack' });
+                }}
+                class="px-2 py-1 bg-amber-950/70 hover:bg-amber-900 text-amber-200 text-[10px] font-bold rounded border border-amber-600/40 transition-colors"
+                title="Roll Standard Attack (+4)"
+              >
+                ⚔️ Atk
+              </button>
+            {/if}
+
             <!-- Expand / remove -->
             <button onclick={() => expandedCondId = expandedCondId === comb.id ? null : comb.id} class="p-1.5 text-slate-500 hover:text-slate-300 text-xs transition-colors" title="Conditions">{expandedCondId === comb.id ? '▲' : '▼'}</button>
             <button onclick={() => removeCombatant(comb.id)} class="p-1.5 text-slate-600 hover:text-rose-400 text-xs transition-colors" title="Remove">✕</button>
@@ -532,10 +629,44 @@
               {/each}
             </div>
           {/if}
+
+          <!-- Death Saving Throw Tracker for Dying Characters (0 HP) -->
+          {#if comb.hp_current <= 0 && !comb.is_monster}
+            <div class="px-3 pb-3 border-t border-rose-900/40 pt-2">
+              <DeathSaveTracker
+                characterName={comb.name}
+                successes={comb.death_saves?.successes ?? 0}
+                failures={comb.death_saves?.failures ?? 0}
+                onStabilized={() => {
+                  mutateCombatants(comb.id, c => ({
+                    ...c,
+                    death_saves: { ...(c.death_saves || { successes: 3, failures: 0 }), successes: 3, isStable: true },
+                    conditions: c.conditions.includes('Unconscious') ? c.conditions : [...c.conditions, 'Unconscious']
+                  }));
+                }}
+                onDied={() => {
+                  mutateCombatants(comb.id, c => ({
+                    ...c,
+                    death_saves: { ...(c.death_saves || { successes: 0, failures: 3 }), failures: 3, isDead: true },
+                    conditions: c.conditions.includes('Dead') ? c.conditions : [...c.conditions, 'Dead']
+                  }));
+                }}
+                onRevived={() => {
+                  mutateCombatants(comb.id, c => ({
+                    ...c,
+                    hp_current: 1,
+                    death_saves: { successes: 0, failures: 0 },
+                    conditions: c.conditions.filter(x => x !== 'Unconscious' && x !== 'Dying')
+                  }));
+                }}
+              />
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
   {/if}
 
   <HarvestCalculatorModal bind:isOpen={isHarvestModalOpen} combatant={harvestCombatant} />
+  <MonsterStatBlockModal bind:isOpen={isStatblockOpen} monsterName={statblockMonsterName} />
 </div>

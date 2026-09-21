@@ -26,6 +26,8 @@
     getVitalityState,
   } from '../../lib/components/map/TokenOverlay';
   import { initProjectorSyncListener, type SyncMessage } from '../../lib/services/battlematSyncBridge';
+  import { fogOfWarLayer } from '../../lib/canvas/fogOfWarLayer';
+  import InitiativeRibbon from '../../lib/components/combat/InitiativeRibbon.svelte';
 
   let canvasEl = $state<HTMLCanvasElement | null>(null);
   let ctx: CanvasRenderingContext2D | null = null;
@@ -268,6 +270,9 @@
       activeVisionPolygons = [];
     }
 
+    // 7b. Dual-Layer Mask Painter Fog of War
+    fogOfWarLayer.render(ctx, 0.98);
+
     // 8. Public Spell AOE Templates
     for (const aoe of publicAoeTemplates) {
       renderAoeTemplateOnCanvas(ctx, aoe, gridSize);
@@ -404,12 +409,14 @@
 <div class="fixed inset-0 bg-slate-950 text-slate-100 font-sans select-none overflow-hidden flex flex-col">
 
   <!-- ═════════════════════════════════════════════════════════════════════════
-       FLOATING TURN ORDER HUD (SEMI-TRANSPARENT TOP BANNER)
+       SHARED INITIATIVE RIBBON (PLAYER-FACING, READ-ONLY)
   ══════════════════════════════════════════════════════════════════════════ -->
+  <InitiativeRibbon isDm={false} />
+
   {#if liveCombat && liveCombat.combatants && liveCombat.combatants.length > 0}
     {@const activeCombatant = liveCombat.combatants.find(c => c.is_active)}
     {@const onDeckCombatant = liveCombat.combatants.find(c => c.is_on_deck)}
-    <div class="absolute top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+    <div class="absolute top-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
       <div class="flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-slate-950/80 backdrop-blur-md border border-slate-800/80 shadow-2xl shadow-indigo-950/50">
         
         <!-- Round Badge -->

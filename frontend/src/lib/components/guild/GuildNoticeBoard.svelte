@@ -20,6 +20,8 @@
     objectives: string[];
   }
 
+  export type NoticeContract = GuildContract;
+
   export interface GuildProfile {
     rank: GuildRank;
     reputation: number;
@@ -46,7 +48,7 @@
     Grandmaster: { minRep: 600, allowanceGp: 5000 },
   };
 
-  const CATEGORY_COLORS: Record<ContractType, { badgeBg: string; border: string; text: string; icon: string }> = {
+  const CONTRACT_BADGES: Record<ContractType, { badgeBg: string; border: string; text: string; icon: string }> = {
     Exploration: { badgeBg: 'bg-emerald-950/70', border: 'border-emerald-700/60', text: 'text-emerald-300', icon: '🧭' },
     Hunt: { badgeBg: 'bg-rose-950/70', border: 'border-rose-700/60', text: 'text-rose-300', icon: '🏹' },
     Protection: { badgeBg: 'bg-amber-950/70', border: 'border-amber-700/60', text: 'text-amber-300', icon: '🛡️' },
@@ -55,7 +57,12 @@
   };
 
   // State (STRICT ZERO-MOCK INITIALIZATION)
+  let notices = $state<NoticeContract[]>([]);
   let contracts = $state<GuildContract[]>([]);
+  $effect(() => {
+    notices = contracts;
+  });
+
   let profile = $state<GuildProfile>({
     rank: 'Journeyman',
     reputation: 65,
@@ -82,8 +89,14 @@
         contracts = parsed.filter((c: any) =>
           !c.title?.includes('Bloodhorn Chimera') &&
           !c.title?.includes('Pyric Sulfur') &&
+          !c.title?.includes('Sunken Amphitheater') &&
+          !c.title?.includes('Alchemical Reagents') &&
+          !c.title?.includes('House Vane') &&
           !c.client?.includes('House Vane') &&
-          !c.client?.includes('Temple Scribes')
+          !c.client?.includes('Temple Scribes of the Dawn') &&
+          !c.client?.includes('Temple Scribes') &&
+          !c.client?.includes('Master Apothecary Corvus') &&
+          !c.client?.includes('Merchants & Traders Guild')
         );
       } else {
         contracts = [];
@@ -109,7 +122,7 @@
   // ── Procedural Generator Templates (Neutral 5e SRD) ─────────────────────────
   const PROCEDURAL_POOLS = {
     clients: [
-      'Merchants & Traders Guild', 'Miners Guild Syndicate', 'Town Watch High Command',
+      'Town Merchant Consortium', 'Miners Guild Syndicate', 'Town Watch High Command',
       'The Arcane Archive', 'Temple of the Dawn', 'Master Herbalist Conclave',
       'The Municipal Council', 'Dockmaster & Harbor Guild', 'Order of the Golden Scale'
     ],
@@ -126,24 +139,24 @@
       { name: 'Gorgon of the Vale', cr: 5, reward: 380 },
     ],
     explorationSites: [
-      { name: 'Subterranean Sunken Amphitheater', objective: 'Survey and map all navigable subterranean chambers' },
+      { name: 'Subterranean Sunken Caverns', objective: 'Survey and map all navigable subterranean chambers' },
       { name: 'Flooded Catacombs', objective: 'Chart secret corridors and locate structural breach points' },
       { name: 'Old Watchtower Spire', objective: 'Clear upper parapet and establish signal lantern beacon' },
     ],
     resources: [
       { name: 'Rare Grave Lotus (x10)', objective: 'Harvest undisturbed blossoms from cemetery soil under moonlight' },
-      { name: 'Pure Alchemical Sulfur (x6)', objective: 'Extract intact volcanic mineral nodes without thermal detonation' },
+      { name: 'Pure Mineral Salt Nodes (x6)', objective: 'Extract intact mineral nodes from cavern walls' },
       { name: 'Wyvern Venom Sample', objective: 'Collect uncoagulated essence in lead-lined alchemical phial' },
     ],
     protectionClients: [
-      { cargo: 'Alchemical Reagents Caravan', route: 'High Road to Crossroads', reward: 300 },
+      { cargo: 'Merchant Trade Caravan', route: 'High Road to Crossroads', reward: 300 },
       { cargo: 'Silver Bar Ingot Waybill', route: 'Smelter Way to Vault', reward: 400 },
       { cargo: 'Archivist Scholarly Expedition', route: 'Ancient Standing Stones', reward: 250 },
     ],
     findArtifacts: [
       { item: 'Ancient Planar Astrolabe', reward: 500, desc: 'A lost mechanical navigation device.' },
       { item: 'Smuggler Tariff Ledger', reward: 200, desc: 'Stolen accounting records detailing illicit tariffs.' },
-      { item: 'Ancient Signet Ring of the Council', reward: 350, desc: 'Heirloom lost in goblin-infested scrublands.' },
+      { item: 'Ancient Council Signet Ring', reward: 350, desc: 'Heirloom lost in goblin-infested scrublands.' },
     ],
   };
 
@@ -227,15 +240,6 @@
     };
   }
 
-  function generateInitialContracts(): GuildContract[] {
-    return [
-      generateContract('Hunt'),
-      generateContract('Exploration'),
-      generateContract('Protection'),
-      generateContract('Resource Gathering'),
-      generateContract('Find'),
-    ];
-  }
 
   function postNewContract() {
     const c = generateContract();

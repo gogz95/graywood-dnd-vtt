@@ -150,6 +150,11 @@
       {/each}
     </div>
 
+    <!-- Dynamic Progress Footer -->
+    <div class="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+      <span>Question {currentQuestionIndex + 1} of {QUIZ_QUESTIONS_10.length}</span>
+      <span class="text-indigo-400">{progressPercent}% complete · Archetype revealed upon submission</span>
+    </div>
   {:else if resultCharacter}
     <!-- Assessment Outcome Screen -->
     <div class="flex-1 flex flex-col justify-between space-y-4 animate-in fade-in duration-300">

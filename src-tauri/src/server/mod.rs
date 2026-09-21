@@ -37,6 +37,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/campaign/calendar", get(routes::calendar::get_current_calendar))
         .route("/api/campaign/advance", post(routes::calendar::advance_time))
         .route("/api/campaign/export", post(routes::campaign::export_archive))
+        .route("/api/system/network-info", get(routes::campaign::get_network_info))
         // 5. DM Encounter Tracker & Monster Spawning Endpoints
         .route("/api/encounter/active", get(routes::encounter::get_active))
         .route("/api/encounter/next_turn", post(routes::encounter::advance_turn))

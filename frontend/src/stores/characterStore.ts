@@ -77,7 +77,7 @@ function createDefaultInventory(characterId: string): InventoryItem[] {
       name: 'Sunforged Greatsword',
       quantity: 1,
       weight_lbs: 6.0,
-      current_rp: 0, // Fractured durability demonstration
+      current_rp: 25, // 100% full pristine condition
       max_rp: 25,
       is_preserved: true,
       harvest_timestamp: null,

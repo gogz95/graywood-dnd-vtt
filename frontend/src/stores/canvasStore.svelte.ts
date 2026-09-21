@@ -13,6 +13,8 @@ export interface CanvasToken {
   isPlayer: boolean;
   hp: number;
   maxHp: number;
+  tempHp?: number;
+  ac?: number;
   isVisible: boolean; // false for DM-hidden monsters
   conditions: string[]; // e.g. ['Blinded', 'Poisoned', 'Concentrating']
   isOrbSealed: boolean; // Aleamos Black Orb temporal amnesia state
@@ -456,7 +458,11 @@ class CanvasStoreClass {
     this.broadcast('FOG_EXPLORED_SYNC', this.fogExplored);
   }
 
-  setBackgroundTexture(texture: string | { url: string; width: number; height: number; name?: string }) {
+  setBackgroundTexture(
+    texture: string | { url: string; width: number; height: number; name?: string },
+    gridCols?: number,
+    gridRows?: number
+  ) {
     if (typeof texture === 'string') {
       this.mapImageUrl = texture;
     } else {
@@ -464,10 +470,18 @@ class CanvasStoreClass {
       this.mapWidth = texture.width;
       this.mapHeight = texture.height;
     }
+
+    if (gridCols && gridCols > 0 && this.mapWidth > 0) {
+      this.gridSize = Math.max(10, Math.min(200, Math.round(this.mapWidth / gridCols)));
+    } else if (gridRows && gridRows > 0 && this.mapHeight > 0) {
+      this.gridSize = Math.max(10, Math.min(200, Math.round(this.mapHeight / gridRows)));
+    }
+
     this.broadcast('FULL_STATE_SYNC', {
       mapImageUrl: this.mapImageUrl,
       mapWidth: this.mapWidth,
-      mapHeight: this.mapHeight
+      mapHeight: this.mapHeight,
+      gridSize: this.gridSize
     });
   }
 

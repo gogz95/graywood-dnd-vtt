@@ -33,6 +33,7 @@
     activeTradeOfferStore,
   } from '../../lib/network/broadcastBridge';
   import type { TradeOfferPayload } from '../../lib/types/item';
+  import { rulesEngine } from '../../lib/stores/rulesEngine.svelte';
 
   interface PlayerCharacter {
     id: string;
@@ -90,13 +91,38 @@
   // ── Active Player Session State (NULL until authenticated — ZERO DATA LEAKAGE) ─
   let character = $state<PlayerCharacter | null>(null);
 
-  // Standard 5e DEX Initiative (safely derived)
-  let initiativeMod = $derived(
-    character ? Math.floor((character.dex - 10) / 2) : 0
-  );
-  let initiativeLabel = $derived(
-    initiativeMod >= 0 ? `+${initiativeMod} (DEX)` : `${initiativeMod} (DEX)`
-  );
+  // Safe Derived Initiative: Standard 5e DEX by default, or tri-stat mental if enabled
+  let initiativeMod = $derived.by(() => {
+    if (!character) return 0;
+    if (rulesEngine.isEnabled('enableTriStatInitiative')) {
+      const c = character.class.toLowerCase();
+      if (c.includes('wizard')) return Math.floor((character.int - 10) / 2);
+      if (c.includes('cleric') || c.includes('druid')) return Math.floor((character.wis - 10) / 2);
+      if (c.includes('sorcerer') || c.includes('warlock') || c.includes('bard')) return Math.floor((character.cha - 10) / 2);
+    }
+    return Math.floor((character.dex - 10) / 2);
+  });
+
+  let initiativeLabel = $derived.by(() => {
+    if (!character) return '+0 (DEX)';
+    if (rulesEngine.isEnabled('enableTriStatInitiative')) {
+      const c = character.class.toLowerCase();
+      if (c.includes('wizard')) {
+        const mod = Math.floor((character.int - 10) / 2);
+        return mod >= 0 ? `+${mod} (INT)` : `${mod} (INT)`;
+      }
+      if (c.includes('cleric') || c.includes('druid')) {
+        const mod = Math.floor((character.wis - 10) / 2);
+        return mod >= 0 ? `+${mod} (WIS)` : `${mod} (WIS)`;
+      }
+      if (c.includes('sorcerer') || c.includes('warlock') || c.includes('bard')) {
+        const mod = Math.floor((character.cha - 10) / 2);
+        return mod >= 0 ? `+${mod} (CHA)` : `${mod} (CHA)`;
+      }
+    }
+    const mod = Math.floor((character.dex - 10) / 2);
+    return mod >= 0 ? `+${mod} (DEX)` : `${mod} (DEX)`;
+  });
 
   // Equipment & Companions
   let equipment = $state<PlayerItem[]>([]);
@@ -444,6 +470,10 @@
         const roster = JSON.parse(rawRoster);
         const match = roster.find((m: any) => m.pin === pin);
         if (match) {
+          if (match.isOrbSealed) {
+            triggerAuthFailure('Character is currently in reserve. Contact the DM to return to active play.');
+            return;
+          }
           const baseClass = match.class || 'Adventurer';
           character = {
             id: match.id,
@@ -893,24 +923,26 @@
   {:else}
 
     <!-- ═════════════════════════════════════════════════════════════════════════
-         ALEAMOS BLACK ORB SUSPENDED ANIMATION OVERLAY
+         RESERVE / BLACK ORB SUSPENDED ANIMATION OVERLAY
     ══════════════════════════════════════════════════════════════════════════ -->
     {#if character.isOrbSealed}
       <div class="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 flex flex-col items-center justify-center p-6 text-center space-y-5 animate-in fade-in duration-300">
-        <div class="w-24 h-24 rounded-full bg-purple-950/80 border-2 border-purple-500/80 flex items-center justify-center text-5xl shadow-2xl shadow-purple-600/40 animate-pulse">
-          🔮
+        <div class="w-24 h-24 rounded-full {rulesEngine.isEnabled('enableBlackOrbRoster') ? 'bg-purple-950/80 border-purple-500/80 shadow-purple-600/40' : 'bg-slate-900 border-slate-700 shadow-slate-700/40'} border-2 flex items-center justify-center text-5xl shadow-2xl animate-pulse">
+          {#if rulesEngine.isEnabled('enableBlackOrbRoster')}🔮{:else}🛡️{/if}
         </div>
         <div class="space-y-2 max-w-sm">
-          <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-950 text-purple-300 border border-purple-800/80">
-            Temporal Amnesia Protocol Active
+          <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider {rulesEngine.isEnabled('enableBlackOrbRoster') ? 'bg-purple-950 text-purple-300 border-purple-800/80' : 'bg-slate-800 text-slate-300 border-slate-700'} border">
+            {#if rulesEngine.isEnabled('enableBlackOrbRoster')}Temporal Amnesia Protocol Active{:else}Reserve Status Active{/if}
           </span>
-          <h2 class="text-xl font-black text-slate-100 tracking-wide">Suspended in the Black Orb</h2>
-          <p class="text-xs text-purple-200/80 leading-relaxed">
-            Your physical form and temporal essence have been withdrawn into an indestructible 1-lb wondrous obsidian sphere. The world around you is veiled in dark stasis.
+          <h2 class="text-xl font-black text-slate-100 tracking-wide">
+            {#if rulesEngine.isEnabled('enableBlackOrbRoster')}Suspended in the Black Orb{:else}Character in Reserve{/if}
+          </h2>
+          <p class="text-xs text-amber-200/90 leading-relaxed font-semibold">
+            Character is currently in reserve. Contact the DM to return to active play.
           </p>
         </div>
         <div class="p-3 rounded-xl bg-slate-900 border border-slate-800/80 text-[11px] text-slate-400 font-mono">
-          Session state: <strong class="text-purple-300">ORB_STOWED</strong> · Session locked until DM release
+          Session state: <strong class="{rulesEngine.isEnabled('enableBlackOrbRoster') ? 'text-purple-300' : 'text-amber-300'}">{rulesEngine.isEnabled('enableBlackOrbRoster') ? 'ORB_STOWED' : 'RESERVE_STOWED'}</strong> · Session locked until DM release
         </div>
       </div>
     {/if}
@@ -1279,6 +1311,22 @@
                   {/if}
                 </div>
               </div>
+
+              <!-- Durability Resistance Points Bar (Only when enableDurabilitySystem is active) -->
+              {#if rulesEngine.isEnabled('enableDurabilitySystem') && item.maxRp}
+                <div class="space-y-1 py-1">
+                  <div class="flex items-center justify-between text-[10px] font-mono">
+                    <span class="text-slate-400">Resistance Points (RP)</span>
+                    <span class="text-slate-300 font-bold">{item.currentRp ?? item.maxRp} / {item.maxRp} RP</span>
+                  </div>
+                  <div class="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden border border-slate-800">
+                    <div
+                      class="h-full transition-all duration-300 {(item.currentRp ?? item.maxRp) <= 5 ? 'bg-rose-500' : (item.currentRp ?? item.maxRp) <= 12 ? 'bg-amber-500' : 'bg-emerald-500'}"
+                      style="width: {Math.max(0, Math.min(100, (((item.currentRp ?? item.maxRp)) / item.maxRp) * 100))}%"
+                    ></div>
+                  </div>
+                </div>
+              {/if}
 
               <!-- Item Details & Peer Trade Bar -->
               <div class="pt-2 border-t border-slate-900 flex flex-wrap items-center justify-between gap-2 text-[10px]">

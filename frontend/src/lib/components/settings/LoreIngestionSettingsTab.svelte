@@ -9,6 +9,8 @@
     type IngestionFileResult
   } from '../../importers/universalIngestionEngine';
   import { loreGraphStore } from '../../stores/loreGraphStore.svelte';
+  import { detectHomebrewRules, type RuleDetectionResult } from '../../importers/ruleDetector';
+  import HomebrewSuggestionModal from '../modals/HomebrewSuggestionModal.svelte';
 
   let isDragging = $state(false);
   let isProcessing = $state(false);
@@ -17,6 +19,10 @@
   let existingDocuments = $state<SourceDocument[]>([]);
   let activityLogs = $state<IngestionFileResult[]>([]);
   let folderInputEl = $state<HTMLInputElement | null>(null);
+
+  // Homebrew Suggestion Modal State
+  let showSuggestionModal = $state(false);
+  let detectedRules = $state<RuleDetectionResult[]>([]);
 
   async function loadExistingDocs() {
     try {
@@ -29,6 +35,21 @@
   onMount(() => {
     loadExistingDocs();
   });
+
+  async function scanForHomebrewRules() {
+    try {
+      const chunks = await sourceDb.chunks.toArray();
+      if (chunks.length > 0) {
+        const detections = detectHomebrewRules(chunks.map((c) => c.text));
+        if (detections.length > 0) {
+          detectedRules = detections;
+          showSuggestionModal = true;
+        }
+      }
+    } catch (err) {
+      console.warn('Failed scanning chunks for homebrew rules', err);
+    }
+  }
 
   async function handleFiles(files: FileList | File[]) {
     isProcessing = true;
@@ -43,6 +64,7 @@
       }
       progressStatus = 'Universal ingestion complete! Documents grounded in source compendium.';
       await loadExistingDocs();
+      await scanForHomebrewRules();
     } catch (err: any) {
       errorMessage = err?.message || 'Failed to ingest files.';
     } finally {
@@ -99,6 +121,7 @@
 
         progressStatus = `Successfully scanned and ingested ${entries.length} vault files!`;
         await loadExistingDocs();
+        await scanForHomebrewRules();
       } else {
         // Fallback in web browser mode: trigger webkitdirectory file input
         folderInputEl?.click();
@@ -333,3 +356,12 @@
     {/if}
   </div>
 </div>
+
+{#if showSuggestionModal}
+  <HomebrewSuggestionModal
+    detectedRules={detectedRules}
+    onclose={() => {
+      showSuggestionModal = false;
+    }}
+  />
+{/if}

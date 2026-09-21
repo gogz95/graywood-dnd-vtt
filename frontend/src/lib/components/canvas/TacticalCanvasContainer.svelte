@@ -16,7 +16,9 @@
   import {
     renderConditionRingsOnCanvas,
     renderTurnReticleOnCanvas,
+    renderTargetingReticleOnCanvas,
   } from '../map/TokenOverlay';
+  import { targetingStore } from '../../stores/targetingStore.svelte';
   import GeneratorDrawer from '../map/GeneratorDrawer.svelte';
   import CanvasDrawingToolbar, { type DrawTool } from '../map/CanvasDrawingToolbar.svelte';
   import { importDungeonScrawlFile } from '../../importers/dungeonScrawlImporter';
@@ -221,6 +223,17 @@
         const cy = (activeTok.y + 0.5) * gridSize;
         const radius = (gridSize * 0.45);
         renderTurnReticleOnCanvas(ctx, cx, cy, radius, animTime);
+      }
+    }
+
+    // Active Combat Target Reticle (Rendered around currently targeted token)
+    if (targetingStore.activeTargetTokenId) {
+      const targetTok = tokens.find(t => t.id === targetingStore.activeTargetTokenId);
+      if (targetTok) {
+        const cx = (targetTok.x + 0.5) * gridSize;
+        const cy = (targetTok.y + 0.5) * gridSize;
+        const radius = (gridSize * 0.45);
+        renderTargetingReticleOnCanvas(ctx, cx, cy, radius, animTime);
       }
     }
 
@@ -491,8 +504,42 @@
 
   let spaceDown = $state(false);
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); spaceDown = true; }
+    // If active in an input/textarea, ignore hotkeys
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      return;
+    }
+
+    if (e.code === 'Space' && e.target === document.body) {
+      e.preventDefault();
+      spaceDown = true;
+    }
+
+    // Hotkey 'T': Toggle targeting on hovered token or active token
+    if (e.key === 't' || e.key === 'T') {
+      let targetTok: MapToken | undefined;
+      if (hoveredCell) {
+        targetTok = tokenAt(hoveredCell.gx, hoveredCell.gy);
+      }
+      if (!targetTok && canvasStore.activeTokenId) {
+        targetTok = tokens.find(t => t.id === canvasStore.activeTokenId);
+      }
+
+      if (targetTok) {
+        targetingStore.toggleTarget(targetTok.id);
+      }
+    }
   }
+
+  function handleContextMenu(e: MouseEvent) {
+    const { wx, wy } = screenToWorld(e.clientX, e.clientY);
+    const { gx, gy } = worldToGrid(wx, wy);
+    const tok = tokenAt(gx, gy);
+    if (tok) {
+      e.preventDefault();
+      targetingStore.toggleTarget(tok.id);
+    }
+  }
+
   function handleKeyUp(e: KeyboardEvent) {
     if (e.code === 'Space') spaceDown = false;
   }
@@ -937,6 +984,7 @@
         onmousedown={handleMouseDown}
         onmousemove={handleMouseMove}
         onmouseup={handleMouseUp}
+        oncontextmenu={handleContextMenu}
         onmouseleave={() => { hoveredCell = null; handleMouseUp(new MouseEvent('mouseup')); }}
       ></canvas>
       <!-- Floating Vector Drawing & Fog Toolbar Overlay -->

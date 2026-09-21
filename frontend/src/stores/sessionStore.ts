@@ -4,6 +4,7 @@
 import { writable, get } from 'svelte/store';
 import type { ActiveCombatant, SavedEncounter, Encounter } from '../types/combat';
 import { sendWsEvent, dispatchLocalWhisper, type CombatTurnSync } from './websocketStore';
+import { rulesEngine } from '../lib/stores/rulesEngine.svelte';
 
 export interface PartyStashItem {
   id: string;
@@ -26,7 +27,8 @@ export interface PartyStashItem {
 /**
  * 1. Tri-Stat Initiative Engine:
  * In both the character sheet and encounter builder, calculate initiative using:
- * max(DEX_modifier, INT_modifier, WIS_modifier)
+ * max(DEX_modifier, INT_modifier, WIS_modifier) when enableTriStatInitiative is ON,
+ * or standard DEX modifier when OFF.
  */
 export function calculateTriStatInitiative(scores: { dex: number; int: number; wis: number }): {
   bonus: number;
@@ -38,20 +40,20 @@ export function calculateTriStatInitiative(scores: { dex: number; int: number; w
   const wisMod = Math.floor(((scores.wis ?? 10) - 10) / 2);
 
   let bestStat: 'DEX' | 'INT' | 'WIS' = 'DEX';
-  let maxBonus = dexMod;
+  let bonus = dexMod;
 
-  if (intMod > maxBonus) {
-    maxBonus = intMod;
+  if (intMod > bonus) {
+    bonus = intMod;
     bestStat = 'INT';
   }
-  if (wisMod > maxBonus) {
-    maxBonus = wisMod;
+  if (wisMod > bonus) {
+    bonus = wisMod;
     bestStat = 'WIS';
   }
 
-  const sign = maxBonus >= 0 ? `+${maxBonus}` : `${maxBonus}`;
+  const sign = bonus >= 0 ? `+${bonus}` : `${bonus}`;
   return {
-    bonus: maxBonus,
+    bonus,
     bestStat,
     label: `${sign} (${bestStat})`,
   };
@@ -456,6 +458,97 @@ export class SessionStoreManager {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('vtt:combat-turn-sync', { detail: payload }));
     }
+  }
+
+  /**
+   * Advances the combat initiative turn order, ticks down condition durations on the expiring combatant,
+   * increments rounds when looping, and broadcasts updates to connected players and projectors.
+   */
+  nextCombatTurn(): void {
+    let encounters: Record<string, SavedEncounter> = {};
+    try {
+      const raw = localStorage.getItem(STORAGE_ENCOUNTERS_KEY);
+      if (raw) encounters = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    const encIds = Object.keys(encounters);
+    if (encIds.length === 0) return;
+    const enc = encounters[encIds[0]];
+    if (!enc || enc.combatants.length === 0) return;
+
+    const sorted = [...enc.combatants].sort((a, b) => b.initiative - a.initiative);
+    const prevIdx = enc.encounter.current_turn_index % sorted.length;
+    const expiringCombatant = sorted[prevIdx];
+
+    // Decrement condition duration counters on expiring combatant
+    if (expiringCombatant && expiringCombatant.conditions) {
+      expiringCombatant.conditions = expiringCombatant.conditions
+        .map((c) => {
+          const match = c.match(/\((\d+)\s*(?:rnd|round|turns?)?\)/i);
+          if (match) {
+            const count = parseInt(match[1], 10) - 1;
+            if (count <= 0) return null; // expired
+            return c.replace(/\(\d+\s*(?:rnd|round|turns?)?\)/i, `(${count} rnd)`);
+          }
+          return c;
+        })
+        .filter(Boolean) as string[];
+
+      const orig = enc.combatants.find((c) => c.id === expiringCombatant.id);
+      if (orig) orig.conditions = expiringCombatant.conditions;
+    }
+
+    // Advance turn index
+    enc.encounter.current_turn_index++;
+    if (enc.encounter.current_turn_index >= sorted.length) {
+      enc.encounter.current_turn_index = 0;
+      enc.encounter.round++;
+    }
+
+    try {
+      localStorage.setItem(STORAGE_ENCOUNTERS_KEY, JSON.stringify(encounters));
+    } catch {
+      // ignore
+    }
+
+    this.broadcastActiveCombat();
+  }
+
+  /**
+   * Steps back one turn in initiative.
+   */
+  prevCombatTurn(): void {
+    let encounters: Record<string, SavedEncounter> = {};
+    try {
+      const raw = localStorage.getItem(STORAGE_ENCOUNTERS_KEY);
+      if (raw) encounters = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    const encIds = Object.keys(encounters);
+    if (encIds.length === 0) return;
+    const enc = encounters[encIds[0]];
+    if (!enc || enc.combatants.length === 0) return;
+
+    if (enc.encounter.current_turn_index > 0) {
+      enc.encounter.current_turn_index--;
+    } else {
+      if (enc.encounter.round > 1) {
+        enc.encounter.round--;
+        enc.encounter.current_turn_index = Math.max(0, enc.combatants.length - 1);
+      }
+    }
+
+    try {
+      localStorage.setItem(STORAGE_ENCOUNTERS_KEY, JSON.stringify(encounters));
+    } catch {
+      // ignore
+    }
+
+    this.broadcastActiveCombat();
   }
 
   /**

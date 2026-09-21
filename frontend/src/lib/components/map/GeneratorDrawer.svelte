@@ -1,8 +1,12 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  // GeneratorDrawer.svelte
+  // Native Procedural Canvas Generators & External Cartography Push Pipeline to Tactical Mat
+  // Features Error-Guarded Canvas Context Export and Direct dispatchMapToBattlemat Integration
+
+  import { onMount } from 'svelte';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
   import { audioEngine } from '../../audio/AudioEngine';
-  import { pushMapToBattlemat } from '../../services/mapDispatchService';
+  import { dispatchMapToBattlemat } from '../../services/mapDispatchService';
 
   let {
     isOpen = $bindable(false),
@@ -18,6 +22,7 @@
   // Input for custom URL or clipboard image
   let customMapUrl = $state('');
   let feedbackMessage = $state<string | null>(null);
+  let isGenerating = $state(false);
 
   const TABS = [
     {
@@ -45,11 +50,54 @@
 
   let currentTabDef = $derived(TABS.find(t => t.id === activeTab) || TABS[0]);
 
-  async function applyMapTexture(source: Blob | string, options: { name?: string; gridSize?: number; walls?: any[] } = {}) {
+  /**
+   * Safely extracts Blob or Data URL from HTMLCanvasElement with fallback for WebGL/offscreen failures.
+   */
+  async function canvasToBlobGuarded(canvas: HTMLCanvasElement): Promise<Blob | string> {
+    return new Promise((resolve, reject) => {
+      try {
+        if (typeof canvas.toBlob === 'function') {
+          canvas.toBlob((blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              try {
+                const dataUrl = canvas.toDataURL('image/png');
+                resolve(dataUrl);
+              } catch (err) {
+                reject(err);
+              }
+            }
+          }, 'image/png');
+        } else {
+          const dataUrl = canvas.toDataURL('image/png');
+          resolve(dataUrl);
+        }
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  /**
+   * Applies the map texture directly to the tactical battlemat canvas and projector.
+   */
+  async function applyMapTexture(
+    source: Blob | string,
+    options: { name?: string; gridSize?: number; gridCols?: number; gridRows?: number; walls?: any[] } = {}
+  ) {
     try {
-      await pushMapToBattlemat(source, options);
+      await dispatchMapToBattlemat({
+        imageBlob: source,
+        name: options.name || 'Generated Battlemat',
+        gridSize: options.gridSize || 60,
+        gridCols: options.gridCols,
+        gridRows: options.gridRows,
+        walls: options.walls
+      });
+
       audioEngine.triggerSfx('sfx-secret');
-      feedbackMessage = '⚡ Map bound directly to battlemat!';
+      feedbackMessage = '⚡ Map pushed directly to battlemat!';
 
       if (onOpenCalibration) {
         onOpenCalibration();
@@ -60,67 +108,185 @@
       setTimeout(() => {
         feedbackMessage = null;
         isOpen = false;
-      }, 1000);
-    } catch {
-      feedbackMessage = 'Failed to bind map to battlemat.';
+      }, 1200);
+    } catch (e) {
+      feedbackMessage = 'Failed to push map to battlemat.';
       setTimeout(() => { feedbackMessage = null; }, 2500);
     }
   }
 
-  function handleExportToCanvas() {
-    if (customMapUrl.trim()) {
-      applyMapTexture(customMapUrl.trim(), { name: 'Custom Map' });
-      return;
+  // ── Generator 1: Procedural Arena / Hall Chamber ─────────────────────────────
+  async function generateProceduralChamber() {
+    isGenerating = true;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1800;
+      canvas.height = 1200;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not acquire 2D canvas context');
+
+      // Base stone floor
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const cell = 60;
+      ctx.strokeStyle = 'rgba(71, 85, 105, 0.35)';
+      ctx.lineWidth = 1.5;
+      for (let x = 0; x < canvas.width; x += cell) {
+        for (let y = 0; y < canvas.height; y += cell) {
+          ctx.fillStyle = ((x / cell) + (y / cell)) % 2 === 0 ? '#1e293b' : '#172033';
+          ctx.fillRect(x, y, cell, cell);
+          ctx.strokeRect(x, y, cell, cell);
+        }
+      }
+
+      // Chamber stone columns
+      const pillars = [
+        { x: 360, y: 360 }, { x: 720, y: 360 }, { x: 1080, y: 360 }, { x: 1440, y: 360 },
+        { x: 360, y: 840 }, { x: 720, y: 840 }, { x: 1080, y: 840 }, { x: 1440, y: 840 }
+      ];
+
+      for (const p of pillars) {
+        ctx.fillStyle = '#334155';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 26, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      // Outer fortification borders
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 6;
+      ctx.strokeRect(120, 120, 1560, 960);
+
+      // Vignette lighting
+      const grad = ctx.createRadialGradient(900, 600, 300, 900, 600, 950);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(2,6,23,0.7)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const payload = await canvasToBlobGuarded(canvas);
+      await applyMapTexture(payload, {
+        name: `Procedural Great Hall Chamber #${Math.floor(Math.random() * 9000 + 1000)}`,
+        gridSize: 60,
+        gridCols: 30,
+        gridRows: 20,
+        walls: [
+          { x1: 2, y1: 2, x2: 28, y2: 2 },
+          { x1: 28, y1: 2, x2: 28, y2: 18 },
+          { x1: 28, y1: 18, x2: 2, y2: 18 },
+          { x1: 2, y1: 18, x2: 2, y2: 2 }
+        ]
+      });
+    } catch {
+      feedbackMessage = 'Failed generating procedural chamber.';
+      setTimeout(() => { feedbackMessage = null; }, 2500);
+    } finally {
+      isGenerating = false;
     }
-    feedbackMessage = 'Paste direct map image URL or click "⚡ Generate & Push".';
-    setTimeout(() => { feedbackMessage = null; }, 3000);
   }
 
-  function generateProceduralMap() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 1800;
-    canvas.height = 1200;
-    const ctx = canvas.getContext('2d')!;
+  // ── Generator 2: Subterranean Crypt & Corridors ──────────────────────────────
+  async function generateDungeonCrypt() {
+    isGenerating = true;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1920;
+      canvas.height = 1440;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not acquire 2D canvas context');
 
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Dark background void
+      ctx.fillStyle = '#05070e';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const cell = 60;
-    ctx.strokeStyle = 'rgba(71, 85, 105, 0.4)';
-    ctx.lineWidth = 1.5;
-    for (let x = 0; x < canvas.width; x += cell) {
-      for (let y = 0; y < canvas.height; y += cell) {
-        ctx.fillStyle = ((x / cell) + (y / cell)) % 2 === 0 ? '#1e293b' : '#172033';
-        ctx.fillRect(x, y, cell, cell);
-        ctx.strokeRect(x, y, cell, cell);
+      const cell = 60;
+
+      // Draw paved rooms
+      const rooms = [
+        { x: 3, y: 3, w: 10, h: 8, label: 'Entry Crypt' },
+        { x: 19, y: 3, w: 10, h: 8, label: 'Reliquary Vault' },
+        { x: 11, y: 13, w: 10, h: 9, label: 'Central Sanctum' },
+      ];
+
+      // Hallway corridors connecting rooms
+      const corridors = [
+        { x: 8, y: 11, w: 2, h: 4 },
+        { x: 22, y: 11, w: 2, h: 4 },
+        { x: 13, y: 6, w: 6, h: 2 },
+      ];
+
+      ctx.lineWidth = 1;
+      const drawTiledArea = (gx: number, gy: number, gw: number, gh: number) => {
+        for (let ix = 0; ix < gw; ix++) {
+          for (let iy = 0; iy < gh; iy++) {
+            const px = (gx + ix) * cell;
+            const py = (gy + iy) * cell;
+            ctx.fillStyle = (ix + iy) % 2 === 0 ? '#1e293b' : '#182234';
+            ctx.fillRect(px, py, cell, cell);
+            ctx.strokeStyle = 'rgba(71, 85, 105, 0.4)';
+            ctx.strokeRect(px, py, cell, cell);
+          }
+        }
+      };
+
+      for (const r of rooms) drawTiledArea(r.x, r.y, r.w, r.h);
+      for (const c of corridors) drawTiledArea(c.x, c.y, c.w, c.h);
+
+      // Sarcophagus / central altar in sanctum
+      const sanctumX = 14 * cell;
+      const sanctumY = 16 * cell;
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(sanctumX, sanctumY, cell * 4, cell * 2);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(sanctumX, sanctumY, cell * 4, cell * 2);
+
+      // Crypt room walls
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 5;
+      for (const r of rooms) {
+        ctx.strokeRect(r.x * cell, r.y * cell, r.w * cell, r.h * cell);
       }
+
+      // Vignette effect
+      const grad = ctx.createRadialGradient(960, 720, 250, 960, 720, 1100);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(5,7,14,0.8)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const payload = await canvasToBlobGuarded(canvas);
+      await applyMapTexture(payload, {
+        name: `Subterranean Crypt Dungeon #${Math.floor(Math.random() * 9000 + 1000)}`,
+        gridSize: 60,
+        gridCols: 32,
+        gridRows: 24,
+        walls: [
+          { x1: 3, y1: 3, x2: 13, y2: 3 },
+          { x1: 19, y1: 3, x2: 29, y2: 3 },
+          { x1: 11, y1: 13, x2: 21, y2: 13 },
+        ]
+      });
+    } catch {
+      feedbackMessage = 'Failed generating dungeon crypt.';
+      setTimeout(() => { feedbackMessage = null; }, 2500);
+    } finally {
+      isGenerating = false;
     }
+  }
 
-    ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(180, 180, 1440, 840);
-    ctx.strokeRect(600, 180, 600, 840);
-
-    const grad = ctx.createRadialGradient(900, 600, 300, 900, 600, 1000);
-    grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(1, 'rgba(0,0,0,0.65)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    canvas.toBlob((blob) => {
-      if (blob) {
-        applyMapTexture(blob, {
-          name: `Procedural Dungeon Chamber #${Math.floor(Math.random() * 9000 + 1000)}`,
-          gridSize: 60,
-          walls: [
-            { x1: 3, y1: 3, x2: 27, y2: 3 },
-            { x1: 27, y1: 3, x2: 27, y2: 17 },
-            { x1: 27, y1: 17, x2: 3, y2: 17 },
-            { x1: 3, y1: 17, x2: 3, y2: 3 },
-          ]
-        });
-      }
-    }, 'image/png');
+  // ── Generator 3: External Tool / Custom Export Push ─────────────────────────
+  function handleExportToCanvas() {
+    if (customMapUrl.trim()) {
+      applyMapTexture(customMapUrl.trim(), { name: `${currentTabDef.label} Export` });
+      return;
+    }
+    feedbackMessage = 'Paste direct map image URL or use generator buttons below.';
+    setTimeout(() => { feedbackMessage = null; }, 3000);
   }
 
   function handleIframeMessage(e: MessageEvent) {
@@ -146,19 +312,18 @@
         const imageType = item.types.find(t => t.startsWith('image/'));
         if (imageType) {
           const blob = await item.getType(imageType);
-          const objUrl = URL.createObjectURL(blob);
-          applyMapTexture(objUrl);
+          applyMapTexture(blob, { name: 'Clipboard Map' });
           return;
         }
       }
       const text = await navigator.clipboard.readText();
       if (text && (text.startsWith('http') || text.startsWith('data:image'))) {
-        applyMapTexture(text.trim());
+        applyMapTexture(text.trim(), { name: 'Clipboard Map' });
         return;
       }
       feedbackMessage = 'No image found in clipboard.';
       setTimeout(() => { feedbackMessage = null; }, 2500);
-    } catch (e) {
+    } catch {
       feedbackMessage = 'Clipboard permission denied. Use file upload or URL.';
       setTimeout(() => { feedbackMessage = null; }, 2500);
     }
@@ -168,16 +333,14 @@
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
     if (file && file.type.startsWith('image/')) {
-      const objUrl = URL.createObjectURL(file);
-      applyMapTexture(objUrl);
+      applyMapTexture(file, { name: file.name.replace(/\.[^/.]+$/, '') });
     }
   }
 
   function handleFileInput(e: Event) {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (file && file.type.startsWith('image/')) {
-      const objUrl = URL.createObjectURL(file);
-      applyMapTexture(objUrl);
+      applyMapTexture(file, { name: file.name.replace(/\.[^/.]+$/, '') });
     }
   }
 </script>
@@ -197,7 +360,7 @@
           <span class="text-2xl">🧭</span>
           <div>
             <h2 class="text-sm font-black text-slate-100 uppercase tracking-wider">Cartography Workbench</h2>
-            <p class="text-[11px] text-slate-400">Native embedded generators &amp; tactical stage export</p>
+            <p class="text-[11px] text-slate-400">Native embedded generators &amp; tactical stage dispatch</p>
           </div>
         </div>
 
@@ -205,6 +368,7 @@
         <div class="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800">
           {#each TABS as tab}
             <button
+              type="button"
               onclick={() => activeTab = tab.id}
               class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 {activeTab === tab.id ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}"
             >
@@ -215,6 +379,7 @@
         </div>
 
         <button
+          type="button"
           onclick={() => isOpen = false}
           class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-sm"
         >
@@ -232,6 +397,7 @@
             class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 placeholder:text-slate-600"
           />
           <button
+            type="button"
             onclick={handlePasteFromClipboard}
             class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 flex items-center gap-1.5 transition-colors"
             title="Paste image directly from clipboard"
@@ -248,19 +414,37 @@
           {#if feedbackMessage}
             <span class="text-xs font-bold text-amber-300 animate-pulse">{feedbackMessage}</span>
           {/if}
+
+          <!-- Generator 1: Procedural Arena Generator -->
           <button
             type="button"
-            onclick={generateProceduralMap}
-            class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-black text-xs rounded-lg shadow-md transition-all active:scale-95 flex items-center gap-1.5"
-            title="Procedurally generate a complete tactical encounter dungeon chamber and push directly to battlemat"
+            onclick={generateProceduralChamber}
+            disabled={isGenerating}
+            class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-slate-950 font-black text-xs rounded-lg shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+            title="Procedurally generate a complete tactical encounter chamber and push directly to battlemat"
           >
-            <span>⚡</span>
-            <span>Generate &amp; Push to Battlemat</span>
+            <span>⚔️</span>
+            <span>Push Arena</span>
           </button>
+
+          <!-- Generator 2: Subterranean Crypt Generator -->
+          <button
+            type="button"
+            onclick={generateDungeonCrypt}
+            disabled={isGenerating}
+            class="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-black text-xs rounded-lg shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+            title="Procedurally generate a subterranean crypt dungeon with corridors and push directly to battlemat"
+          >
+            <span>🗝️</span>
+            <span>Push Crypt</span>
+          </button>
+
+          <!-- Generator 3: External Tool Export -->
           <button
             type="button"
             onclick={handleExportToCanvas}
-            class="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs rounded-lg shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+            disabled={isGenerating}
+            class="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 disabled:opacity-50 text-slate-950 font-black text-xs rounded-lg shadow-md transition-all active:scale-95 flex items-center gap-1.5"
             title="Transfer exported texture to battlemat and initiate 2-click grid calibration"
           >
             <span>🎯</span>

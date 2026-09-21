@@ -59,8 +59,10 @@ export class AudioEngine {
    * Wraps all playback calls in an explicit resume hook.
    */
   async resumeContext(): Promise<AudioContext> {
+    if (typeof window === 'undefined') return (this.ctx || {}) as AudioContext;
     if (!this.ctx) {
       const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AC) return {} as AudioContext;
       this.ctx = new AC();
       this.setupBusses();
     }
@@ -321,6 +323,7 @@ export class AudioEngine {
 
   async triggerSfx(sfxId: string): Promise<void> {
     const ctx = await this.resumeContext();
+    if (!ctx || !ctx.createGain) return;
     const sfx = this.sfxButtons.find(s => s.id === sfxId);
     if (!sfx) return;
 

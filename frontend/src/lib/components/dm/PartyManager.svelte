@@ -45,16 +45,7 @@
         return sanitized;
       }
     } catch { /* corrupt storage — reset */ }
-    const freshRoster: PartyMember[] = [
-      { id: 'pc-1', name: 'Valen Shadowborn',  playerName: 'Player 1', class: 'Rogue',   level: 5, hpCurrent: 38, hpMax: 38, ac: 16, passivePerception: 14, pin: genPin(), isOnline: false, isNpc: false },
-      { id: 'pc-2', name: 'Eldrin Starfall',   playerName: 'Player 2', class: 'Wizard',  level: 5, hpCurrent: 28, hpMax: 28, ac: 13, passivePerception: 12, pin: genPin(), isOnline: false, isNpc: false },
-      { id: 'pc-3', name: 'Kareth Stonefist',  playerName: 'Player 3', class: 'Fighter', level: 5, hpCurrent: 52, hpMax: 52, ac: 18, passivePerception: 11, pin: genPin(), isOnline: false, isNpc: false },
-      { id: 'pc-4', name: 'Althea Dawnseeker', playerName: 'Player 4', class: 'Cleric',  level: 5, hpCurrent: 42, hpMax: 42, ac: 17, passivePerception: 13, pin: genPin(), isOnline: false, isNpc: false },
-    ];
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(freshRoster));
-    }
-    return freshRoster;
+    return [];
   }
 
   function saveRoster(r: PartyMember[]) {
@@ -64,8 +55,8 @@
   function genId() { return `pc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
   let roster   = $state<PartyMember[]>(loadRoster());
-  let lanIp    = $state(localStorage.getItem(LAN_IP_KEY) ?? '192.168.1.100');
-  let lanPort  = $state(8080);
+  let lanIp    = $state(localStorage.getItem(LAN_IP_KEY) ?? 'localhost');
+  let lanPort  = $state(5173);
   let editingId = $state<string | null>(null);
   let showAddForm = $state(false);
   let copiedPin   = $state<string | null>(null);
@@ -173,7 +164,7 @@
   <!-- LAN IP Config -->
   <div class="px-4 py-2 border-b border-slate-800/60 bg-slate-900/50 shrink-0 flex items-center gap-3">
     <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">LAN Host</span>
-    <input type="text" bind:value={lanIp} class="flex-1 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500" placeholder="192.168.1.100" />
+    <input type="text" bind:value={lanIp} class="flex-1 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500" placeholder="e.g. 192.168.1.15" />
     <input type="number" bind:value={lanPort} class="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500" />
   </div>
 

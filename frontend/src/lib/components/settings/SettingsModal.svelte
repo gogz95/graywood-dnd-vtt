@@ -25,11 +25,13 @@
   import { uiTheme, type ThemeMode, type DisplayMode } from '../../stores/uiTheme.svelte';
   import KnowledgeBaseModal from '../ai/KnowledgeBaseModal.svelte';
   import LoreIngestionSettingsTab from './LoreIngestionSettingsTab.svelte';
+  import HomebrewSettingsTab from './HomebrewSettingsTab.svelte';
+  import AutomationSettingsTab from './AutomationSettingsTab.svelte';
 
   let { isOpen = $bindable(false) }: { isOpen?: boolean } = $props();
   let showKbModal = $state(false);
 
-  type SettingsTab = 'campaign' | 'lore' | 'ai' | 'audio' | 'theme';
+  type SettingsTab = 'campaign' | 'lore' | 'homebrew' | 'automation' | 'ai' | 'audio' | 'theme';
   let activeTab = $state<SettingsTab>('campaign');
 
   // ── Campaign State ─────────────────────────────────────────────────────────
@@ -301,6 +303,24 @@
 
       <button
         type="button"
+        onclick={() => activeTab = 'homebrew'}
+        class="px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5
+          {activeTab === 'homebrew' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
+      >
+        <span>⚙️ Homebrew &amp; Rules</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => activeTab = 'automation'}
+        class="px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5
+          {activeTab === 'automation' ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
+      >
+        <span>🎲 Automation &amp; Dice</span>
+      </button>
+
+      <button
+        type="button"
         onclick={() => activeTab = 'ai'}
         class="px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5
           {activeTab === 'ai' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
@@ -440,6 +460,20 @@
       ══════════════════════════════════════════════════════════════════════ -->
       {#if activeTab === 'lore'}
         <LoreIngestionSettingsTab />
+      {/if}
+
+      <!-- ═════════════════════════════════════════════════════════════════════
+           TAB: MODULAR HOMEBREW RULES
+      ══════════════════════════════════════════════════════════════════════ -->
+      {#if activeTab === 'homebrew'}
+        <HomebrewSettingsTab />
+      {/if}
+
+      <!-- ═════════════════════════════════════════════════════════════════════
+           TAB: HYBRID AUTOMATION & PHYSICAL DICE
+      ══════════════════════════════════════════════════════════════════════ -->
+      {#if activeTab === 'automation'}
+        <AutomationSettingsTab />
       {/if}
 
       <!-- ═════════════════════════════════════════════════════════════════════
@@ -766,6 +800,13 @@
             </div>
           </div>
         </div>
+      {/if}
+
+      <!-- ═════════════════════════════════════════════════════════════════════
+           TAB: MODULAR HOMEBREW RULES ENGINE
+      ══════════════════════════════════════════════════════════════════════ -->
+      {#if activeTab === 'homebrew'}
+        <HomebrewSettingsTab />
       {/if}
 
     </div>

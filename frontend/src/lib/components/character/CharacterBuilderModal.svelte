@@ -17,6 +17,16 @@
     buildStandardCharacter,
     CLASS_ARCHETYPES
   } from '../../services/classQuizEngine';
+  import {
+    validatePointBuy,
+    validateStandardArray,
+    validateRolledStats,
+    clampLevel1Score,
+    getSubclassForLevel,
+    getPointBuyCost,
+    POINT_BUY_TOTAL_POINTS
+  } from '../../services/characterGenerator';
+  import { compendiumStore } from '../../stores/compendiumStore.svelte';
 
   export interface CreatedCharacter {
     id: string;
@@ -92,9 +102,19 @@
   let playerName = $state('Player');
   let selectedRace = $state<string>('Human');
   let selectedClass = $state<string>('Fighter');
+  let selectedSubclass = $state<string>('');
+  let selectedSpells = $state<string[]>([]);
   let selectedBackground = $state('Soldier');
   let bio = $state('');
   let proceduralCharacter = $state<CreatedCharacter | null>(null);
+
+  // Dynamic Compendium Queries
+  let availableSubclasses = $derived(
+    compendiumStore.getSubclassesForClass(selectedClass)
+  );
+  let availableSpells = $derived(
+    compendiumStore.getSpellsByClass(selectedClass)
+  );
 
   const RACES = [
     {
@@ -234,8 +254,8 @@
     str: 15, dex: 14, con: 13, int: 12, wis: 10, cha: 8
   });
 
-  let rolledPool = $state<number[]>([]);
-  let pointBuyRemaining = $state(27);
+  let pointBuyRemaining = $derived(validatePointBuy(baseScores).remaining);
+  let validationError = $state<string | null>(null);
 
   function roll4d6DropLowest(): number {
     const rolls = [1, 2, 3, 4].map(() => Math.floor(1 + Math.random() * 6));
@@ -254,11 +274,34 @@
       wis: rolledPool[4] || 10,
       cha: rolledPool[5] || 8
     };
+    validationError = null;
     audioEngine.triggerSfx('sfx-dice');
   }
 
   function applyStandardArray() {
     baseScores = { str: 15, dex: 14, con: 13, int: 12, wis: 10, cha: 8 };
+    validationError = null;
+  }
+
+  function applyPointBuyDefaults() {
+    baseScores = { str: 8, dex: 8, con: 8, int: 8, wis: 8, cha: 8 };
+    validationError = null;
+  }
+
+  function adjustPointBuyStat(stat: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha', delta: number) {
+    const current = baseScores[stat];
+    const target = current + delta;
+    if (target < 8 || target > 15) return;
+
+    const currentCost = getPointBuyCost(current);
+    const targetCost = getPointBuyCost(target);
+    const costDiff = targetCost - currentCost;
+
+    const validation = validatePointBuy(baseScores);
+    if (delta > 0 && validation.remaining < costDiff) return;
+
+    baseScores[stat] = target;
+    validationError = null;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -427,8 +470,41 @@
       return;
     }
 
+    // Validate Ability Allocation Bounds
+    validationError = null;
+    if (allocMethod === 'point_buy') {
+      const v = validatePointBuy(baseScores);
+      if (!v.valid) {
+        validationError = v.error || 'Invalid Point Buy allocation.';
+        return;
+      }
+    } else if (allocMethod === 'standard') {
+      const v = validateStandardArray(baseScores);
+      if (!v.valid) {
+        validationError = v.error || 'Invalid Standard Array allocation.';
+        return;
+      }
+    } else if (allocMethod === 'roller') {
+      const v = validateRolledStats(baseScores);
+      if (!v.valid) {
+        validationError = v.error || 'Rolled stats outside bounds (3–18).';
+        return;
+      }
+    }
+
     const raceDef = RACES.find(r => r.name === selectedRace) || RACES[0];
     const finalScores = raceDef.applyBonus(baseScores);
+
+    // Hard Cap of 20 at Level 1 pre-ASI
+    if (charLevel === 1) {
+      finalScores.str = clampLevel1Score(finalScores.str);
+      finalScores.dex = clampLevel1Score(finalScores.dex);
+      finalScores.con = clampLevel1Score(finalScores.con);
+      finalScores.int = clampLevel1Score(finalScores.int);
+      finalScores.wis = clampLevel1Score(finalScores.wis);
+      finalScores.cha = clampLevel1Score(finalScores.cha);
+    }
+
     const clsDef = CLASSES.find(c => c.name === selectedClass) || CLASSES[0];
 
     const conMod = getMod(finalScores.con);
@@ -437,7 +513,30 @@
 
     const avgHitDie = Math.floor(clsDef.hitDie / 2) + 1;
     const hpMax = clsDef.hitDie + conMod + (charLevel - 1) * Math.max(1, avgHitDie + conMod);
-    const ac = 10 + dexMod + (selectedClass === 'Fighter' || selectedClass === 'Paladin' ? 4 : 2);
+
+    // Pristine Standard Starting AC Calculation
+    let startingAc = 10 + dexMod;
+    if (selectedClass === 'Fighter' || selectedClass === 'Paladin') {
+      startingAc = 18; // Chain Mail (16) + Shield (2)
+    } else if (selectedClass === 'Cleric') {
+      startingAc = 16 + Math.min(2, Math.max(0, dexMod)); // Scale Mail (14) + Shield (2) + DEX (max 2)
+    } else if (selectedClass === 'Barbarian') {
+      startingAc = 10 + dexMod + conMod;
+    } else if (selectedClass === 'Monk') {
+      startingAc = 10 + dexMod + wisMod;
+    } else if (selectedClass === 'Ranger') {
+      startingAc = 14 + Math.min(2, Math.max(0, dexMod));
+    } else if (selectedClass === 'Druid') {
+      startingAc = 14 + Math.min(2, Math.max(0, dexMod));
+    } else if (selectedClass === 'Rogue' || selectedClass === 'Bard' || selectedClass === 'Warlock') {
+      startingAc = 11 + dexMod;
+    }
+
+    // Subclass Milestone Verification
+    const verifiedSubclass = getSubclassForLevel(selectedClass, selectedSubclass || (clsDef as any).subclass || '', charLevel);
+    const classDisplay = verifiedSubclass ? `${selectedClass} (${verifiedSubclass})` : selectedClass;
+
+    const spellNote = selectedSpells.length > 0 ? ` Known/Prepared Spells: ${selectedSpells.join(', ')}.` : '';
 
     const newChar: CreatedCharacter = {
       id: `char-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -445,7 +544,7 @@
       playerName: playerName.trim() || 'Player',
       race: raceDef.name,
       dialect: raceDef.language,
-      class: selectedClass,
+      class: classDisplay,
       level: charLevel,
       background: selectedBackground,
       alignment: 'Neutral Good',
@@ -458,7 +557,7 @@
       hpCurrent: hpMax,
       hpMax,
       tempHp: 0,
-      ac,
+      ac: startingAc,
       speed: raceDef.speed,
       initiativeMod: dexMod, // STRICT 5E DEXTERITY MODIFIER
       passivePerception: 10 + wisMod + 2,
@@ -472,7 +571,7 @@
       savingThrows: clsDef.saving,
       skills: ['Athletics', 'Perception', 'Insight'],
       tools: ["Thieves' Tools"],
-      bio: bio || `5e Adventurer. Speaks ${raceDef.language}.`,
+      bio: (bio || `5e Adventurer. Speaks ${raceDef.language}.`) + spellNote,
       pin: genPin()
     };
 
@@ -603,6 +702,13 @@
               </button>
               <button
                 type="button"
+                onclick={() => { allocMethod = 'point_buy'; applyPointBuyDefaults(); }}
+                class="px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-colors {allocMethod === 'point_buy' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}"
+              >
+                ⚖️ 27 Point Buy
+              </button>
+              <button
+                type="button"
                 onclick={() => { allocMethod = 'roller'; handleRollAllAttributes(); }}
                 class="px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-colors {allocMethod === 'roller' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}"
               >
@@ -611,23 +717,62 @@
             </div>
           </div>
 
+          {#if validationError}
+            <div class="p-2.5 rounded-xl bg-rose-950/80 border border-rose-600/70 text-rose-300 text-xs font-bold flex items-center gap-2">
+              <span>⚠️</span>
+              <span>{validationError}</span>
+            </div>
+          {/if}
+
           <!-- Base Attributes Grid -->
           <div>
-            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">Base Ability Scores</span>
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Base Ability Scores</span>
+              {#if allocMethod === 'point_buy'}
+                {@const pb = validatePointBuy(baseScores)}
+                <span class="text-xs font-mono font-bold {pb.remaining < 0 ? 'text-rose-400' : 'text-indigo-400'}">
+                  {pb.spent} / 27 Points Spent ({pb.remaining} remaining)
+                </span>
+              {:else if allocMethod === 'standard'}
+                <span class="text-[10px] text-slate-500 font-mono">Permutation of [15, 14, 13, 12, 10, 8]</span>
+              {/if}
+            </div>
+
             <div class="grid grid-cols-6 gap-2">
               {#each ['str', 'dex', 'con', 'int', 'wis', 'cha'] as stat}
-                {@const score = baseScores[stat as keyof typeof baseScores]}
+                {@const statKey = stat as 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha'}
+                {@const score = baseScores[statKey]}
                 {@const mod = getMod(score)}
-                <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center">
+                <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center flex flex-col justify-between">
                   <span class="text-[10px] font-mono uppercase text-slate-400 block font-bold">{stat}</span>
-                  <input
-                    type="number"
-                    min="3"
-                    max="20"
-                    bind:value={baseScores[stat as keyof typeof baseScores]}
-                    class="w-full text-center text-base font-black bg-transparent text-slate-100 focus:outline-none"
-                  />
-                  <span class="text-[10px] font-mono text-indigo-400 font-bold block mt-0.5">
+                  
+                  {#if allocMethod === 'point_buy'}
+                    <div class="flex items-center justify-center gap-1 my-1">
+                      <button
+                        type="button"
+                        onclick={() => adjustPointBuyStat(statKey, -1)}
+                        disabled={score <= 8}
+                        class="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-300"
+                      >-</button>
+                      <span class="text-base font-black text-slate-100 font-mono w-6">{score}</span>
+                      <button
+                        type="button"
+                        onclick={() => adjustPointBuyStat(statKey, 1)}
+                        disabled={score >= 15 || pointBuyRemaining < (getPointBuyCost(score + 1) - getPointBuyCost(score))}
+                        class="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-300"
+                      >+</button>
+                    </div>
+                  {:else}
+                    <input
+                      type="number"
+                      min="3"
+                      max="18"
+                      bind:value={baseScores[statKey]}
+                      class="w-full text-center text-base font-black bg-transparent text-slate-100 focus:outline-none my-1"
+                    />
+                  {/if}
+
+                  <span class="text-[10px] font-mono text-indigo-400 font-bold block">
                     {mod >= 0 ? `+${mod}` : mod}
                   </span>
                 </div>
@@ -691,6 +836,61 @@
               {/each}
             </select>
           </div>
+
+          <!-- Dynamic Compendium Subclass (Live from compendiumStore) -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label for="char-subclass-select" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Subclass / Archetype (Compendium)
+              </label>
+              <span class="text-[10px] text-slate-500 font-mono">
+                {availableSubclasses.length} registered
+              </span>
+            </div>
+            <select
+              id="char-subclass-select"
+              bind:value={selectedSubclass}
+              class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">None / Base Class (Milestone Gated)</option>
+              {#each availableSubclasses as sub}
+                <option value={sub.name}>{sub.name} ({sub.sourceBook})</option>
+              {/each}
+            </select>
+          </div>
+
+          <!-- Dynamic Compendium Spells (Live from compendiumStore) -->
+          {#if availableSpells.length > 0}
+            <div class="space-y-2 bg-slate-950/60 border border-slate-800 rounded-xl p-3">
+              <div class="flex items-center justify-between text-xs">
+                <span class="font-bold text-slate-300 flex items-center gap-1.5 text-[11px]">
+                  <span>✨</span> Starting Spells & Cantrips ({selectedClass})
+                </span>
+                <span class="text-[10px] text-indigo-400 font-mono">
+                  {selectedSpells.length} selected
+                </span>
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                {#each availableSpells as spell}
+                  {@const isChecked = selectedSpells.includes(spell.name)}
+                  <button
+                    type="button"
+                    onclick={() => {
+                      if (isChecked) {
+                        selectedSpells = selectedSpells.filter(s => s !== spell.name);
+                      } else {
+                        selectedSpells = [...selectedSpells, spell.name];
+                      }
+                    }}
+                    class="p-1.5 text-left rounded-lg border text-[10px] font-medium transition-colors {isChecked ? 'bg-indigo-950 border-indigo-500 text-indigo-200' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'}"
+                  >
+                    <div class="font-bold truncate">{spell.name}</div>
+                    <div class="text-[9px] text-slate-500 font-mono">{spell.level === 0 ? 'Cantrip' : `Lvl ${spell.level}`} · {spell.school}</div>
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
 
         <!-- ═════════════════════════════════════════════════════════════════════
              MODE 2: GUIDED APTITUDE QUIZ (10-QUESTION TRIAD ENGINE)
@@ -761,7 +961,11 @@
       <!-- Modal Footer -->
       <div class="h-16 bg-slate-950 border-t border-slate-800 px-5 flex items-center justify-between shrink-0">
         <div class="text-[11px] text-slate-400 font-mono">
-          <span>Level {charLevel}</span> · <span>{selectedRace}</span> · <span>{selectedClass}</span>
+          {#if mode === 'guided_quiz'}
+            <span class="text-indigo-400">Guided Aptitude Assessment</span>
+          {:else}
+            <span>Level {charLevel}</span> · <span>{selectedRace}</span> · <span>{selectedClass}</span>
+          {/if}
         </div>
 
         <div class="flex items-center gap-2.5">

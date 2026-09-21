@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { inventoryStore, toggleItemPreserved } from '../stores/characterStore';
+  import { rulesEngine } from '../lib/stores/rulesEngine.svelte';
   import ResistancePointsBar from './ResistancePointsBar.svelte';
   import Icons from './Icons.svelte';
   import type { InventoryItem } from '../types/character';
@@ -135,8 +136,8 @@
           </div>
         </div>
 
-        <!-- Resistance Points Durability Bar for Equipment -->
-        {#if item.max_rp > 0}
+        <!-- Resistance Points Durability Bar for Equipment (Modular Homebrew) -->
+        {#if rulesEngine.isEnabled('enableDurabilitySystem') && item.max_rp > 0}
           <div class="mt-3 pt-3 border-t border-dark-800">
             <ResistancePointsBar
               currentRp={item.current_rp}

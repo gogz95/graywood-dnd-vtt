@@ -15,6 +15,9 @@
   import { sendWsEvent } from '../../../stores/websocketStore';
   import CharacterBuilderModal, { type CreatedCharacter } from '../character/CharacterBuilderModal.svelte';
   import PetManagerDrawer from '../player/PetManagerDrawer.svelte';
+  import { getLanIp, getPlayUrl } from '../../services/networkDiscovery';
+  import { rulesEngine } from '../../stores/rulesEngine.svelte';
+  import { chatStore } from '../../stores/chatStore.svelte';
 
   interface PartyMember {
     id: string;
@@ -84,8 +87,14 @@
       const raw = localStorage.getItem(STORAGE_ROSTER_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as PartyMember[];
-        // Sanitize any legacy placeholder test credentials ('1234', '2345', etc.)
-        const sanitized = parsed.map(m => {
+        // Sanitize legacy mock fixture heroes if any
+        const cleaned = parsed.filter(m => !(
+          (m.id === 'pc-1' && m.name === 'Valen Shadowborn') ||
+          (m.id === 'pc-2' && m.name === 'Eldrin Starfall') ||
+          (m.id === 'pc-3' && m.name === 'Kareth Stonefist') ||
+          (m.id === 'pc-4' && m.name === 'Althea Dawnseeker')
+        ));
+        const sanitized = cleaned.map(m => {
           if (!m.pin || m.pin === '1234' || m.pin === '2345' || m.pin === '3456' || m.pin === '4567' || m.pin === '0000') {
             return { ...m, pin: genPin() };
           }
@@ -97,82 +106,25 @@
     } catch {
       // Fallback
     }
-    const freshRoster: PartyMember[] = [
-      {
-        id: 'pc-1',
-        name: 'Valen Shadowborn',
-        playerName: 'Player 1',
-        class: 'Rogue',
-        level: 5,
-        hpCurrent: 38,
-        hpMax: 38,
-        ac: 16,
-        passivePerception: 14,
-        pin: genPin(),
-        isOnline: true,
-        isNpc: false,
-        conditions: []
-      },
-      {
-        id: 'pc-2',
-        name: 'Eldrin Starfall',
-        playerName: 'Player 2',
-        class: 'Wizard',
-        level: 5,
-        hpCurrent: 28,
-        hpMax: 28,
-        ac: 13,
-        passivePerception: 12,
-        pin: genPin(),
-        isOnline: false,
-        isNpc: false,
-        conditions: []
-      },
-      {
-        id: 'pc-3',
-        name: 'Kareth Stonefist',
-        playerName: 'Player 3',
-        class: 'Fighter',
-        level: 5,
-        hpCurrent: 48,
-        hpMax: 52,
-        ac: 18,
-        passivePerception: 11,
-        pin: genPin(),
-        isOnline: true,
-        isNpc: false,
-        conditions: ['Poisoned']
-      },
-      {
-        id: 'pc-4',
-        name: 'Althea Dawnseeker',
-        playerName: 'Player 4',
-        class: 'Cleric',
-        level: 5,
-        hpCurrent: 42,
-        hpMax: 42,
-        ac: 17,
-        passivePerception: 13,
-        pin: genPin(),
-        isOnline: false,
-        isNpc: false,
-        conditions: []
-      }
-    ];
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(STORAGE_ROSTER_KEY, JSON.stringify(freshRoster));
-    }
-    return freshRoster;
+    return [];
   }
 
   function genId() { return `pc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
 
   // ── Reactive State ────────────────────────────────────────────────────────
   let roster = $state<PartyMember[]>(loadRoster());
-  let lanIp = $state(localStorage.getItem(STORAGE_LAN_IP_KEY) || '192.168.1.100');
-  let lanPort = $state(8080);
+  let lanIp = $state(localStorage.getItem(STORAGE_LAN_IP_KEY) || 'localhost');
+  let lanPort = $state(5173);
   let copiedPin = $state<string | null>(null);
   let copiedLink = $state<string | null>(null);
+
+  onMount(() => {
+    getLanIp().then(ip => {
+      if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
+        lanIp = ip;
+      }
+    }).catch(() => {});
+  });
 
   // Economy & Stash Sub-Menu Collapsible State
   let isEconomyOpen = $state(false);
@@ -280,6 +232,88 @@
     if (isExpert) return baseMod + prof * 2;
     if (isProf) return baseMod + prof;
     return baseMod;
+  }
+
+  function rollAbilityCheck(member: PartyMember, stat: string, score: number) {
+    const mod = getAbilityMod(score);
+    const sign = mod >= 0 ? '+' : '';
+    chatStore.roll(`1d20${sign}${mod}`, {
+      label: `${member.name}: ${stat.toUpperCase()} Check`,
+      actorName: member.name,
+      actionType: 'check',
+      explicitTerms: [
+        { label: '1d20', value: 0 },
+        { label: stat.toUpperCase(), value: mod }
+      ]
+    });
+  }
+
+  function rollSavingThrow(member: PartyMember, stat: string, score: number) {
+    const mod = getAbilityMod(score);
+    const sign = mod >= 0 ? '+' : '';
+    chatStore.roll(`1d20${sign}${mod}`, {
+      label: `${member.name}: ${stat.toUpperCase()} Save`,
+      actorName: member.name,
+      actionType: 'save',
+      explicitTerms: [
+        { label: '1d20', value: 0 },
+        { label: `${stat.toUpperCase()} Save`, value: mod }
+      ]
+    });
+  }
+
+  function rollSkillCheck(member: PartyMember, skillName: string, ability: string, totalMod: number) {
+    const sign = totalMod >= 0 ? '+' : '';
+    chatStore.roll(`1d20${sign}${totalMod}`, {
+      label: `${member.name}: ${skillName} (${ability.toUpperCase()})`,
+      actorName: member.name,
+      actionType: 'check',
+      explicitTerms: [
+        { label: '1d20', value: 0 },
+        { label: skillName, value: totalMod }
+      ]
+    });
+  }
+
+  function rollWeaponAttack(member: PartyMember, weaponName: string) {
+    const prof = getProficiencyBonus(member.level);
+    const strMod = getAbilityMod(member.str ?? 10);
+    const atkBonus = prof + strMod;
+    const sign = atkBonus >= 0 ? '+' : '';
+    chatStore.roll(`1d20${sign}${atkBonus}`, {
+      label: `${member.name}: ${weaponName} (Attack)`,
+      actorName: member.name,
+      actionType: 'attack',
+      explicitTerms: [
+        { label: '1d20', value: 0 },
+        { label: 'Attack Bonus', value: atkBonus }
+      ]
+    });
+    // Also roll standard weapon damage
+    const dmgSign = strMod >= 0 ? '+' : '';
+    chatStore.roll(`1d8${dmgSign}${strMod}`, {
+      label: `${member.name}: ${weaponName} (Damage)`,
+      actorName: member.name,
+      actionType: 'damage',
+      explicitTerms: [
+        { label: '1d8', value: 0 },
+        { label: 'STR', value: strMod }
+      ]
+    });
+  }
+
+  function rollInitiative(member: PartyMember) {
+    const dexMod = getAbilityMod(member.dex ?? 10);
+    const sign = dexMod >= 0 ? '+' : '';
+    chatStore.roll(`1d20${sign}${dexMod}`, {
+      label: `${member.name}: Initiative`,
+      actorName: member.name,
+      actionType: 'check',
+      explicitTerms: [
+        { label: '1d20', value: 0 },
+        { label: 'DEX', value: dexMod }
+      ]
+    });
   }
 
   function handleShortRest(memberId: string) {
@@ -472,8 +506,7 @@
   }
 
   function copyJoinLink(pin: string) {
-    const origin = typeof window !== 'undefined' ? window.location.origin : `http://${lanIp}:${lanPort}`;
-    const link = `${origin}?pin=${pin}`;
+    const link = getPlayUrl(pin, lanPort);
     navigator.clipboard.writeText(link).catch(() => {});
     copiedLink = pin;
     setTimeout(() => { copiedLink = null; }, 2500);
@@ -581,7 +614,7 @@
         <input
           type="text"
           bind:value={lanIp}
-          placeholder="192.168.1.100"
+          placeholder="e.g. 192.168.1.15"
           class="bg-transparent text-slate-200 text-xs font-mono w-28 focus:outline-none"
         />
       </div>
@@ -801,7 +834,13 @@
         Party Encounter CR: {partyEffectiveCr}
       </span>
     </div>
-    <span class="text-[10px] text-slate-500 hidden sm:inline">Temporal Black Orb extraction recalculates CR automatically</span>
+    <span class="text-[10px] text-slate-500 hidden sm:inline">
+      {#if rulesEngine.isEnabled('enableBlackOrbRoster')}
+        Temporal Black Orb extraction recalculates CR automatically
+      {:else}
+        Reserve characters excluded from active party and encounter CR
+      {/if}
+    </span>
   </div>
 
   <div class="flex-1 overflow-y-auto p-5">
@@ -831,7 +870,11 @@
                     <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-amber-950/60 text-amber-400 border border-amber-800/40">NPC</span>
                   {/if}
                   {#if member.isOrbSealed}
-                    <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-purple-950 text-purple-300 border border-purple-800/70 animate-pulse shadow-sm shadow-purple-900/50">🔮 In Black Orb</span>
+                    {#if rulesEngine.isEnabled('enableBlackOrbRoster')}
+                      <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-purple-950 text-purple-300 border border-purple-800/70 animate-pulse shadow-sm shadow-purple-900/50">🔮 In Black Orb</span>
+                    {:else}
+                      <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-800 text-slate-300 border border-slate-700">🛡️ In Reserve</span>
+                    {/if}
                   {/if}
                 </div>
                 <p class="text-xs text-slate-400 mt-0.5">
@@ -850,7 +893,7 @@
               </button>
             </div>
 
-            <!-- Stats Badge Trio (AC, Passive Perception, Tri-Stat Initiative) -->
+            <!-- Stats Badge Trio (AC, Passive Perception, Tri-Stat or 5e DEX Initiative) -->
             <div class="grid grid-cols-3 gap-2">
               <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-2 text-center">
                 <span class="text-[9px] uppercase font-bold text-slate-500 block">Armor Class</span>
@@ -861,8 +904,14 @@
                 <span class="text-sm font-mono font-black text-amber-300">👁️ {member.passivePerception}</span>
               </div>
               <div class="bg-slate-950/80 border border-slate-800/80 rounded-xl p-2 text-center">
-                <span class="text-[9px] uppercase font-bold text-slate-500 block">Tri-Stat Init</span>
-                <span class="text-sm font-mono font-black text-emerald-300">⚡ {tri.label}</span>
+                {#if rulesEngine.isEnabled('enableTriStatInitiative')}
+                  <span class="text-[9px] uppercase font-bold text-slate-500 block">Tri-Stat Init</span>
+                  <span class="text-sm font-mono font-black text-emerald-300">⚡ {tri.label}</span>
+                {:else}
+                  {@const dexMod = getAbilityMod(member.dex)}
+                  <span class="text-[9px] uppercase font-bold text-slate-500 block">Initiative</span>
+                  <span class="text-sm font-mono font-black text-emerald-300">⚡ {dexMod >= 0 ? `+${dexMod}` : dexMod} (DEX)</span>
+                {/if}
               </div>
             </div>
 
@@ -988,16 +1037,28 @@
               </div>
             </div>
 
-            <!-- Aleamos Black Orb Extraction Protocol Button -->
+            <!-- Reserve / Black Orb Extraction Button -->
             <button
               onclick={() => toggleBlackOrbStow(member.id)}
               class="w-full py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 {member.isOrbSealed
-                ? 'bg-purple-950/80 hover:bg-purple-900 border-purple-500/70 text-purple-200 shadow-md shadow-purple-950/50'
-                : 'bg-slate-950/60 hover:bg-purple-950/40 border-slate-800 hover:border-purple-800/60 text-slate-300 hover:text-purple-200'}"
-              title={member.isOrbSealed ? 'Release character from Black Orb back into active world' : 'Stow absent player into temporal amnesia Black Orb (1-lb wondrous item)'}
+                ? (rulesEngine.isEnabled('enableBlackOrbRoster')
+                    ? 'bg-purple-950/80 hover:bg-purple-900 border-purple-500/70 text-purple-200 shadow-md shadow-purple-950/50'
+                    : 'bg-slate-800 hover:bg-slate-700 border-slate-600 text-slate-200')
+                : (rulesEngine.isEnabled('enableBlackOrbRoster')
+                    ? 'bg-slate-950/60 hover:bg-purple-950/40 border-slate-800 hover:border-purple-800/60 text-slate-300 hover:text-purple-200'
+                    : 'bg-slate-950/60 hover:bg-slate-800/60 border-slate-800 hover:border-slate-700 text-slate-300')}"
+              title={member.isOrbSealed
+                ? (rulesEngine.isEnabled('enableBlackOrbRoster') ? 'Release character from Black Orb back into active world' : 'Return character from reserve to active roster')
+                : (rulesEngine.isEnabled('enableBlackOrbRoster') ? 'Stow absent player into temporal amnesia Black Orb (1-lb wondrous item)' : 'Move character to reserve roster')}
             >
-              <span>🔮</span>
-              <span>{member.isOrbSealed ? 'Release from Black Orb' : 'Stow into Black Orb'}</span>
+              <span>{rulesEngine.isEnabled('enableBlackOrbRoster') ? '🔮' : (member.isOrbSealed ? '📤' : '📥')}</span>
+              <span>
+                {#if rulesEngine.isEnabled('enableBlackOrbRoster')}
+                  {member.isOrbSealed ? 'Release from Black Orb' : 'Stow into Black Orb'}
+                {:else}
+                  {member.isOrbSealed ? 'Return to Active' : 'Move to Reserve'}
+                {/if}
+              </span>
             </button>
 
           </div>
@@ -1254,12 +1315,17 @@
             <span class="text-[10px] uppercase font-bold text-slate-500 block">Armor Class</span>
             <span class="text-2xl font-black text-amber-400">{m.ac}</span>
           </div>
-          <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 text-center">
-            <span class="text-[10px] uppercase font-bold text-slate-500 block">Initiative Mod</span>
+          <button
+            type="button"
+            onclick={() => rollInitiative(m)}
+            class="bg-slate-950/70 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/50 rounded-xl p-3 text-center transition-all cursor-pointer group"
+            title="Click to roll initiative"
+          >
+            <span class="text-[10px] uppercase font-bold text-slate-500 group-hover:text-indigo-400 block">Initiative Mod (Click to Roll)</span>
             <span class="text-2xl font-black text-indigo-400">
               {dexMod >= 0 ? `+${dexMod}` : dexMod}
             </span>
-          </div>
+          </button>
           <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 text-center">
             <span class="text-[10px] uppercase font-bold text-slate-500 block">Current / Max HP</span>
             <div class="flex items-center justify-center gap-1">
@@ -1277,38 +1343,67 @@
           </div>
         </div>
 
-        <!-- 6 Ability Scores -->
+        <!-- 6 Ability Scores (Click-to-Roll Check or Save) -->
         <div>
-          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Ability Scores &amp; Saving Throws</h4>
+          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Ability Scores &amp; Saving Throws (Click to Roll)</h4>
           <div class="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
             {#each (['str', 'dex', 'con', 'int', 'wis', 'cha'] as const) as ab}
               {@const score = m[ab] ?? 10}
               {@const mod = getAbilityMod(score)}
-              <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center">
+              <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center flex flex-col justify-between">
                 <span class="text-[10px] uppercase font-bold text-slate-400 block">{ab}</span>
-                <span class="text-lg font-black text-slate-100">{score}</span>
-                <span class="text-xs font-bold text-indigo-400 block">
-                  {mod >= 0 ? `+${mod}` : mod}
-                </span>
+                <button
+                  type="button"
+                  onclick={() => rollAbilityCheck(m, ab, score)}
+                  class="text-lg font-black text-slate-100 hover:text-amber-300 transition-colors py-0.5 active:scale-95"
+                  title={`Click to roll ${ab.toUpperCase()} Check`}
+                >
+                  {score}
+                </button>
+                <div class="flex items-center justify-center gap-1 pt-1">
+                  <button
+                    type="button"
+                    onclick={() => rollAbilityCheck(m, ab, score)}
+                    class="text-xs font-bold text-indigo-400 hover:text-indigo-300 block"
+                    title={`Roll ${ab.toUpperCase()} Check`}
+                  >
+                    {mod >= 0 ? `+${mod}` : mod}
+                  </button>
+                  <button
+                    type="button"
+                    onclick={() => rollSavingThrow(m, ab, score)}
+                    class="px-1 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-[9px] font-bold uppercase text-slate-300 transition-colors"
+                    title={`Roll ${ab.toUpperCase()} Save`}
+                  >
+                    Save
+                  </button>
+                </div>
               </div>
             {/each}
           </div>
         </div>
 
-        <!-- Standard 5e Equipment -->
+        <!-- Standard 5e Equipment (Click to Roll Weapon Attack) -->
         <div>
-          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Equipped Weapons &amp; Armor</h4>
+          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Equipped Weapons &amp; Armor (Click to Roll)</h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+            <button
+              type="button"
+              onclick={() => rollWeaponAttack(m, m.weaponName ?? 'Primary Weapon')}
+              class="bg-slate-950/80 hover:bg-slate-900 border border-slate-800 hover:border-amber-500/50 rounded-xl p-3 flex items-center justify-between text-left transition-all active:scale-[0.98] group cursor-pointer"
+              title="Click to roll attack and damage"
+            >
               <div class="flex items-center gap-2">
                 <span class="text-base">⚔️</span>
                 <div>
-                  <div class="font-bold text-slate-200 text-xs">{m.weaponName ?? 'Primary Weapon'}</div>
-                  <div class="text-[10px] text-slate-400">Standard 5e Weapon</div>
+                  <div class="font-bold text-slate-200 group-hover:text-amber-300 text-xs transition-colors">{m.weaponName ?? 'Primary Weapon'}</div>
+                  <div class="text-[10px] text-slate-400">Click to Roll Attack &amp; Damage</div>
                 </div>
               </div>
-              <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-mono font-bold">Equipped</span>
-            </div>
+              <span class="px-2 py-1 rounded bg-amber-950/80 border border-amber-600/50 text-amber-300 text-[10px] font-mono font-bold">
+                Roll Attack 🎲
+              </span>
+            </button>
             <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <span class="text-base">🛡️</span>
@@ -1349,24 +1444,29 @@
           </div>
         </div>
 
-        <!-- 18 Standard 5e Skills -->
+        <!-- 18 Standard 5e Skills (Click to Roll) -->
         <div>
-          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">18 Standard 5e Skills</h4>
+          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">18 Standard 5e Skills (Click to Roll)</h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
             {#each SKILL_DEFS as skill}
               {@const isProf = m.skills?.[skill.name] ?? false}
               {@const baseMod = abilityMods[skill.ability]}
               {@const totalSkillMod = baseMod + (isProf ? prof : 0)}
-              <div class="bg-slate-950/60 border border-slate-800/80 rounded-lg px-3 py-1.5 flex items-center justify-between">
+              <button
+                type="button"
+                onclick={() => rollSkillCheck(m, skill.name, skill.ability, totalSkillMod)}
+                class="bg-slate-950/60 hover:bg-slate-900 border border-slate-800/80 hover:border-indigo-500/50 rounded-lg px-3 py-1.5 flex items-center justify-between transition-all active:scale-[0.98] group cursor-pointer text-left"
+                title={`Click to roll ${skill.name} Check`}
+              >
                 <div class="flex items-center gap-1.5">
                   <span class="w-2 h-2 rounded-full {isProf ? 'bg-indigo-400' : 'bg-slate-700'}"></span>
-                  <span class="text-slate-200 font-medium">{skill.name}</span>
+                  <span class="text-slate-200 group-hover:text-amber-300 font-medium transition-colors">{skill.name}</span>
                   <span class="text-[9px] uppercase text-slate-500">({skill.ability})</span>
                 </div>
                 <span class="font-mono font-bold {isProf ? 'text-indigo-300' : 'text-slate-400'}">
                   {totalSkillMod >= 0 ? `+${totalSkillMod}` : totalSkillMod}
                 </span>
-              </div>
+              </button>
             {/each}
           </div>
         </div>

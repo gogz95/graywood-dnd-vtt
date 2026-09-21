@@ -19,6 +19,12 @@ export interface ActiveCombatant {
     int: number;
     wis: number;
   };
+  death_saves?: {
+    successes: number; // 0-3
+    failures: number;  // 0-3
+    isStable?: boolean;
+    isDead?: boolean;
+  };
 }
 
 export interface Encounter {

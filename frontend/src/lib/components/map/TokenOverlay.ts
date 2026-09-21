@@ -238,3 +238,98 @@ export function renderTurnReticleOnCanvas(
 
   ctx.restore();
 }
+
+/**
+ * Renders an aggressive animated crimson/amber targeting reticle with reticle brackets and crosshairs.
+ */
+export function renderTargetingReticleOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  tokenRadius: number,
+  timeSec = 0
+): void {
+  ctx.save();
+
+  const pulse = Math.sin(timeSec * 6) * 0.08;
+  const targetRadius = (tokenRadius + 6) * (1 + pulse);
+
+  // Outer red glow
+  const grad = ctx.createRadialGradient(
+    centerX, centerY, tokenRadius * 0.5,
+    centerX, centerY, targetRadius + 10
+  );
+  grad.addColorStop(0, 'rgba(239, 68, 68, 0)');
+  grad.addColorStop(0.7, 'rgba(239, 68, 68, 0.4)');
+  grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, targetRadius + 10, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Outer counter-rotating dashed ring
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([6, 6]);
+  ctx.lineDashOffset = timeSec * 40; // Counter-clockwise
+
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, targetRadius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Inner solid thin accent ring
+  ctx.setLineDash([]);
+  ctx.strokeStyle = '#f87171';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, targetRadius - 4, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 4 Targeting corner brackets
+  const bracketSize = Math.max(8, targetRadius * 0.35);
+  ctx.strokeStyle = '#fca5a5';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'square';
+
+  // Top-Left bracket
+  ctx.beginPath();
+  ctx.moveTo(centerX - targetRadius + bracketSize, centerY - targetRadius);
+  ctx.lineTo(centerX - targetRadius, centerY - targetRadius);
+  ctx.lineTo(centerX - targetRadius, centerY - targetRadius + bracketSize);
+  ctx.stroke();
+
+  // Top-Right bracket
+  ctx.beginPath();
+  ctx.moveTo(centerX + targetRadius - bracketSize, centerY - targetRadius);
+  ctx.lineTo(centerX + targetRadius, centerY - targetRadius);
+  ctx.lineTo(centerX + targetRadius, centerY - targetRadius + bracketSize);
+  ctx.stroke();
+
+  // Bottom-Left bracket
+  ctx.beginPath();
+  ctx.moveTo(centerX - targetRadius + bracketSize, centerY + targetRadius);
+  ctx.lineTo(centerX - targetRadius, centerY + targetRadius);
+  ctx.lineTo(centerX - targetRadius, centerY + targetRadius - bracketSize);
+  ctx.stroke();
+
+  // Bottom-Right bracket
+  ctx.beginPath();
+  ctx.moveTo(centerX + targetRadius - bracketSize, centerY + targetRadius);
+  ctx.lineTo(centerX + targetRadius, centerY + targetRadius);
+  ctx.lineTo(centerX + targetRadius, centerY + targetRadius - bracketSize);
+  ctx.stroke();
+
+  // Central mini crosshair pip
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 2;
+  const crossSize = 4;
+  ctx.beginPath();
+  ctx.moveTo(centerX - crossSize, centerY);
+  ctx.lineTo(centerX + crossSize, centerY);
+  ctx.moveTo(centerX, centerY - crossSize);
+  ctx.lineTo(centerX, centerY + crossSize);
+  ctx.stroke();
+
+  ctx.restore();
+}

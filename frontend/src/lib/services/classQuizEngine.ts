@@ -2,6 +2,7 @@
 // 10-Question 5e SRD Guided Quiz Engine & Procedural Archetype Generator
 
 import { SRD_BACKGROUNDS, type SrdBackground } from '../data/srdBackgrounds';
+import { getSubclassForLevel, clampLevel1Score } from './characterGenerator';
 
 export interface CreatedCharacter {
   id: string;
@@ -468,8 +469,22 @@ export function buildStandardCharacter(
   const combinedSkills = Array.from(new Set([...clsDef.skills, ...bgDef.skillProficiencies]));
   const combinedTools = Array.from(new Set([...bgDef.toolOrLanguageProficiencies]));
 
+  // Clamp level 1 scores to 20
+  if (safeLevel === 1) {
+    scores.str = Math.min(20, scores.str);
+    scores.dex = Math.min(20, scores.dex);
+    scores.con = Math.min(20, scores.con);
+    scores.int = Math.min(20, scores.int);
+    scores.wis = Math.min(20, scores.wis);
+    scores.cha = Math.min(20, scores.cha);
+  }
+
   // Standard 5e Currency baseline
   const gp = 15 + safeLevel * 10;
+
+  // Verify subclass milestone
+  const verifiedSubclass = getSubclassForLevel(clsDef.name, clsDef.subclass, safeLevel);
+  const classDisplay = verifiedSubclass ? `${clsDef.name} (${verifiedSubclass})` : clsDef.name;
 
   return {
     id: `char-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -477,7 +492,7 @@ export function buildStandardCharacter(
     playerName: 'Player',
     race: raceName,
     dialect: raceDef.language,
-    class: `${clsDef.name} (${clsDef.subclass})`,
+    class: classDisplay,
     level: safeLevel,
     background: bgName,
     alignment: 'Neutral Good',
@@ -504,7 +519,7 @@ export function buildStandardCharacter(
     savingThrows: clsDef.savingThrows,
     skills: combinedSkills,
     tools: combinedTools,
-    bio: `${raceName} ${clsDef.name} (${clsDef.subclass}) with the ${bgName} background. Feature: ${bgDef.feature.name}. ${bgDef.feature.description}`,
+    bio: `${raceName} ${classDisplay} with the ${bgName} background. Feature: ${bgDef.feature.name}. ${bgDef.feature.description}`,
     pin: Math.floor(1000 + Math.random() * 9000).toString()
   };
 }

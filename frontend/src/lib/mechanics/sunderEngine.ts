@@ -3,6 +3,8 @@
 // At 0 RP, weapons suffer -1 attack/damage; armor suffers -1 AC.
 // Field repair: 1-hour Short Rest, tool check (DC 8 + missing RP), 1 raw material unit restores 5 RP.
 
+import { rulesEngine } from '../stores/rulesEngine.svelte';
+
 export interface DurableEquipment {
   id: string;
   name: string;
@@ -38,6 +40,7 @@ export interface ArtisanRepairResult {
 /**
  * Calculates attack, damage, or AC penalties based on current Resistance Points.
  * Rule: At 0 RP, weapons suffer -1 penalty to attack and damage rolls; armor suffers -1 to AC.
+ * When enableDurabilitySystem is OFF, equipment defaults to base 5e stats without sunder penalties.
  */
 export function calculateEquipmentPenalty(item: DurableEquipment): {
   attackPenalty: number;
@@ -46,6 +49,16 @@ export function calculateEquipmentPenalty(item: DurableEquipment): {
   isBroken: boolean;
   statusLabel: string;
 } {
+  if (!rulesEngine.isEnabled('enableDurabilitySystem')) {
+    return {
+      attackPenalty: 0,
+      damagePenalty: 0,
+      acPenalty: 0,
+      isBroken: false,
+      statusLabel: 'Pristine',
+    };
+  }
+
   const isBroken = item.currentRp <= 0;
   if (!isBroken) {
     return {
