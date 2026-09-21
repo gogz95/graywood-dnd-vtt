@@ -164,17 +164,15 @@ export class MacroStore {
       const activeTokId = canvasStore.activeTokenId;
       if (activeTokId) {
         canvasStore.toggleTokenCondition(activeTokId, condName);
-        chatStore.postMessage({
-          sender: 'System',
-          channel: 'public',
-          text: `🏷️ Toggled condition **${condName}** on **${actor.name}**.`
-        });
+        chatStore.sendMessage(
+          `🏷️ Toggled condition **${condName}** on **${actor.name}**.`,
+          'System'
+        );
       } else {
-        chatStore.postMessage({
-          sender: 'System',
-          channel: 'public',
-          text: `⚠ No active token selected to toggle condition **${condName}**.`
-        });
+        chatStore.sendMessage(
+          `⚠ No active token selected to toggle condition **${condName}**.`,
+          'System'
+        );
       }
       return;
     }
@@ -184,21 +182,16 @@ export class MacroStore {
       const deltaStr = cmd.replace(/^\/hp\s*/i, '').trim();
       const delta = parseInt(deltaStr, 10);
       if (!isNaN(delta)) {
-        chatStore.postMessage({
-          sender: 'System',
-          channel: 'public',
-          text: `${delta >= 0 ? '💚 Healed' : '💥 Damaged'} **${actor.name}** by ${Math.abs(delta)} HP.`
-        });
+        chatStore.sendMessage(
+          `${delta >= 0 ? '💚 Healed' : '💥 Damaged'} **${actor.name}** by ${Math.abs(delta)} HP.`,
+          'System'
+        );
       }
       return;
     }
 
     // Fallback: Post raw text/command
-    chatStore.postMessage({
-      sender: actor.name,
-      channel: 'public',
-      text: cmd
-    });
+    chatStore.sendMessage(cmd, actor.name);
   }
 }
 

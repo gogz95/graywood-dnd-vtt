@@ -143,7 +143,7 @@ class SoundboardEngine {
     // Instantiate new sound generator
     const newGainNode = ctx.createGain();
     newGainNode.gain.setValueAtTime(0.0001, now);
-    newGainNode.linearRampToValueAtTime(this.atmosphereVol, now + crossfadeSec);
+    newGainNode.gain.linearRampToValueAtTime(this.atmosphereVol, now + crossfadeSec);
     newGainNode.connect(this.masterGain!);
 
     this.startAtmosphereSynthesis(ctx, preset, newGainNode);
@@ -327,7 +327,7 @@ class SoundboardEngine {
 
     const newGain = ctx.createGain();
     newGain.gain.setValueAtTime(0.0001, now);
-    newGain.linearRampToValueAtTime(this.combatVol, now + crossfadeSec);
+    newGain.gain.linearRampToValueAtTime(this.combatVol, now + crossfadeSec);
     newGain.connect(this.masterGain!);
 
     this.startCombatSynthesis(ctx, track, newGain);

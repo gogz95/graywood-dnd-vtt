@@ -49,8 +49,8 @@ export function resolveAttackAgainstTarget(
   if (attacker && token) {
     const wallsAsMapWalls = canvasStore.walls.map((w, idx) => ({
       id: `w-${idx}`,
-      p1: { x: w.p1.x, y: w.p1.y },
-      p2: { x: w.p2.x, y: w.p2.y },
+      p1: { x: (w as any).p1?.x ?? (w as any).x1 ?? 0, y: (w as any).p1?.y ?? (w as any).y1 ?? 0 },
+      p2: { x: (w as any).p2?.x ?? (w as any).x2 ?? 0, y: (w as any).p2?.y ?? (w as any).y2 ?? 0 },
       type: 'wall' as const,
     }));
     coverResult = calculateCover(attacker, token, wallsAsMapWalls, canvasStore.tokens, canvasStore.gridSize);
@@ -195,8 +195,7 @@ export async function applyDamageToToken(
   }
 
   // 3. Update Canvas Token
-  canvasStore.updateToken({
-    id: token.id,
+  canvasStore.updateToken(token.id, {
     hp: nextHp,
     tempHp: nextTempHp,
     conditions: nextConditions,
