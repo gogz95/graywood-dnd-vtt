@@ -1,12 +1,17 @@
 <script lang="ts">
   // src/lib/components/character/CharacterBuilderModal.svelte
-  // 3-Mode Aleamos Character Creation Engine:
+  // 3-Mode System-Neutral 5e SRD Character Creation Engine:
   // Mode 1: Pick & Roll (Standard Array, Point Buy, 4d6 Drop Lowest)
-  // Mode 2: Morrowind-Style Thematic Quiz (10 Archipelago Scenarios)
-  // Mode 3: Procedural Generator (One-Click Grounded Archetypes)
+  // Mode 2: Guided Aptitude Quiz (Moral & Tactical Inquiry)
+  // Mode 3: Procedural Generator (One-Click 5e SRD Archetypes)
 
   import { onMount } from 'svelte';
   import { audioEngine } from '../../audio/AudioEngine';
+  import {
+    STANDARD_5E_RACES,
+    STANDARD_5E_CLASSES,
+    STANDARD_5E_LANGUAGES
+  } from '../../data/languages';
 
   export interface CreatedCharacter {
     id: string;
@@ -25,7 +30,7 @@
     int: number;
     wis: number;
     cha: number;
-    // Tri-Stat & HP
+    // Standard 5e HP & Armor
     hpCurrent: number;
     hpMax: number;
     tempHp: number;
@@ -33,19 +38,15 @@
     speed: number;
     initiativeMod: number;
     passivePerception: number;
-    // Durability Pools
+    // Equipment
     weaponName: string;
-    weaponCurrentRp: number;
-    weaponMaxRp: number;
     armorName: string;
-    armorCurrentRp: number;
-    armorMaxRp: number;
-    // Currency
-    sovereignsGp: number;
-    sunDisks10Gp: number;
-    tradeBars50Gp: number;
-    silverSp: number;
-    copperCp: number;
+    // Standard 5e Currencies
+    cp: number;
+    sp: number;
+    ep: number;
+    gp: number;
+    pp: number;
     // Proficiencies & Skills
     savingThrows: string[];
     skills: string[];
@@ -62,7 +63,7 @@
     onCharacterCreated?: (char: CreatedCharacter) => void;
   } = $props();
 
-  type CreationMode = 'pick_and_roll' | 'morrowind_quiz' | 'procedural';
+  type CreationMode = 'pick_and_roll' | 'guided_quiz' | 'procedural';
   let mode = $state<CreationMode>('pick_and_roll');
 
   function genPin(): string {
@@ -83,61 +84,137 @@
   // ─────────────────────────────────────────────────────────────────────────────
   let charName = $state('');
   let playerName = $state('Player');
-  let selectedRace = $state<'concord_human' | 'gilionite_dwarf' | 'archipelago_elf'>('concord_human');
-  let selectedClass = $state('Fighter');
-  let selectedBackground = $state('Chancellery Clerk');
+  let selectedRace = $state<string>('Human');
+  let selectedClass = $state<string>('Fighter');
+  let selectedBackground = $state('Soldier');
   let bio = $state('');
 
   const RACES = [
     {
-      id: 'concord_human' as const,
-      name: 'Concord Human',
-      dialect: 'Old Concord / Vaelic Common',
-      bonusText: '+1 to all abilities or +1/+1 with Feat',
+      id: 'Human',
+      name: 'Human',
+      language: 'Common',
+      bonusText: '+1 to all ability scores',
+      speed: 30,
       applyBonus: (s: Record<string, number>) => ({
         str: s.str + 1, dex: s.dex + 1, con: s.con + 1,
         int: s.int + 1, wis: s.wis + 1, cha: s.cha + 1
       })
     },
     {
-      id: 'gilionite_dwarf' as const,
-      name: 'Gilionite Dwarf',
-      dialect: 'Gilionite Stone-Canto',
-      bonusText: '+2 CON · Smith/Mason Tools proficiency (Durability repairs)',
+      id: 'Elf',
+      name: 'Elf',
+      language: 'Elvish',
+      bonusText: '+2 DEX · Darkvision · Keen Senses',
+      speed: 30,
+      applyBonus: (s: Record<string, number>) => ({
+        str: s.str, dex: s.dex + 2, con: s.con,
+        int: s.int, wis: s.wis, cha: s.cha
+      })
+    },
+    {
+      id: 'Dwarf',
+      name: 'Dwarf',
+      language: 'Dwarvish',
+      bonusText: '+2 CON · Dwarven Resilience · Stonecunning',
+      speed: 25,
       applyBonus: (s: Record<string, number>) => ({
         str: s.str, dex: s.dex, con: s.con + 2,
         int: s.int, wis: s.wis, cha: s.cha
       })
     },
     {
-      id: 'archipelago_elf' as const,
-      name: 'Archipelago Islander Elf',
-      dialect: 'Vaelic Island-Canto',
-      bonusText: '+2 DEX · Keen Senses · High Tide Navigator',
+      id: 'Halfling',
+      name: 'Halfling',
+      language: 'Halfling',
+      bonusText: '+2 DEX · Lucky · Brave · Halfling Nimbleness',
+      speed: 25,
       applyBonus: (s: Record<string, number>) => ({
         str: s.str, dex: s.dex + 2, con: s.con,
         int: s.int, wis: s.wis, cha: s.cha
+      })
+    },
+    {
+      id: 'Dragonborn',
+      name: 'Dragonborn',
+      language: 'Draconic',
+      bonusText: '+2 STR, +1 CHA · Draconic Ancestry · Breath Weapon',
+      speed: 30,
+      applyBonus: (s: Record<string, number>) => ({
+        str: s.str + 2, dex: s.dex, con: s.con,
+        int: s.int, wis: s.wis, cha: s.cha + 1
+      })
+    },
+    {
+      id: 'Gnome',
+      name: 'Gnome',
+      language: 'Gnomish',
+      bonusText: '+2 INT · Darkvision · Gnome Cunning',
+      speed: 25,
+      applyBonus: (s: Record<string, number>) => ({
+        str: s.str, dex: s.dex, con: s.con,
+        int: s.int + 2, wis: s.wis, cha: s.cha
+      })
+    },
+    {
+      id: 'Half-Elf',
+      name: 'Half-Elf',
+      language: 'Common, Elvish',
+      bonusText: '+2 CHA, +1 DEX, +1 CON · Fey Ancestry',
+      speed: 30,
+      applyBonus: (s: Record<string, number>) => ({
+        str: s.str, dex: s.dex + 1, con: s.con + 1,
+        int: s.int, wis: s.wis, cha: s.cha + 2
+      })
+    },
+    {
+      id: 'Half-Orc',
+      name: 'Half-Orc',
+      language: 'Orc',
+      bonusText: '+2 STR, +1 CON · Relentless Endurance · Savage Attacks',
+      speed: 30,
+      applyBonus: (s: Record<string, number>) => ({
+        str: s.str + 2, dex: s.dex, con: s.con + 1,
+        int: s.int, wis: s.wis, cha: s.cha
+      })
+    },
+    {
+      id: 'Tiefling',
+      name: 'Tiefling',
+      language: 'Infernal',
+      bonusText: '+2 CHA, +1 INT · Hellish Resistance · Infernal Legacy',
+      speed: 30,
+      applyBonus: (s: Record<string, number>) => ({
+        str: s.str, dex: s.dex, con: s.con,
+        int: s.int + 1, wis: s.wis, cha: s.cha + 2
       })
     }
   ];
 
   const CLASSES = [
-    { name: 'Fighter', hitDie: 10, prime: 'str', saving: ['STR', 'CON'], armor: 'Chain Mail (25 RP)', weapon: 'Greatsword (30 RP)' },
-    { name: 'Rogue', hitDie: 8, prime: 'dex', saving: ['DEX', 'INT'], armor: 'Leather Armor (18 RP)', weapon: 'Rapier & Shortbow (20 RP)' },
-    { name: 'Wizard', hitDie: 6, prime: 'int', saving: ['INT', 'WIS'], armor: 'Scholar Robes (10 RP)', weapon: 'Arcane Staff (15 RP)' },
-    { name: 'Cleric', hitDie: 8, prime: 'wis', saving: ['WIS', 'CHA'], armor: 'Scale Mail (22 RP)', weapon: 'Warhammer (25 RP)' },
-    { name: 'Ranger', hitDie: 10, prime: 'dex', saving: ['STR', 'DEX'], armor: 'Studded Leather (20 RP)', weapon: 'Longbow (25 RP)' },
-    { name: 'Paladin', hitDie: 10, prime: 'str', saving: ['WIS', 'CHA'], armor: 'Plate & Mail (28 RP)', weapon: 'Longsword (30 RP)' },
-    { name: 'Artificer', hitDie: 8, prime: 'int', saving: ['CON', 'INT'], armor: 'Scale Mail (22 RP)', weapon: 'Heavy Crossbow (25 RP)' }
+    { name: 'Barbarian', hitDie: 12, prime: 'str', saving: ['STR', 'CON'], armor: 'Unarmored Defense', weapon: 'Greataxe' },
+    { name: 'Bard', hitDie: 8, prime: 'cha', saving: ['DEX', 'CHA'], armor: 'Leather Armor', weapon: 'Rapier & Lute' },
+    { name: 'Cleric', hitDie: 8, prime: 'wis', saving: ['WIS', 'CHA'], armor: 'Scale Mail & Shield', weapon: 'Warhammer' },
+    { name: 'Druid', hitDie: 8, prime: 'wis', saving: ['INT', 'WIS'], armor: 'Hide Armor & Wooden Shield', weapon: 'Scimitar' },
+    { name: 'Fighter', hitDie: 10, prime: 'str', saving: ['STR', 'CON'], armor: 'Chain Mail & Shield', weapon: 'Longsword' },
+    { name: 'Monk', hitDie: 8, prime: 'dex', saving: ['STR', 'DEX'], armor: 'Unarmored Defense', weapon: 'Shortsword & Unarmed Strike' },
+    { name: 'Paladin', hitDie: 10, prime: 'str', saving: ['WIS', 'CHA'], armor: 'Chain Mail & Holy Symbol', weapon: 'Warhammer' },
+    { name: 'Ranger', hitDie: 10, prime: 'dex', saving: ['STR', 'DEX'], armor: 'Scale Mail', weapon: 'Longbow & Shortswords' },
+    { name: 'Rogue', hitDie: 8, prime: 'dex', saving: ['DEX', 'INT'], armor: 'Leather Armor', weapon: 'Rapier & Shortbow' },
+    { name: 'Sorcerer', hitDie: 6, prime: 'cha', saving: ['CON', 'CHA'], armor: 'Arcane Focus', weapon: 'Daggers & Light Crossbow' },
+    { name: 'Warlock', hitDie: 8, prime: 'cha', saving: ['WIS', 'CHA'], armor: 'Leather Armor', weapon: 'Eldritch Focus & Dagger' },
+    { name: 'Wizard', hitDie: 6, prime: 'int', saving: ['INT', 'WIS'], armor: 'Scholar Robes', weapon: 'Arcane Staff & Spellbook' }
   ];
 
   const BACKGROUNDS = [
-    'Foundry Artificer (Kladno Deep)',
-    'Chancellery Clerk (Ostrava Harbor)',
-    'Outrunner Bounty Hunter (Basalt Coast)',
-    'Rucean Pearl Diver (Shoal Shoals)',
-    'Decade Salt Merchant (High Chancellery)',
-    'Reef Drake Warden (Rucean Admiralty)'
+    'Acolyte',
+    'Criminal',
+    'Folk Hero',
+    'Noble',
+    'Sage',
+    'Soldier',
+    'Outlander',
+    'Guild Artisan'
   ];
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -178,7 +255,7 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // MODE 2: MORROWIND-STYLE THEMATIC QUIZ
+  // MODE 2: GUIDED APTITUDE QUIZ (MORAL & TACTICAL INQUIRY)
   // ─────────────────────────────────────────────────────────────────────────────
   interface QuizQuestion {
     id: number;
@@ -193,52 +270,53 @@
   const QUIZ_QUESTIONS: QuizQuestion[] = [
     {
       id: 1,
-      scenario: 'A corsair skiff traps your rowboat against the jagged black reefs of Port Ruceas. How do you respond?',
+      scenario: 'A heavy iron portcullis in ancient ruins is slowly descending, threatening to trap an ally behind it. How do you react?',
       options: [
-        { text: 'Board their vessel with bare iron and shatter their oars.', archetype: 'combat', flavor: 'Direct martial valor and raw power.' },
-        { text: 'Slip into the brine with a reed and scuttle their rudder from below.', archetype: 'stealth', flavor: 'Patience, watercraft, and cunning ambush.' },
-        { text: 'Invoke the tide cycle to churn foam and ignite shadow-pitch flares.', archetype: 'magic', flavor: 'Arcane manipulation and elemental mastery.' }
+        { text: 'Brace your shoulders and heave the iron gate upward with sheer strength.', archetype: 'combat', flavor: 'Martial power, courage, and physical resolve.' },
+        { text: 'Dive beneath the iron teeth and jam a steel piton into the gear track.', archetype: 'stealth', flavor: 'Rapid reflexes, dexterity, and tactical cunning.' },
+        { text: 'Inscribe a kinetic sigil or cast an arcane ward to freeze the lowering winch.', archetype: 'magic', flavor: 'Arcane study, willpower, and magical insight.' }
       ]
     },
     {
       id: 2,
-      scenario: 'In the lower foundry of Kladno, an iron golem fractures its safety valve, spewing molten basalt toward innocent smelters.',
+      scenario: 'A corrupt city watch captain attempts to extort an unlawful toll from unarmed travelers at the gate.',
       options: [
-        { text: 'Heave an anvil cart into the vent breach with brute muscle.', archetype: 'combat', flavor: 'Selfless physical endurance.' },
-        { text: 'Scale the scaffolding and sever the hydraulic counterweight release.', archetype: 'stealth', flavor: 'Agile problem-solving and rapid reflexes.' },
-        { text: 'Channel mana tolerance to transmute the spray into cooled obsidian.', archetype: 'magic', flavor: 'High intellectual resolve.' }
+        { text: 'Draw your weapon and challenge his authority under the rule of military law.', archetype: 'combat', flavor: 'Unyielding honor and commanding presence.' },
+        { text: 'Slip over the parapets through the shadow of the watchtower to open the postern gate.', archetype: 'stealth', flavor: 'Infiltration, stealth, and streetcraft.' },
+        { text: 'Produce a sealed imperial charter or invoke an enchantment to expose his fraud.', archetype: 'magic', flavor: 'Diplomatic leverage and esoteric acumen.' }
       ]
     },
     {
       id: 3,
-      scenario: 'The High Chancellery of Ostrava is holding an audit of your guild charter. A corrupt clerk demands 50 Concord Sovereigns.',
+      scenario: 'Bandit archers launch a surprise ambush from rocky cliffs overlooking a narrow mountain trail.',
       options: [
-        { text: 'Slam his ledger onto his desk and challenge his lineage before the Magistrate.', archetype: 'combat', flavor: 'Unyielding honor and intimidating presence.' },
-        { text: 'Pickpocket the clerk’s official seal and stamp your own clearance deed.', archetype: 'stealth', flavor: 'Streetcraft and bureaucratic infiltration.' },
-        { text: 'Produce an ancient sovereign decree proving exemption under Decade municipal law.', archetype: 'magic', flavor: 'Scholarly leverage and archival acumen.' }
+        { text: 'Raise your shield, charge the rocky slope, and engage the ambushers head-on.', archetype: 'combat', flavor: 'Front-line bravery and tactical assault.' },
+        { text: 'Melt into the dense underbrush and stalk the archers with quiet flanking fire.', archetype: 'stealth', flavor: 'Wilderness survival and silent tracking.' },
+        { text: 'Summon a blast of thunderous wind or protective barrier to deflect the arrows.', archetype: 'magic', flavor: 'Elemental mastery and defensive spellcraft.' }
       ]
     },
     {
       id: 4,
-      scenario: 'A dying reef drake leaves a clutch of luminous eggs in a submerged tide pool.',
+      scenario: 'A trapped stone vault in a forgotten crypt is armed with poisonous needles and warding runes.',
       options: [
-        { text: 'Defend the nest with shield and spear from scavenging reef sharks.', archetype: 'combat', flavor: 'Guardian instinct.' },
-        { text: 'Conceal the eggs in kelp sacks and smuggle them to sanctuary.', archetype: 'stealth', flavor: 'Discretion and evasion.' },
-        { text: 'Attune your senses to the drake spirit to absorb its primal elemental song.', archetype: 'magic', flavor: 'Mystical communion.' }
+        { text: 'Smash the triggering lock mechanism with a heavy maul from behind total cover.', archetype: 'combat', flavor: 'Direct destructive force.' },
+        { text: 'Carefully probe the tumbler pins with fine thieves’ tools to disarm the mechanism.', archetype: 'stealth', flavor: 'Meticulous precision and mechanical expertise.' },
+        { text: 'Trace the glyph lines to unravel the magical ward without disturbing the physical lock.', archetype: 'magic', flavor: 'Deep lore, arcana, and ritual knowledge.' }
       ]
     },
     {
       id: 5,
-      scenario: 'Your party is trapped in a salt mine collapse. The air grows thin as gas hisses from the fissure.',
+      scenario: 'A rowdy brawl erupts in a crowded tavern when blades are drawn over an overturned card game.',
       options: [
-        { text: 'Dig relentlessly through the rubble until your fingers bleed.', archetype: 'combat', flavor: 'Tenacious physical willpower.' },
-        { text: 'Locate subtle drafts along the fault line to find an unmapped flue.', archetype: 'stealth', flavor: 'Keen observation and survival instinct.' },
-        { text: 'Conjure a gust to disperse the subterranean fumes and stabilize the ceiling.', archetype: 'magic', flavor: 'Calculated spellcraft.' }
+        { text: 'Wade into the fray, disarm the aggressors, and restore order with brute discipline.', archetype: 'combat', flavor: 'Martial intimidation and physical control.' },
+        { text: 'Weave through the chaotic brawl, secure the wager purse, and vanish out the back door.', archetype: 'stealth', flavor: 'Opportunism, nimble footwork, and escape.' },
+        { text: 'Cast a soothing enchantment or deliver a stirring verse to calm the hostile room.', archetype: 'magic', flavor: 'Enchantment, charisma, and magical influence.' }
       ]
     }
   ];
 
   let quizStep = $state(0);
+  let currentQuizQ = $derived(QUIZ_QUESTIONS[quizStep]);
   let quizAnswers = $state<Record<number, 'combat' | 'stealth' | 'magic'>>({});
   let quizResult = $state<{ archetype: 'combat' | 'stealth' | 'magic'; title: string; summary: string } | null>(null);
 
@@ -266,46 +344,46 @@
     if (top === 'combat') {
       quizResult = {
         archetype: 'combat',
-        title: 'The Ironward Guardian',
-        summary: 'Your soul resonates with the basalt foundations of Gilionite strength. You rely on heavy steel, durability maintenance, and front-line resilience.'
+        title: 'The Stalwart Vanguard',
+        summary: 'Your instincts align with front-line valor, defensive mastery, and martial leadership.'
       };
       selectedClass = 'Fighter';
-      selectedRace = 'gilionite_dwarf';
+      selectedRace = 'Human';
       baseScores = { str: 16, dex: 12, con: 15, int: 10, wis: 13, cha: 8 };
     } else if (top === 'stealth') {
       quizResult = {
         archetype: 'stealth',
-        title: 'The Shoal Outrunner',
-        summary: 'Your instinct is governed by the shifting archipelago tides. You excel at precision strikes, high dexterity, and evasive maneuvering.'
+        title: 'The Shadow Infiltrator',
+        summary: 'Your instinct favors nimble agility, precision strikes, and calculated opportunism.'
       };
       selectedClass = 'Rogue';
-      selectedRace = 'archipelago_elf';
+      selectedRace = 'Elf';
       baseScores = { str: 10, dex: 16, con: 14, int: 12, wis: 13, cha: 10 };
     } else {
       quizResult = {
         archetype: 'magic',
-        title: 'The Tidecaller Scholar',
-        summary: 'Your mind grasps the 28-essence alchemy matrix and ancient Concord celestial cycles. You command versatile arcana and high mana tolerance.'
+        title: 'The Arcane Inquirer',
+        summary: 'Your mind seeks hidden truths, arcane manipulation, and supernatural problem-solving.'
       };
       selectedClass = 'Wizard';
-      selectedRace = 'concord_human';
+      selectedRace = 'Human';
       baseScores = { str: 8, dex: 14, con: 13, int: 16, wis: 14, cha: 10 };
     }
 
-    if (!charName) charName = `Hero of ${quizResult.title}`;
+    if (!charName) charName = `Champion of the Realm`;
     bio = quizResult.summary;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // MODE 3: PROCEDURAL GENERATOR (1-CLICK)
+  // MODE 3: PROCEDURAL GENERATOR (1-CLICK STANDARD 5E ARCHETYPES)
   // ─────────────────────────────────────────────────────────────────────────────
   const FIRST_NAMES = [
     'Rowan', 'Kaelen', 'Lyra', 'Theron', 'Vaelin', 'Sariel', 'Garek', 'Darian',
     'Branoc', 'Morrigan', 'Elora', 'Jarek', 'Torvald', 'Caelum', 'Oren'
   ];
   const EPITHETS = [
-    'Ironheart', 'Emberfall', 'Silverleaf', 'Stone-Singer', 'Tide-Runner',
-    'Deep-Delver', 'Wave-Cutter', 'Reef-Strider', 'Sun-Watcher', 'Ostrava-Born'
+    'Ironheart', 'Emberfall', 'Silverleaf', 'Stone-Singer', 'Swift-Runner',
+    'Deep-Delver', 'Gale-Cutter', 'Path-Finder', 'Sun-Watcher', 'Grey-Mantle'
   ];
 
   function handleGenerateProcedural() {
@@ -313,14 +391,13 @@
     const lName = EPITHETS[Math.floor(Math.random() * EPITHETS.length)];
     charName = `${fName} ${lName}`;
 
-    const rKeys: ('concord_human' | 'gilionite_dwarf' | 'archipelago_elf')[] = ['concord_human', 'gilionite_dwarf', 'archipelago_elf'];
-    selectedRace = rKeys[Math.floor(Math.random() * rKeys.length)];
+    const rDef = RACES[Math.floor(Math.random() * RACES.length)];
+    selectedRace = rDef.name;
 
     const cls = CLASSES[Math.floor(Math.random() * CLASSES.length)];
     selectedClass = cls.name;
     selectedBackground = BACKGROUNDS[Math.floor(Math.random() * BACKGROUNDS.length)];
 
-    // Generate balanced archetype stats based on class prime
     if (cls.prime === 'str') {
       baseScores = { str: 16, dex: 12, con: 14, int: 10, wis: 12, cha: 8 };
     } else if (cls.prime === 'dex') {
@@ -331,7 +408,7 @@
       baseScores = { str: 12, dex: 12, con: 14, int: 10, wis: 16, cha: 12 };
     }
 
-    bio = `A stalwart ${selectedRace.replace('_', ' ')} from the ${selectedBackground}. Trained in regional dialect and armed with reliable gear.`;
+    bio = `A stalwart 5e SRD ${selectedRace} ${selectedClass} with the ${selectedBackground} background. Speaks ${rDef.language}.`;
     audioEngine.triggerSfx('sfx-dice-crit');
   }
 
@@ -339,7 +416,7 @@
   // FINALIZE & SAVE
   // ─────────────────────────────────────────────────────────────────────────────
   function handleFinalizeCreation() {
-    const raceDef = RACES.find(r => r.id === selectedRace) || RACES[0];
+    const raceDef = RACES.find(r => r.name === selectedRace) || RACES[0];
     const finalScores = raceDef.applyBonus(baseScores);
     const clsDef = CLASSES.find(c => c.name === selectedClass) || CLASSES[0];
 
@@ -352,10 +429,10 @@
 
     const newChar: CreatedCharacter = {
       id: `char-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      name: charName.trim() || 'Aleamos Wanderer',
+      name: charName.trim() || `${raceDef.name} ${clsDef.name}`,
       playerName: playerName.trim() || 'Player',
       race: raceDef.name,
-      dialect: raceDef.dialect,
+      dialect: raceDef.language,
       class: selectedClass,
       level: 1,
       background: selectedBackground,
@@ -370,24 +447,20 @@
       hpMax,
       tempHp: 0,
       ac,
-      speed: selectedRace === 'gilionite_dwarf' ? 25 : 30,
+      speed: raceDef.speed,
       initiativeMod: dexMod,
       passivePerception: 10 + wisMod + 2,
       weaponName: clsDef.weapon,
-      weaponCurrentRp: 25,
-      weaponMaxRp: 25,
       armorName: clsDef.armor,
-      armorCurrentRp: 20,
-      armorMaxRp: 20,
-      sovereignsGp: 15,
-      sunDisks10Gp: 1,
-      tradeBars50Gp: 0,
-      silverSp: 20,
-      copperCp: 50,
+      cp: 50,
+      sp: 20,
+      ep: 0,
+      gp: 15,
+      pp: 0,
       savingThrows: clsDef.saving,
       skills: ['Athletics', 'Perception', 'Insight'],
-      tools: selectedRace === 'gilionite_dwarf' ? ["Smith's Tools"] : ['Navigator Tools'],
-      bio: bio || `Hero of Aleamos. Dialect: ${raceDef.dialect}.`,
+      tools: ['Thieves\' Tools'],
+      bio: bio || `5e Adventurer. Speaks ${raceDef.language}.`,
       pin: genPin()
     };
 
@@ -414,7 +487,7 @@
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Aleamos 3-Mode Character Creation Engine"
+      aria-label="Standard 5e Character Creation Engine"
       tabindex="0"
       onclick={(e) => e.stopPropagation()}
       class="w-full max-w-3xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden select-none"
@@ -425,10 +498,10 @@
           <span class="text-xl">⚔️</span>
           <div>
             <h2 class="text-sm font-bold text-slate-100 uppercase tracking-wider">
-              Aleamos Character Creator
+              5e Character Creator
             </h2>
             <p class="text-[10px] text-slate-400">
-              3-Mode Creation Engine · Canon Regional Lore · Durability RP Pools
+              Strict System-Neutral 5e SRD Baseline · 3 Creation Modes
             </p>
           </div>
         </div>
@@ -449,49 +522,52 @@
           class="px-3.5 py-2.5 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5
             {mode === 'pick_and_roll' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
         >
-          <span>🎲 Mode 1: Pick &amp; Roll</span>
+          <span>🎲</span>
+          <span>1. Pick &amp; Roll</span>
         </button>
         <button
           type="button"
-          onclick={() => mode = 'morrowind_quiz'}
+          onclick={() => mode = 'guided_quiz'}
           class="px-3.5 py-2.5 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5
-            {mode === 'morrowind_quiz' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
+            {mode === 'guided_quiz' ? 'border-amber-500 text-amber-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
         >
-          <span>📜 Mode 2: Morrowind Quiz</span>
+          <span>📜</span>
+          <span>2. Guided Aptitude Quiz</span>
         </button>
         <button
           type="button"
           onclick={() => mode = 'procedural'}
           class="px-3.5 py-2.5 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5
-            {mode === 'procedural' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
+            {mode === 'procedural' ? 'border-emerald-500 text-emerald-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
         >
-          <span>⚡ Mode 3: 1-Click Procedural</span>
+          <span>⚡</span>
+          <span>3. Procedural Archetype</span>
         </button>
       </div>
 
-      <!-- Modal Body Content -->
-      <div class="flex-1 overflow-y-auto p-6 space-y-6 text-xs text-slate-200">
+      <!-- Scrollable Body Content -->
+      <div class="flex-1 overflow-y-auto p-5 space-y-6">
 
-        <!-- Basic Identification -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-slate-950/60 rounded-xl border border-slate-800">
-          <div class="space-y-1">
-            <label for="char-name-input" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Character Name</label>
+        <!-- General Identity -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div>
+            <label for="char-name-input" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Character Name</label>
             <input
               id="char-name-input"
               type="text"
               bind:value={charName}
-              placeholder="e.g. Rowan Silverleaf"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 font-semibold focus:outline-none focus:border-indigo-500"
+              placeholder="e.g. Torvald Ironheart"
+              class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
             />
           </div>
-          <div class="space-y-1">
-            <label for="player-name-input" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Player / Actor</label>
+          <div>
+            <label for="player-name-input" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Assigned Player</label>
             <input
               id="player-name-input"
               type="text"
               bind:value={playerName}
-              placeholder="Player 1"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500"
+              placeholder="e.g. Alex"
+              class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
             />
           </div>
         </div>
@@ -500,151 +576,141 @@
              MODE 1: PICK & ROLL
         ══════════════════════════════════════════════════════════════════════ -->
         {#if mode === 'pick_and_roll'}
-          <div class="space-y-5">
-            <!-- Race & Dialect Selection -->
+          <!-- Method Selection -->
+          <div class="flex items-center justify-between bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+            <span class="text-xs font-bold text-slate-300">Ability Generation:</span>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                onclick={() => { allocMethod = 'standard'; applyStandardArray(); }}
+                class="px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-colors {allocMethod === 'standard' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}"
+              >
+                Standard Array
+              </button>
+              <button
+                type="button"
+                onclick={() => { allocMethod = 'roller'; handleRollAllAttributes(); }}
+                class="px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-colors {allocMethod === 'roller' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}"
+              >
+                🎲 4d6 Drop Lowest
+              </button>
+            </div>
+          </div>
+
+          <!-- Base Attributes Grid -->
+          <div>
+            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">Base Ability Scores</span>
+            <div class="grid grid-cols-6 gap-2">
+              {#each ['str', 'dex', 'con', 'int', 'wis', 'cha'] as stat}
+                {@const score = baseScores[stat as keyof typeof baseScores]}
+                {@const mod = getMod(score)}
+                <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center">
+                  <span class="text-[10px] font-mono uppercase text-slate-400 block font-bold">{stat}</span>
+                  <input
+                    type="number"
+                    min="3"
+                    max="20"
+                    bind:value={baseScores[stat as keyof typeof baseScores]}
+                    class="w-full text-center text-base font-black bg-transparent text-slate-100 focus:outline-none"
+                  />
+                  <span class="text-[10px] font-mono text-indigo-400 font-bold block mt-0.5">
+                    {mod >= 0 ? `+${mod}` : mod}
+                  </span>
+                </div>
+              {/each}
+            </div>
+          </div>
+
+          <!-- Race & Class Selection -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <!-- 5e SRD Race -->
             <div class="space-y-2">
-              <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                1. Aleamos Race &amp; Regional Dialect
-              </span>
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">5e SRD Race</span>
+              <div class="space-y-1.5 max-h-44 overflow-y-auto pr-1">
                 {#each RACES as race}
                   <button
                     type="button"
-                    onclick={() => selectedRace = race.id}
-                    class="p-3 rounded-xl border text-left transition-all flex flex-col justify-between
-                      {selectedRace === race.id ? 'bg-indigo-950/50 border-indigo-500 text-indigo-100 shadow-sm' : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:border-slate-700'}"
+                    onclick={() => selectedRace = race.name}
+                    class="w-full text-left p-2.5 rounded-xl border transition-all {selectedRace === race.name ? 'bg-indigo-950/60 border-indigo-500/60 text-white' : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:border-slate-700'}"
                   >
-                    <div>
-                      <div class="font-bold text-xs text-white">{race.name}</div>
-                      <div class="text-[10px] text-amber-300 font-mono mt-0.5">{race.dialect}</div>
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-bold">{race.name}</span>
+                      <span class="text-[10px] font-mono text-slate-500">{race.language}</span>
                     </div>
-                    <div class="text-[10px] text-slate-400 mt-2">{race.bonusText}</div>
+                    <p class="text-[10px] text-slate-400 mt-0.5">{race.bonusText}</p>
                   </button>
                 {/each}
               </div>
             </div>
 
-            <!-- Class & Background -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div class="space-y-1">
-                <label for="char-class-select" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">2. Class</label>
-                <select
-                  id="char-class-select"
-                  bind:value={selectedClass}
-                  class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500"
-                >
-                  {#each CLASSES as cls}
-                    <option value={cls.name}>{cls.name} (d{cls.hitDie}, Prime: {cls.prime.toUpperCase()})</option>
-                  {/each}
-                </select>
-              </div>
-
-              <div class="space-y-1">
-                <label for="char-bg-select" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">3. Background</label>
-                <select
-                  id="char-bg-select"
-                  bind:value={selectedBackground}
-                  class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500"
-                >
-                  {#each BACKGROUNDS as bg}
-                    <option value={bg}>{bg}</option>
-                  {/each}
-                </select>
-              </div>
-            </div>
-
-            <!-- Ability Allocation Controls -->
-            <div class="space-y-3 p-4 bg-slate-950/60 rounded-xl border border-slate-800">
-              <div class="flex items-center justify-between">
-                <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  4. Ability Score Assignment
-                </span>
-                <div class="flex items-center gap-2">
+            <!-- 5e SRD Class -->
+            <div class="space-y-2">
+              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">5e SRD Class</span>
+              <div class="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                {#each CLASSES as cls}
                   <button
                     type="button"
-                    onclick={applyStandardArray}
-                    class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-semibold text-[10px] transition-colors"
+                    onclick={() => selectedClass = cls.name}
+                    class="w-full text-left p-2.5 rounded-xl border transition-all {selectedClass === cls.name ? 'bg-indigo-950/60 border-indigo-500/60 text-white' : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:border-slate-700'}"
                   >
-                    Standard Array (15,14,13,12,10,8)
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-bold">{cls.name}</span>
+                      <span class="text-[10px] font-mono text-emerald-400">d{cls.hitDie} HP</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-0.5">{cls.armor} · {cls.weapon}</p>
                   </button>
-                  <button
-                    type="button"
-                    onclick={handleRollAllAttributes}
-                    class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-bold text-[10px] transition-colors shadow flex items-center gap-1"
-                  >
-                    <span>🎲</span> Roll 4d6 Drop Lowest
-                  </button>
-                </div>
-              </div>
-
-              <!-- Ability Grid -->
-              <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 pt-2">
-                {#each ['str', 'dex', 'con', 'int', 'wis', 'cha'] as ab}
-                  {@const val = baseScores[ab as keyof typeof baseScores]}
-                  {@const mod = getMod(val)}
-                  <div class="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-center space-y-1">
-                    <span class="text-[10px] font-bold uppercase text-slate-400 block">{ab}</span>
-                    <input
-                      type="number"
-                      min="3"
-                      max="20"
-                      bind:value={baseScores[ab as keyof typeof baseScores]}
-                      class="w-full text-center bg-slate-950 border border-slate-700 rounded text-sm font-mono font-bold text-white py-1 focus:outline-none focus:border-indigo-500"
-                    />
-                    <span class="text-[10px] font-mono text-emerald-400 block">
-                      {mod >= 0 ? `+${mod}` : mod}
-                    </span>
-                  </div>
                 {/each}
               </div>
             </div>
           </div>
 
         <!-- ═════════════════════════════════════════════════════════════════════
-             MODE 2: MORROWIND-STYLE THEMATIC QUIZ
+             MODE 2: GUIDED APTITUDE QUIZ
         ══════════════════════════════════════════════════════════════════════ -->
-        {:else if mode === 'morrowind_quiz'}
-          {@const q = QUIZ_QUESTIONS[quizStep]}
-          <div class="space-y-4">
-            <div class="p-4 bg-indigo-950/20 border border-indigo-800/40 rounded-xl flex items-center justify-between">
+        {:else if mode === 'guided_quiz'}
+          <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <span class="font-bold text-indigo-300">Archipelago Thematic Trial</span>
-                <p class="text-[11px] text-slate-400">Answer tactical &amp; moral dilemmas to discover your canonical class and aptitude.</p>
+                <h4 class="text-xs font-bold uppercase tracking-wider text-amber-300">
+                  Moral &amp; Tactical Inquiry (Question {quizStep + 1} of {QUIZ_QUESTIONS.length})
+                </h4>
+                <p class="text-[11px] text-slate-400 mt-0.5">
+                  Answer the dilemma to reveal your character's natural class aptitude.
+                </p>
               </div>
-              <span class="px-2.5 py-1 bg-indigo-900/60 text-indigo-300 rounded-full font-mono text-[10px] font-bold">
-                Scenario {quizStep + 1} of {QUIZ_QUESTIONS.length}
-              </span>
+              <span class="text-xs font-mono text-slate-500">{Math.round(((quizStep + 1) / QUIZ_QUESTIONS.length) * 100)}%</span>
             </div>
 
-            <!-- Active Scenario Card -->
-            <div class="p-5 bg-slate-950 border border-slate-800 rounded-xl space-y-4">
-              <p class="text-sm font-serif italic text-slate-200 leading-relaxed">
-                "{q.scenario}"
-              </p>
+            <!-- Scenario -->
+            <p class="text-sm text-slate-200 font-medium leading-relaxed bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+              "{currentQuizQ.scenario}"
+            </p>
 
-              <div class="space-y-2 pt-2">
-                {#each q.options as opt}
-                  <button
-                    type="button"
-                    onclick={() => handleSelectQuizAnswer(q.id, opt.archetype)}
-                    class="w-full p-3.5 rounded-xl border text-left transition-all hover:border-indigo-500 hover:bg-slate-900/80 bg-slate-900/40 border-slate-800 group"
-                  >
-                    <div class="font-semibold text-xs text-slate-100 group-hover:text-indigo-300">
-                      {opt.text}
-                    </div>
-                    <div class="text-[10px] text-slate-500 mt-1">{opt.flavor}</div>
-                  </button>
-                {/each}
-              </div>
+            <!-- Choices -->
+            <div class="space-y-2">
+              {#each currentQuizQ.options as opt}
+                <button
+                  type="button"
+                  onclick={() => handleSelectQuizAnswer(currentQuizQ.id, opt.archetype)}
+                  class="w-full text-left p-3 rounded-xl bg-slate-900 hover:bg-slate-800/80 border border-slate-800 hover:border-amber-500/50 transition-all text-xs group"
+                >
+                  <span class="font-bold text-slate-200 group-hover:text-amber-300 block mb-0.5">
+                    {opt.text}
+                  </span>
+                  <span class="text-[10px] text-slate-500 block">
+                    {opt.flavor}
+                  </span>
+                </button>
+              {/each}
             </div>
 
             {#if quizResult}
-              <div class="p-4 bg-emerald-950/30 border border-emerald-800/50 rounded-xl space-y-2 text-emerald-200">
-                <span class="text-xs font-bold uppercase tracking-wider block">Trial Archetype Result:</span>
-                <div class="text-base font-black text-white">{quizResult.title} ({selectedClass})</div>
-                <p class="text-xs text-slate-300 leading-relaxed">{quizResult.summary}</p>
-                <div class="text-[11px] text-amber-300 font-mono pt-1">
-                  Optimal Stats Assigned · Race: {selectedRace.replace('_', ' ')}
+              <div class="mt-4 p-4 bg-amber-950/40 border border-amber-800/60 rounded-xl space-y-2">
+                <span class="text-xs font-bold text-amber-300 uppercase tracking-wider block">Recommended Archetype: {quizResult.title}</span>
+                <p class="text-xs text-slate-300">{quizResult.summary}</p>
+                <div class="pt-2 flex items-center gap-3 text-xs font-mono text-slate-400">
+                  <span>Class: <b class="text-white">{selectedClass}</b></span>
+                  <span>Race: <b class="text-white">{selectedRace}</b></span>
                 </div>
               </div>
             {/if}
@@ -654,71 +720,77 @@
              MODE 3: PROCEDURAL GENERATOR
         ══════════════════════════════════════════════════════════════════════ -->
         {:else if mode === 'procedural'}
-          <div class="space-y-4 text-center py-4">
-            <div class="max-w-md mx-auto space-y-2">
-              <span class="text-3xl">⚡</span>
-              <h3 class="text-sm font-bold text-white">Instant One-Click Generation</h3>
-              <p class="text-xs text-slate-400">
-                Randomizes names, background charters, optimal attributes, starting equipment with Durability RP, and regional currency balances.
+          <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-6 text-center space-y-4">
+            <div class="w-12 h-12 rounded-2xl bg-emerald-950/80 border border-emerald-700/60 flex items-center justify-center mx-auto text-2xl">
+              ⚡
+            </div>
+            <div>
+              <h4 class="text-sm font-bold text-slate-100 uppercase tracking-wider">Instant 5e SRD Archetype</h4>
+              <p class="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                Generates a fully balanced 1st-level 5e character with standard array, SRD race, class proficiencies, and starting gear.
               </p>
             </div>
 
             <button
               type="button"
               onclick={handleGenerateProcedural}
-              class="px-6 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold rounded-xl shadow-lg transition-all text-xs"
+              class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-lg transition-all active:scale-95"
             >
-              🎲 Generate Aleamos Hero
+              🎲 Generate 5e Archetype
             </button>
 
-            <!-- Preview Card -->
             {#if charName}
-              <div class="p-4 bg-slate-950 border border-slate-800 rounded-xl text-left max-w-lg mx-auto space-y-2 mt-4">
-                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <div>
-                    <span class="font-bold text-white text-sm">{charName}</span>
-                    <span class="text-[10px] text-slate-400 block">{selectedClass} · {selectedRace.replace('_', ' ')}</span>
-                  </div>
-                  <span class="px-2 py-0.5 bg-indigo-950 text-indigo-300 border border-indigo-800/40 rounded text-[10px] font-mono">
-                    Level 1
-                  </span>
+              <div class="mt-4 p-4 bg-slate-900 border border-slate-800 rounded-xl text-left space-y-2 text-xs">
+                <div class="flex items-center justify-between font-bold text-slate-200">
+                  <span>{charName}</span>
+                  <span class="text-emerald-400">{selectedRace} · {selectedClass}</span>
                 </div>
-                <div class="text-[11px] text-slate-300 leading-relaxed">{bio}</div>
-                <div class="grid grid-cols-6 gap-1 pt-2 font-mono text-center text-[10px]">
-                  <div class="bg-slate-900 p-1 rounded">STR {baseScores.str}</div>
-                  <div class="bg-slate-900 p-1 rounded">DEX {baseScores.dex}</div>
-                  <div class="bg-slate-900 p-1 rounded">CON {baseScores.con}</div>
-                  <div class="bg-slate-900 p-1 rounded">INT {baseScores.int}</div>
-                  <div class="bg-slate-900 p-1 rounded">WIS {baseScores.wis}</div>
-                  <div class="bg-slate-900 p-1 rounded">CHA {baseScores.cha}</div>
-                </div>
+                <p class="text-slate-400 text-[11px]">{bio}</p>
               </div>
             {/if}
           </div>
         {/if}
 
+        <!-- Background Selection -->
+        <div>
+          <label for="char-background-select" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">5e SRD Background</label>
+          <select
+            id="char-background-select"
+            bind:value={selectedBackground}
+            class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
+          >
+            {#each BACKGROUNDS as bg}
+              <option value={bg}>{bg}</option>
+            {/each}
+          </select>
+        </div>
+
       </div>
 
       <!-- Modal Footer -->
-      <div class="h-14 bg-slate-950/90 border-t border-slate-800 px-5 flex items-center justify-between shrink-0">
-        <span class="text-slate-500 text-[11px]">Ready to inject into DM Party Controls</span>
-        <div class="flex items-center gap-2">
+      <div class="h-16 bg-slate-950 border-t border-slate-800 px-5 flex items-center justify-between shrink-0">
+        <div class="text-[11px] text-slate-400 font-mono">
+          <span>{selectedRace}</span> · <span>{selectedClass}</span> · <span class="text-amber-400">15 GP</span>
+        </div>
+
+        <div class="flex items-center gap-2.5">
           <button
             type="button"
             onclick={() => isOpen = false}
-            class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition-colors"
+            class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition-colors"
           >
             Cancel
           </button>
           <button
             type="button"
             onclick={handleFinalizeCreation}
-            class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-all shadow-md shadow-indigo-600/30 flex items-center gap-1.5"
+            class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-600/30 active:scale-95"
           >
-            <span>✨</span> Create Character
+            Create Character Sheet
           </button>
         </div>
       </div>
+
     </div>
   </div>
 {/if}

@@ -25,16 +25,18 @@
     renderTurnReticleOnCanvas,
     getVitalityState,
   } from '../../lib/components/map/TokenOverlay';
+  import { initProjectorSyncListener, type SyncMessage } from '../../lib/services/battlematSyncBridge';
 
   let canvasEl = $state<HTMLCanvasElement | null>(null);
   let ctx: CanvasRenderingContext2D | null = null;
   let rafId = 0;
   let animTime = $state(0);
   let activeVisionPolygons = $state<VisionPolygonResult[]>([]);
+  let cleanupSync: (() => void) | null = null;
 
   // Filtered tokens: strictly hide DM-invisible creatures
   let visibleTokens = $derived(
-    canvasStore.tokens.filter(t => t.isVisible !== false)
+    canvasStore.tokens.filter(t => t.isVisible !== false && !t.name.toLowerCase().includes('(hidden)'))
   );
 
   // Active combat state from WebSocket or session
@@ -77,6 +79,74 @@
     ctx = canvasEl.getContext('2d');
     syncCanvasDimensions();
 
+    cleanupSync = initProjectorSyncListener((msg: SyncMessage) => {
+      switch (msg.type) {
+        case 'SYNC_FULL_STATE': {
+          const snapshot = msg.payload;
+          if (snapshot.mapImageUrl) {
+            canvasStore.setBackgroundTexture({
+              url: snapshot.mapImageUrl,
+              width: snapshot.mapWidth || 1920,
+              height: snapshot.mapHeight || 1080
+            });
+          }
+          if (snapshot.gridSize) {
+            canvasStore.setGridSize(snapshot.gridSize);
+          }
+          if (snapshot.gridColor) {
+            canvasStore.setGridColor(snapshot.gridColor);
+          }
+          if (snapshot.walls && snapshot.doors) {
+            canvasStore.setWallsAndDoors(snapshot.walls, snapshot.doors);
+          }
+          if (snapshot.fogExplored) {
+            canvasStore.carveFog(snapshot.fogExplored);
+          }
+          // Overwrite projector canvas layers while automatically stripping DM-only markers
+          if (snapshot.tokens) {
+            const publicTokens = snapshot.tokens.filter(
+              t => t.isVisible !== false && !t.name.toLowerCase().includes('(hidden)')
+            );
+            canvasStore.setTokens(publicTokens);
+          }
+          if (snapshot.aoeTemplates) {
+            canvasStore.clearAoeTemplates();
+            for (const aoe of snapshot.aoeTemplates) {
+              if (aoe.isPublic) canvasStore.addAoeTemplate(aoe);
+            }
+          }
+          if (snapshot.ruler) {
+            canvasStore.setRuler(snapshot.ruler.isPublic ? snapshot.ruler : null);
+          }
+          // Ensure the projector viewport operates independently of DM panning if locked/decoupled
+          if (!canvasStore.lockProjectorPan && snapshot.projectorViewport) {
+            canvasStore.setProjectorViewport(snapshot.projectorViewport);
+          }
+          break;
+        }
+        case 'TOKEN_MOVE': {
+          const tok = canvasStore.tokens.find(t => t.id === msg.tokenId);
+          if (tok && tok.isVisible !== false) {
+            canvasStore.moveToken(msg.tokenId, msg.x, msg.y);
+          }
+          break;
+        }
+        case 'GRID_UPDATE': {
+          canvasStore.setGridSize(msg.gridSize);
+          canvasStore.setGridColor(msg.gridColor);
+          break;
+        }
+        case 'MAP_TEXTURE_UPDATE': {
+          canvasStore.setBackgroundTexture({
+            url: msg.url,
+            width: msg.width,
+            height: msg.height
+          });
+          break;
+        }
+      }
+    });
+
     window.addEventListener('resize', syncCanvasDimensions);
 
     const startTime = performance.now();
@@ -89,11 +159,13 @@
 
     return () => {
       window.removeEventListener('resize', syncCanvasDimensions);
+      cleanupSync?.();
       if (rafId) cancelAnimationFrame(rafId);
     };
   });
 
   onDestroy(() => {
+    cleanupSync?.();
     if (rafId) cancelAnimationFrame(rafId);
   });
 

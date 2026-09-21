@@ -12,7 +12,7 @@ export interface CommercialFacilityDef {
   id: CommercialFacilityId;
   name: string;
   icon: string;
-  cycle: 'month' | 'decade';
+  cycle: 'month' | 'week';
   formulaDesc: string;
   description: string;
 }
@@ -46,8 +46,8 @@ export const COMMERCIAL_FACILITIES: Record<CommercialFacilityId, CommercialFacil
     id: 'water_docks',
     name: 'Deepwater Wharves & Docks',
     icon: '⚓',
-    cycle: 'decade',
-    formulaDesc: '20 gp per moored vessel per Decade (10 days)',
+    cycle: 'week',
+    formulaDesc: '20 gp per moored vessel per week (7 days)',
     description: 'Mooring bollards, cargo cranes, and customs staging berths.',
   },
 };
@@ -58,7 +58,7 @@ export interface CommercialYieldResult {
   gpYield: number;
   rollFormula: string;
   rolls: number[];
-  cycle: 'month' | 'decade';
+  cycle: 'month' | 'week';
   notes: string;
 }
 
@@ -118,7 +118,7 @@ export function rollFacilityYield(
     }
 
     case 'water_docks': {
-      // 20 gp per moored vessel per Decade (10-day cycle)
+      // 20 gp per moored vessel per week (7-day cycle)
       const vessels = params.mooredVesselsCount ?? Math.floor(Math.random() * 4) + 2; // Default 2-5 vessels
       const gpYield = 20 * vessels;
       return {
@@ -127,7 +127,7 @@ export function rollFacilityYield(
         gpYield,
         rollFormula: `${vessels} moored vessels × 20 gp`,
         rolls: [vessels],
-        cycle: 'decade',
+        cycle: 'week',
         notes: `Harbor dues, harbor pilotage, and quay cargo handling tolls.`,
       };
     }

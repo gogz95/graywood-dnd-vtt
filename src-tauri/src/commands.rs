@@ -121,3 +121,84 @@ fn uuid_v4_simple() -> String {
         .unwrap_or(0);
     format!("{:016x}", now)
 }
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct IngestedFileEntry {
+    pub name: String,
+    pub relative_path: String,
+    pub extension: String,
+    pub size_bytes: u64,
+    pub content: String,
+}
+
+/// Recursively scans user-selected campaign directories (e.g. Obsidian vaults)
+/// and returns parsed text/data file contents.
+pub async fn pick_and_read_campaign_folder() -> Result<Vec<IngestedFileEntry>, String> {
+    let folder_handle = rfd::AsyncFileDialog::new()
+        .set_title("Select Campaign Vault / Lore Directory")
+        .pick_folder()
+        .await;
+
+    let folder_path = match folder_handle {
+        Some(handle) => handle.path().to_path_buf(),
+        None => return Ok(Vec::new()), // User cancelled dialog
+    };
+
+    let mut entries = Vec::new();
+    let mut dirs_to_visit = vec![folder_path.clone()];
+
+    while let Some(dir) = dirs_to_visit.pop() {
+        let read_dir = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(e) => return Err(format!("Failed to read directory {:?}: {}", dir, e)),
+        };
+
+        for entry_res in read_dir {
+            let entry = match entry_res {
+                Ok(e) => e,
+                Err(e) => return Err(format!("Directory entry error: {}", e)),
+            };
+            let path = entry.path();
+
+            if path.is_dir() {
+                if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
+                    if !dir_name.starts_with('.') {
+                        dirs_to_visit.push(path);
+                    }
+                }
+            } else if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    let ext_lower = ext.to_lowercase();
+                    if matches!(
+                        ext_lower.as_str(),
+                        "md" | "txt" | "json" | "jsonl" | "csv" | "tsv" | "ds" | "dd2vtt"
+                    ) {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            let metadata = std::fs::metadata(&path).ok();
+                            let size_bytes = metadata.map(|m| m.len()).unwrap_or(content.len() as u64);
+                            let rel_path = path
+                                .strip_prefix(&folder_path)
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|_| path.to_string_lossy().to_string());
+                            let name = path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "unnamed".to_string());
+
+                            entries.push(IngestedFileEntry {
+                                name,
+                                relative_path: rel_path,
+                                extension: ext_lower,
+                                size_bytes,
+                                content,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(entries)
+}
+

@@ -1304,83 +1304,56 @@
           </div>
         </div>
 
-        <!-- Equipment Durability RP Pools & Sunder Thresholds -->
+        <!-- Standard 5e Equipment -->
         <div>
-          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Equipment Durability RP Pools &amp; Sunder Thresholds</h4>
+          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Equipped Weapons &amp; Armor</h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <!-- Weapon Pool -->
-            <div class="bg-slate-950/80 border {isWSundered ? 'border-rose-600/80' : 'border-slate-800'} rounded-xl p-3 space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="font-bold text-slate-200">⚔️ {m.weaponName ?? 'Primary Weapon'}</span>
-                <span class="text-[11px] font-mono font-bold {isWSundered ? 'text-rose-400' : 'text-emerald-400'}">
-                  {wCur} / {wMax} RP
-                </span>
+            <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-base">⚔️</span>
+                <div>
+                  <div class="font-bold text-slate-200 text-xs">{m.weaponName ?? 'Primary Weapon'}</div>
+                  <div class="text-[10px] text-slate-400">Standard 5e Weapon</div>
+                </div>
               </div>
-              <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  class="h-full {isWSundered ? 'bg-rose-500' : 'bg-emerald-500'} transition-all"
-                  style="width: {Math.max(0, Math.min(100, (wCur / wMax) * 100))}%"
-                ></div>
-              </div>
-              <div class="flex items-center justify-between text-[10px] text-slate-400">
-                <span>Sunder Threshold: ≤ {wSunder} RP</span>
-                {#if isWSundered}
-                  <span class="text-rose-400 font-bold uppercase tracking-wide">⚠️ SUNDERED (-2 to Hit)</span>
-                {:else}
-                  <span class="text-emerald-500 font-medium">Functional</span>
-                {/if}
-              </div>
+              <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-mono font-bold">Equipped</span>
             </div>
-
-            <!-- Armor Pool -->
-            <div class="bg-slate-950/80 border {isASundered ? 'border-rose-600/80' : 'border-slate-800'} rounded-xl p-3 space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="font-bold text-slate-200">🛡️ {m.armorName ?? 'Equipped Armor'}</span>
-                <span class="text-[11px] font-mono font-bold {isASundered ? 'text-rose-400' : 'text-emerald-400'}">
-                  {aCur} / {aMax} RP
-                </span>
+            <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-base">🛡️</span>
+                <div>
+                  <div class="font-bold text-slate-200 text-xs">{m.armorName ?? 'Equipped Armor'}</div>
+                  <div class="text-[10px] text-slate-400">Standard 5e Armor</div>
+                </div>
               </div>
-              <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  class="h-full {isASundered ? 'bg-rose-500' : 'bg-emerald-500'} transition-all"
-                  style="width: {Math.max(0, Math.min(100, (aCur / aMax) * 100))}%"
-                ></div>
-              </div>
-              <div class="flex items-center justify-between text-[10px] text-slate-400">
-                <span>Sunder Threshold: ≤ {aSunder} RP</span>
-                {#if isASundered}
-                  <span class="text-rose-400 font-bold uppercase tracking-wide">⚠️ SUNDERED (-2 to AC)</span>
-                {:else}
-                  <span class="text-emerald-500 font-medium">Reinforced</span>
-                {/if}
-              </div>
+              <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-mono font-bold">AC {m.ac}</span>
             </div>
           </div>
         </div>
 
-        <!-- Concord Currency Accounts -->
+        <!-- Standard 5e Currency Accounts -->
         <div>
-          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Concord Currency Accounts</h4>
+          <h4 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Standard 5e Currency</h4>
           <div class="grid grid-cols-5 gap-2 bg-slate-950/90 border border-slate-800 rounded-xl p-3 text-center">
             <div>
-              <span class="text-[9px] uppercase font-bold text-amber-500/80 block">Trade Bars (50gp)</span>
-              <span class="text-sm font-black text-amber-300 font-mono">{m.tradeBars50Gp ?? 0}</span>
+              <span class="text-[9px] uppercase font-bold text-cyan-400/80 block">Platinum (pp)</span>
+              <span class="text-sm font-black text-cyan-200 font-mono">{m.pp ?? 0}</span>
             </div>
             <div>
-              <span class="text-[9px] uppercase font-bold text-amber-400/80 block">Sun Disks (10gp)</span>
-              <span class="text-sm font-black text-amber-400 font-mono">{m.sunDisks10Gp ?? 0}</span>
+              <span class="text-[9px] uppercase font-bold text-amber-300 block">Gold (gp)</span>
+              <span class="text-sm font-black text-amber-200 font-mono">{m.gp ?? m.sovereignsGp ?? 0}</span>
             </div>
             <div>
-              <span class="text-[9px] uppercase font-bold text-amber-300 block">Sovereigns (gp)</span>
-              <span class="text-sm font-black text-amber-200 font-mono">{m.sovereignsGp ?? 0}</span>
+              <span class="text-[9px] uppercase font-bold text-indigo-300/80 block">Electrum (ep)</span>
+              <span class="text-sm font-black text-indigo-200 font-mono">{m.ep ?? 0}</span>
             </div>
             <div>
-              <span class="text-[9px] uppercase font-bold text-slate-400 block">Silver (sp)</span>
-              <span class="text-sm font-black text-slate-200 font-mono">{m.silverSp ?? 0}</span>
+              <span class="text-[9px] uppercase font-bold text-slate-300 block">Silver (sp)</span>
+              <span class="text-sm font-black text-slate-200 font-mono">{m.sp ?? m.silverSp ?? 0}</span>
             </div>
             <div>
               <span class="text-[9px] uppercase font-bold text-amber-700 block">Copper (cp)</span>
-              <span class="text-sm font-black text-amber-600 font-mono">{m.copperCp ?? 0}</span>
+              <span class="text-sm font-black text-amber-600 font-mono">{m.cp ?? m.copperCp ?? 0}</span>
             </div>
           </div>
         </div>

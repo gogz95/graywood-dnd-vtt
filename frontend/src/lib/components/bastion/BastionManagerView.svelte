@@ -10,16 +10,17 @@
   } from '../../mechanics/strongholdEngine';
 
   export type CharterAuthority =
-    | 'High Chancellery of Ostrava'
-    | 'Gilionite Council (Kladno)'
-    | 'Rucean Port Admiralty';
+    | 'Capital High Chancellery'
+    | 'Highland Regional Council'
+    | 'Coastal Port Admiralty'
+    | 'Frontier March Authority';
 
   export interface BastionFacility {
     id: string;
     type: 'animal_pen' | 'smithy' | 'market_stalls' | 'caravansary' | 'water_docks';
     name: string;
     icon: string;
-    rpCost: number;
+    rpCost: number; // Building slot cost
     purchaseCostGp: number;
     description: string;
     yieldDesc: string;
@@ -33,7 +34,7 @@
     authority: CharterAuthority;
     acquiredDate: string;
     charterCostGp: number;
-    roomPointsTotal: number;
+    roomPointsTotal: number; // Maximum building slots
     treasuryGp: number;
     facilities: BastionFacility[];
     skilledHirelings: number;
@@ -77,12 +78,12 @@
     {
       id: 'smithy_1',
       type: 'smithy',
-      name: 'Arcane Smithy',
+      name: 'Masterwork Smithy',
       icon: '⚒️',
       rpCost: 1,
       purchaseCostGp: 3000,
       description: 'Basalt forge with cold-water quenching basin and master anvils.',
-      yieldDesc: 'Short rests at the stronghold restore +10 RP to weapons/armor instead of +5 RP.',
+      yieldDesc: 'Allows masterwork gear crafting and weapon maintenance at standard 5e rates during rests.',
       skilledCount: 1,
       unskilledCount: 2
     },
@@ -118,7 +119,7 @@
       rpCost: 2,
       purchaseCostGp: 8000,
       description: 'Timber and stone pilings with manual cargo capstans and mooring cleats.',
-      yieldDesc: 'Generates 20 gp per moored vessel per Decade (10 days).',
+      yieldDesc: 'Generates 20 gp per moored vessel per week (7 days).',
       skilledCount: 1,
       unskilledCount: 4
     }
@@ -128,8 +129,8 @@
 
   // Charter Acquisition Modal State
   let showCharterModal = $state(false);
-  let newHoldingName = $state('Ostrava Vanguard Watch');
-  let selectedAuthority = $state<CharterAuthority>('High Chancellery of Ostrava');
+  let newHoldingName = $state('Capital Vanguard Watch');
+  let selectedAuthority = $state<CharterAuthority>('Capital High Chancellery');
   let initialTreasury = $state(10000);
 
   // Facility Installation Modal State
@@ -185,17 +186,17 @@
   // Acquire Charter Workflow
   function acquireCharter() {
     if (initialTreasury < 5000) {
-      flash('Insufficient funds! A Municipal Land Charter requires 5,000 Concord Sovereigns (gp).');
+      flash('Insufficient funds! A Municipal Land Charter requires 5,000 Gold Pieces (gp).');
       return;
     }
 
     holding = {
       id: 'bastion-' + Date.now(),
-      name: newHoldingName.trim() || 'Aleamos Bastion Holding',
+      name: newHoldingName.trim() || 'Stronghold Holding',
       authority: selectedAuthority,
-      acquiredDate: '1st Decade, Cycle of the Salt Reef',
+      acquiredDate: 'Year 1, 1st Day of Ches',
       charterCostGp: 5000,
-      roomPointsTotal: 2, // 2 initial Room Points granted by unfortified parcel
+      roomPointsTotal: 2, // 2 initial Facility Slots granted by unfortified parcel
       treasuryGp: initialTreasury - 5000,
       facilities: [],
       skilledHirelings: 0,
@@ -207,7 +208,7 @@
     saveState();
     showCharterModal = false;
     audioEngine.triggerSfx('sfx-bell');
-    flash(`Land Charter deed sealed under the ${selectedAuthority}! 2 Room Points granted.`);
+    flash(`Land Charter deed sealed under the ${selectedAuthority}! 2 Facility Slots granted.`);
   }
 
   function demolishHolding() {
@@ -301,7 +302,7 @@
     holding.commercialHistory = [...records, ...holding.commercialHistory].slice(0, 15);
     saveState();
     audioEngine.triggerSfx('sfx-bell');
-    flash(`Commercial yield collected: +${monthSum.toLocaleString()} Concord Sovereigns!`);
+    flash(`Commercial yield collected: +${monthSum.toLocaleString()} Gold Pieces (gp)!`);
   }
 
   // Payroll Settlement
@@ -359,7 +360,7 @@
         <!-- Room Point Capacity -->
         <div class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 flex items-center gap-3">
           <div>
-            <span class="text-[9px] uppercase font-bold text-slate-500 block">Room Points (RP)</span>
+            <span class="text-[9px] uppercase font-bold text-slate-500 block">Facility Slots</span>
             <div class="flex items-center gap-1.5 font-mono text-xs">
               <span class="font-black text-amber-400 text-sm">{allocatedRp}</span>
               <span class="text-slate-500">/ {holding.roomPointsTotal}</span>
@@ -423,16 +424,16 @@
           <div>
             <span class="text-[10px] uppercase font-bold text-slate-500 block">Deed Cost</span>
             <span class="font-mono text-base font-black text-amber-400">5,000 gp</span>
-            <span class="text-[10px] text-slate-500 block">Concord Sovereigns</span>
+            <span class="text-[10px] text-slate-500 block">Gold Pieces</span>
           </div>
           <div>
             <span class="text-[10px] uppercase font-bold text-slate-500 block">Initial Capacity</span>
-            <span class="font-mono text-base font-black text-indigo-400">2 Room Points</span>
+            <span class="font-mono text-base font-black text-indigo-400">2 Facility Slots</span>
             <span class="text-[10px] text-slate-500 block">Unfortified parcel</span>
           </div>
           <div>
             <span class="text-[10px] uppercase font-bold text-slate-500 block">Charter Authority</span>
-            <span class="text-xs font-bold text-slate-300 block">Ostrava / Kladno / Ruceas</span>
+            <span class="text-xs font-bold text-slate-300 block">Municipal / Regional</span>
             <span class="text-[10px] text-slate-500 block">Recognized Crown Seal</span>
           </div>
         </div>
@@ -598,7 +599,7 @@
               <span>🏗️</span> Installed Bastion Facilities ({holding.facilities.length})
             </h3>
             <span class="text-xs text-slate-400 font-mono">
-              Room Points Used: <b class="text-amber-300">{allocatedRp}</b> / {holding.roomPointsTotal} RP
+              Facility Slots Used: <b class="text-amber-300">{allocatedRp}</b> / {holding.roomPointsTotal} Slots
             </span>
           </div>
 
@@ -685,9 +686,10 @@
             bind:value={selectedAuthority}
             class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-amber-300 font-semibold focus:outline-none"
           >
-            <option value="High Chancellery of Ostrava">High Chancellery of Ostrava (Harbor &amp; Docks Jurisdiction)</option>
-            <option value="Gilionite Council (Kladno)">Gilionite Council (Kladno Deep Foundry Subsurface Rights)</option>
-            <option value="Rucean Port Admiralty">Rucean Port Admiralty (Shoal &amp; Archipelago Anchorage)</option>
+            <option value="Capital High Chancellery">Capital High Chancellery (Municipal Jurisdiction)</option>
+            <option value="Highland Regional Council">Highland Regional Council (Subsurface &amp; Mining Rights)</option>
+            <option value="Coastal Port Admiralty">Coastal Port Admiralty (Shoal &amp; Archipelago Anchorage)</option>
+            <option value="Frontier March Authority">Frontier March Authority (Borderlands Defense)</option>
           </select>
         </div>
 

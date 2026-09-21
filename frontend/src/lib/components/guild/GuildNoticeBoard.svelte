@@ -66,6 +66,11 @@
   let activeFilter = $state<ContractType | 'All'>('All');
   let selectedContract = $state<GuildContract | null>(null);
 
+  // Settlement Selection (Capital City / Frontier Town / Coastal Village / Custom)
+  let settlementPreset = $state<'Capital City' | 'Frontier Town' | 'Coastal Village' | 'Custom'>('Capital City');
+  let customSettlementName = $state<string>('');
+  let activeSettlement = $derived(settlementPreset === 'Custom' ? (customSettlementName.trim() || 'Frontier Outpost') : settlementPreset);
+
   function loadState() {
     try {
       const rawC = localStorage.getItem(STORAGE_CONTRACTS_KEY);
@@ -92,14 +97,14 @@
   // ── Procedural Generator Templates ──────────────────────────────────────────
   const PROCEDURAL_POOLS = {
     clients: [
-      'House Vane Trading Guild', 'Silvercrest Mining Syndicate', 'Ironpeak Guard High Command',
-      'The Arcane Archive of Graywood', 'Sisterhood of the Weeping Willow', 'Master Apothecary Corvus',
-      'Baroness Elspeth of Oakhaven', 'Dockmaster Kaelen', 'Order of the Gilded Scale'
+      'Merchants & Traders Guild', 'Miners Guild Syndicate', 'Town Guard High Command',
+      'The Arcane Archive', 'Temple Scribes of the Dawn', 'Master Apothecary Corvus',
+      'The Municipal Council', 'Dockmaster & Harbor Guild', 'Order of the Golden Scale'
     ],
     destinations: [
-      'Weeping Mire — Sector 4', 'Sunken Crypts of Aethelgard', 'Obsidian Spire Foothills',
+      'Weeping Mire — Sector 4', 'Sunken Crypts of the Ancients', 'Obsidian Spire Foothills',
       'Whispering Pines — Eastern Verge', 'Shattered Crags Post 3', 'Old Dwarven Aqueducts',
-      'Black Hollow Barrows', 'Ruins of Ironkeep Bastion', 'Serpent Coast Shallows'
+      'Black Hollow Barrows', 'Ruins of the Border Bastion', 'Serpent Coast Shallows'
     ],
     huntMonsters: [
       { name: 'Bloodhorn Chimera', cr: 6, reward: 450 },
@@ -134,7 +139,8 @@
     const types: ContractType[] = ['Exploration', 'Hunt', 'Protection', 'Resource Gathering', 'Find'];
     const chosenType = type || types[Math.floor(Math.random() * types.length)];
     const client = PROCEDURAL_POOLS.clients[Math.floor(Math.random() * PROCEDURAL_POOLS.clients.length)];
-    const destination = PROCEDURAL_POOLS.destinations[Math.floor(Math.random() * PROCEDURAL_POOLS.destinations.length)];
+    const baseDest = PROCEDURAL_POOLS.destinations[Math.floor(Math.random() * PROCEDURAL_POOLS.destinations.length)];
+    const destination = `${baseDest} (${activeSettlement})`;
     const id = `contract-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
     let title = '';
@@ -316,6 +322,28 @@
 
     <!-- Right Controls -->
     <div class="flex items-center gap-3">
+      <!-- Settlement Selector -->
+      <div class="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs">
+        <span class="text-slate-500 font-bold uppercase text-[10px]">Settlement:</span>
+        <select
+          bind:value={settlementPreset}
+          class="bg-transparent text-amber-300 font-bold text-xs focus:outline-none cursor-pointer"
+        >
+          <option value="Capital City" class="bg-slate-900 text-slate-200">Capital City</option>
+          <option value="Frontier Town" class="bg-slate-900 text-slate-200">Frontier Town</option>
+          <option value="Coastal Village" class="bg-slate-900 text-slate-200">Coastal Village</option>
+          <option value="Custom" class="bg-slate-900 text-slate-200">Custom...</option>
+        </select>
+        {#if settlementPreset === 'Custom'}
+          <input
+            type="text"
+            bind:value={customSettlementName}
+            placeholder="Settlement name..."
+            class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200 w-28 focus:outline-none focus:border-indigo-500"
+          />
+        {/if}
+      </div>
+
       <button
         onclick={postNewContract}
         class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md shadow-indigo-600/20 flex items-center gap-1.5 transition-all"

@@ -7,10 +7,7 @@
     | 'guild'
     | 'stronghold'
     | 'lore'
-    | 'handouts'
-    | 'archivist'
-    | 'copilot'
-    | 'audio';
+    | 'handouts';
 
   export interface SidebarTab {
     id: DmTab;
@@ -21,18 +18,15 @@
 </script>
 
 <script lang="ts">
-  // Sidebar.svelte — Vertical DM navigation dock with complete subsystems:
+  // Sidebar.svelte — Primary Workspace DM Navigation Rail
   // 1. Party & Characters
   // 2. Encounter & Combat
   // 3. Tactical Mat
-  // 4. Alchemy Lab & 28-Essence Matrix
-  // 5. Guild Notice Board & Escrow Contracts
-  // 6. Stronghold Manager & Room Point Upgrades
+  // 4. Alchemy & Crafting
+  // 5. Guild Notice Board
+  // 6. Stronghold / Keep Manager
   // 7. Lore Wiki
   // 8. Handout Studio
-  // 9. Rules Archivist
-  // 10. Session Co-Pilot
-  // 11. Audio Studio
 
   let {
     activeTab = $bindable<DmTab>('encounter'),
@@ -46,22 +40,16 @@
     { id: 'party',      icon: '👥', label: 'Party',      title: 'Active Party Roster & PIN Controls' },
     { id: 'encounter',  icon: '⚔️', label: 'Combat',     title: 'Encounter & Initiative Tracker' },
     { id: 'battlemat',  icon: '🗺️', label: 'Tactical',   title: 'Tactical Mat (PixiJS Canvas)' },
-    { id: 'alchemy',    icon: '⚗️', label: 'Alchemy',    title: 'Alchemy Lab & 28-Essence Matrix' },
+    { id: 'alchemy',    icon: '⚗️', label: 'Crafting',   title: 'Alchemy Lab & Crafting Workbench' },
     { id: 'guild',      icon: '📋', label: 'Guild',      title: 'Adventurers\' Guild Notice Board' },
-    { id: 'stronghold', icon: '🏰', label: 'Keep',       title: 'Stronghold Manager & Room Point Upgrades' },
-    { id: 'lore',       icon: '📚', label: 'Lore',       title: 'Lore Wiki & Relational Graph' },
+    { id: 'stronghold', icon: '🏰', label: 'Keep',       title: 'Stronghold Manager & Holdings' },
+    { id: 'lore',       icon: '📚', label: 'Lore',       title: 'Lore Wiki & Compendium' },
     { id: 'handouts',   icon: '📜', label: 'Handouts',   title: 'Parchment Handout Studio & Broadcast' },
-    { id: 'archivist',  icon: '📖', label: 'Archivist',  title: 'Rules Archivist (Independent RAG)' },
-    { id: 'copilot',    icon: '🤖', label: 'Co-Pilot',   title: 'Session Co-Pilot (DM Command Terminal)' },
-    { id: 'audio',      icon: '🎵', label: 'Audio',      title: 'Audio Studio & Dual-Bus Soundboard' },
   ];
 
   function selectTab(id: DmTab) {
     activeTab = id;
     onSelectTab?.(id);
-    if (id === 'audio') {
-      window.dispatchEvent(new CustomEvent('vtt:toggle-audio'));
-    }
   }
 </script>
 

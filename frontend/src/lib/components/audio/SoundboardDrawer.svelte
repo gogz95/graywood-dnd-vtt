@@ -5,6 +5,7 @@
 
   import { onMount, onDestroy } from 'svelte';
   import { audioEngine, type SfxEntry, type TrackEntry } from '../../audio/AudioEngine';
+  import { floatingWindowsStore } from '../../stores/floatingWindowsStore.svelte';
 
   let {
     isOpen = $bindable(false),
@@ -156,56 +157,53 @@
   ];
 </script>
 
-{#if isOpen}
-  <!-- 
-    STRICT NON-BLURRING FLOATING OVERLAY:
-    Positioned fixed bottom-4 right-4 (or dragged).
-    Zero backdrop blur, zero full-screen dimming, zero canvas obstruction.
-  -->
+{#if isOpen || floatingWindowsStore.windows.audio.isOpen}
   <div
-    class="fixed z-50 w-96 max-w-[calc(100vw-2rem)] select-none shadow-2xl rounded-2xl border border-slate-700/80 bg-slate-900/95 text-slate-100 backdrop-blur-none transition-all duration-150 ease-out"
     style={panelX !== null && panelY !== null
-      ? `left: ${panelX}px; top: ${panelY}px;`
-      : 'bottom: 1rem; right: 1rem;'}
+      ? `position: fixed; left: ${panelX}px; top: ${panelY}px; z-index: 9999; width: 440px; max-height: 85vh;`
+      : 'position: fixed; right: 24px; top: 64px; z-index: 9999; width: 440px; max-height: 85vh;'}
+    class="bg-slate-900/95 border border-slate-700/80 rounded-xl shadow-2xl flex flex-col pointer-events-auto backdrop-blur-none overflow-hidden select-none"
     role="dialog"
-    aria-label="Floating Audio Soundboard"
+    aria-label="Audio Studio & Soundboard"
   >
     <!-- Draggable Header -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
+      role="presentation"
       onmousedown={handlePointerDown}
-      class="px-4 py-2.5 rounded-t-2xl border-b border-slate-800 bg-slate-950/90 flex items-center justify-between cursor-move"
+      class="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between cursor-move select-none"
     >
       <div class="flex items-center gap-2">
-        <span class="text-base">🎛️</span>
-        <span class="text-xs font-black uppercase tracking-wider text-slate-200">Audio Soundboard</span>
+        <span class="text-sm">🎵</span>
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-200">Audio Studio & Soundboard</span>
         {#if lastTriggeredSfx}
           <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800 animate-pulse">
             ▶ {lastTriggeredSfx}
           </span>
         {/if}
       </div>
-
       <div class="flex items-center gap-1.5">
         <button
+          type="button"
           onclick={() => isMinimized = !isMinimized}
-          class="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs transition-colors"
-          title={isMinimized ? 'Expand Soundboard' : 'Minimize Soundboard'}
+          class="text-slate-400 hover:text-slate-200 text-xs px-1.5 py-0.5 rounded transition"
+          title={isMinimized ? 'Expand' : 'Minimize'}
         >
           {isMinimized ? '▲' : '▼'}
         </button>
         <button
-          onclick={() => isOpen = false}
-          class="w-6 h-6 rounded-lg bg-slate-800 hover:bg-rose-900 text-slate-400 hover:text-rose-200 flex items-center justify-center text-xs transition-colors"
-          title="Close Soundboard"
+          type="button"
+          onclick={() => { isOpen = false; floatingWindowsStore.close('audio'); }}
+          class="text-slate-400 hover:text-rose-400 text-sm px-1.5 py-0.5 rounded transition"
+          title="Close"
         >
           ✕
         </button>
       </div>
     </div>
 
+    <!-- Scrollable Audio Busses & SFX Grid -->
     {#if !isMinimized}
-      <div class="p-3.5 space-y-3.5 max-h-[70vh] overflow-y-auto">
+      <div class="p-4 overflow-y-auto max-h-[calc(85vh-45px)] space-y-4">
 
         <!-- ── 1. Independent Multi-Bus Volume Faders ──────────────────────── -->
         <div class="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 space-y-2.5">

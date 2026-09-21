@@ -139,6 +139,10 @@ export type WsEvent =
       status: 'OFFERED' | 'ACCEPTED' | 'DECLINED';
       timestamp: number;
       notes?: string;
+    }
+  | {
+      type: 'BATTLEMAT_WS_EVENT';
+      event: any;
     };
 
 

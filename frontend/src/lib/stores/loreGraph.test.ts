@@ -32,7 +32,10 @@ async function runTests() {
 
   console.log('--- 1. Testing Relational Lore Graph Database Store ---');
 
-  // Verify initial generic 5e seed data
+  // Seed generic 5e data for testing
+  loreGraphStore.resetToDefaultSeed();
+
+  // Verify generic 5e seed data
   assert(loreGraphStore.entities.length >= 6, 'Store should be seeded with at least 6 initial entities');
   assert(loreGraphStore.relationships.length >= 5, 'Store should be seeded with at least 5 initial relationships');
 

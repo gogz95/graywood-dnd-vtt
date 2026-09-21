@@ -1,10 +1,8 @@
 <script lang="ts">
-  // GeneratorDrawer.svelte — Native Cartography Workbench & Generator Integration
-  // Embeds Watabou City, Azgaar Fantasy Map, and One Page Dungeon in sandboxed iframes.
-  // Ingests raster/SVG maps to battle mat canvas and initiates 2-click grid calibration.
-
+  import { onMount, onDestroy } from 'svelte';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
   import { audioEngine } from '../../audio/AudioEngine';
+  import { pushMapToBattlemat } from '../../services/mapDispatchService';
 
   let {
     isOpen = $bindable(false),
@@ -47,34 +45,99 @@
 
   let currentTabDef = $derived(TABS.find(t => t.id === activeTab) || TABS[0]);
 
+  async function applyMapTexture(source: Blob | string, options: { name?: string; gridSize?: number; walls?: any[] } = {}) {
+    try {
+      await pushMapToBattlemat(source, options);
+      audioEngine.triggerSfx('sfx-secret');
+      feedbackMessage = '⚡ Map bound directly to battlemat!';
+
+      if (onOpenCalibration) {
+        onOpenCalibration();
+      } else {
+        window.dispatchEvent(new CustomEvent('vtt:open-grid-calibration'));
+      }
+
+      setTimeout(() => {
+        feedbackMessage = null;
+        isOpen = false;
+      }, 1000);
+    } catch {
+      feedbackMessage = 'Failed to bind map to battlemat.';
+      setTimeout(() => { feedbackMessage = null; }, 2500);
+    }
+  }
+
   function handleExportToCanvas() {
     if (customMapUrl.trim()) {
-      applyMapTexture(customMapUrl.trim());
+      applyMapTexture(customMapUrl.trim(), { name: 'Custom Map' });
       return;
     }
-
-    // Default procedural placeholder if direct cross-origin iframe capture blocked
-    feedbackMessage = 'Paste direct map image URL or drop exported image below.';
+    feedbackMessage = 'Paste direct map image URL or click "⚡ Generate & Push".';
     setTimeout(() => { feedbackMessage = null; }, 3000);
   }
 
-  function applyMapTexture(url: string) {
-    canvasStore.setBackgroundTexture(url);
-    audioEngine.triggerSfx('sfx-secret');
-    feedbackMessage = 'Map bound to battle mat! Grid calibration ready.';
+  function generateProceduralMap() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1800;
+    canvas.height = 1200;
+    const ctx = canvas.getContext('2d')!;
 
-    // Automatically trigger scale-calibration overlay callback
-    if (onOpenCalibration) {
-      onOpenCalibration();
-    } else {
-      window.dispatchEvent(new CustomEvent('vtt:open-grid-calibration'));
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const cell = 60;
+    ctx.strokeStyle = 'rgba(71, 85, 105, 0.4)';
+    ctx.lineWidth = 1.5;
+    for (let x = 0; x < canvas.width; x += cell) {
+      for (let y = 0; y < canvas.height; y += cell) {
+        ctx.fillStyle = ((x / cell) + (y / cell)) % 2 === 0 ? '#1e293b' : '#172033';
+        ctx.fillRect(x, y, cell, cell);
+        ctx.strokeRect(x, y, cell, cell);
+      }
     }
 
-    setTimeout(() => {
-      feedbackMessage = null;
-      isOpen = false;
-    }, 1500);
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(180, 180, 1440, 840);
+    ctx.strokeRect(600, 180, 600, 840);
+
+    const grad = ctx.createRadialGradient(900, 600, 300, 900, 600, 1000);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.65)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        applyMapTexture(blob, {
+          name: `Procedural Dungeon Chamber #${Math.floor(Math.random() * 9000 + 1000)}`,
+          gridSize: 60,
+          walls: [
+            { x1: 3, y1: 3, x2: 27, y2: 3 },
+            { x1: 27, y1: 3, x2: 27, y2: 17 },
+            { x1: 27, y1: 17, x2: 3, y2: 17 },
+            { x1: 3, y1: 17, x2: 3, y2: 3 },
+          ]
+        });
+      }
+    }, 'image/png');
   }
+
+  function handleIframeMessage(e: MessageEvent) {
+    if (!e.data) return;
+    if (typeof e.data === 'string' && (e.data.startsWith('data:image') || e.data.startsWith('blob:'))) {
+      applyMapTexture(e.data, { name: `${currentTabDef.label} Export` });
+    } else if (e.data?.type === 'MAP_EXPORT' && e.data?.image) {
+      applyMapTexture(e.data.image, { name: e.data.name || 'Exported Map', gridSize: e.data.gridSize });
+    }
+  }
+
+  onMount(() => {
+    window.addEventListener('message', handleIframeMessage);
+    return () => {
+      window.removeEventListener('message', handleIframeMessage);
+    };
+  });
 
   async function handlePasteFromClipboard() {
     try {
@@ -186,6 +249,16 @@
             <span class="text-xs font-bold text-amber-300 animate-pulse">{feedbackMessage}</span>
           {/if}
           <button
+            type="button"
+            onclick={generateProceduralMap}
+            class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-black text-xs rounded-lg shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+            title="Procedurally generate a complete tactical encounter dungeon chamber and push directly to battlemat"
+          >
+            <span>⚡</span>
+            <span>Generate &amp; Push to Battlemat</span>
+          </button>
+          <button
+            type="button"
             onclick={handleExportToCanvas}
             class="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs rounded-lg shadow-md transition-all active:scale-95 flex items-center gap-1.5"
             title="Transfer exported texture to battlemat and initiate 2-click grid calibration"

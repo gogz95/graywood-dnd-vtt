@@ -1,18 +1,22 @@
 <script lang="ts">
   // src/lib/components/settings/LoreIngestionSettingsTab.svelte
-  // Grounded Markdown & Text Lore Ingestion Dropzone and Purge Management
+  // Universal Multi-Format Lore Ingestion, Native Folder Scan, Activity Log, and Compendium Hard Reset
 
   import { onMount } from 'svelte';
-  import { ingestMarkdownLore, type IngestionResult } from '../../importers/loreMarkdownParser';
   import { sourceDb, type SourceDocument } from '../../db/sourceStore';
+  import {
+    ingestUniversalFile,
+    type IngestionFileResult
+  } from '../../importers/universalIngestionEngine';
+  import { loreGraphStore } from '../../stores/loreGraphStore.svelte';
 
   let isDragging = $state(false);
   let isProcessing = $state(false);
-  let purgeMockData = $state(true);
   let progressStatus = $state<string | null>(null);
-  let lastResult = $state<IngestionResult | null>(null);
   let errorMessage = $state<string | null>(null);
   let existingDocuments = $state<SourceDocument[]>([]);
+  let activityLogs = $state<IngestionFileResult[]>([]);
+  let folderInputEl = $state<HTMLInputElement | null>(null);
 
   async function loadExistingDocs() {
     try {
@@ -29,26 +33,18 @@
   async function handleFiles(files: FileList | File[]) {
     isProcessing = true;
     errorMessage = null;
-    lastResult = null;
 
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (!file.name.endsWith('.md') && !file.name.endsWith('.txt')) {
-          continue;
-        }
-
-        progressStatus = `Reading and parsing ${file.name} (${i + 1}/${files.length})...`;
-        const text = await file.text();
-
-        progressStatus = `Indexing chunks and grounding Aleamos lore for ${file.name}...`;
-        const result = await ingestMarkdownLore(file.name, text, purgeMockData);
-        lastResult = result;
+        progressStatus = `Ingesting ${file.name} (${i + 1}/${files.length})...`;
+        const results = await ingestUniversalFile(file, file.name);
+        activityLogs = [...results, ...activityLogs];
       }
-      progressStatus = 'Ingestion complete! All lore grounded into active compendium.';
+      progressStatus = 'Universal ingestion complete! Documents grounded in source compendium.';
       await loadExistingDocs();
     } catch (err: any) {
-      errorMessage = err?.message || 'Failed to ingest markdown lore file.';
+      errorMessage = err?.message || 'Failed to ingest files.';
     } finally {
       isProcessing = false;
     }
@@ -69,84 +65,172 @@
     }
   }
 
+  async function handleNativeFolderScan() {
+    isProcessing = true;
+    errorMessage = null;
+    progressStatus = 'Opening native campaign directory picker...';
+
+    try {
+      // 1. Check if running inside Tauri window with IPC
+      const tauri = (window as any).__TAURI__;
+      if (tauri?.core?.invoke) {
+        progressStatus = 'Scanning directory with native Rust engine...';
+        const entries: Array<{
+          name: string;
+          relative_path: string;
+          extension: string;
+          size_bytes: number;
+          content: string;
+        }> = await tauri.core.invoke('pick_and_read_campaign_folder');
+
+        if (!entries || entries.length === 0) {
+          progressStatus = 'Folder scan cancelled or no supported files found.';
+          isProcessing = false;
+          return;
+        }
+
+        for (let i = 0; i < entries.length; i++) {
+          const entry = entries[i];
+          progressStatus = `Ingesting vault file ${entry.name} (${i + 1}/${entries.length})...`;
+          const blob = new Blob([entry.content], { type: 'text/plain' });
+          const results = await ingestUniversalFile(blob, entry.name);
+          activityLogs = [...results, ...activityLogs];
+        }
+
+        progressStatus = `Successfully scanned and ingested ${entries.length} vault files!`;
+        await loadExistingDocs();
+      } else {
+        // Fallback in web browser mode: trigger webkitdirectory file input
+        folderInputEl?.click();
+      }
+    } catch (err: any) {
+      errorMessage = err?.message || 'Failed during folder scan.';
+    } finally {
+      isProcessing = false;
+    }
+  }
+
   async function handleDelete(id: string) {
     await sourceDb.documents.delete(id);
     await loadExistingDocs();
   }
 
-  async function handlePurgeAll() {
-    if (confirm('Purge all indexed source lore documents and chunks?')) {
-      await sourceDb.documents.clear();
-      await sourceDb.chunks.clear();
-      await loadExistingDocs();
-      lastResult = null;
-      progressStatus = 'All source lore documents purged from IndexedDB.';
+  // ── Hard Reset Compendium Cache (Part 4) ──────────────────────────────────
+  async function handleHardResetCompendiumCache() {
+    if (confirm('HARD RESET: Purge all documents, chunks, and lore from cache without re-seeding dummy records?')) {
+      isProcessing = true;
+      try {
+        await sourceDb.documents.clear();
+        await sourceDb.chunks.clear();
+        loreGraphStore.clearAll();
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('vtt_seeds_initialized', 'true');
+          localStorage.removeItem('vtt_lore_entities');
+          localStorage.removeItem('vtt_lore_relationships');
+        }
+        await loadExistingDocs();
+        activityLogs = [];
+        progressStatus = 'Compendium cache hard reset complete. Zero mock data retained.';
+      } catch (err: any) {
+        errorMessage = 'Failed during hard reset: ' + err?.message;
+      } finally {
+        isProcessing = false;
+      }
     }
   }
 </script>
 
-<div class="space-y-6 text-slate-200">
-  <!-- Header -->
-  <div class="border-b border-slate-800 pb-4">
-    <h3 class="text-base font-bold text-slate-100 flex items-center gap-2">
-      <span>📚</span> Grounded Lore Ingestion &amp; Archive Management
-    </h3>
-    <p class="text-xs text-slate-400 mt-1">
-      Import Aleamos campaign dossiers, regional settlement profiles, and economic rules directly into local IndexedDB for the AI Archivist and Lore Wiki.
-    </p>
-  </div>
+<div class="space-y-6 text-slate-200 select-none">
+  <!-- Header & Reset Utility -->
+  <div class="border-b border-slate-800 pb-4 flex items-center justify-between flex-wrap gap-3">
+    <div>
+      <h3 class="text-base font-bold text-slate-100 flex items-center gap-2">
+        <span>📚</span> Universal Multi-Format Data Ingestion
+      </h3>
+      <p class="text-xs text-slate-400 mt-1">
+        Ingest rulebooks, campaign dossiers, item tables, and vector maps into local IndexedDB for the AI Archivist and Lore Wiki.
+      </p>
+    </div>
 
-  <!-- Options -->
-  <div class="flex items-center justify-between p-3.5 bg-slate-900/80 border border-slate-800 rounded-xl">
-    <label class="flex items-center gap-2.5 cursor-pointer text-xs font-semibold select-none">
-      <input
-        type="checkbox"
-        bind:checked={purgeMockData}
-        class="w-4 h-4 rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-indigo-500"
-      />
-      <span>Purge placeholder and mockup lore upon import</span>
-    </label>
-
+    <!-- Hard Reset Compendium Cache Button (Part 4) -->
     <button
       type="button"
-      onclick={handlePurgeAll}
-      class="text-[11px] font-bold text-rose-400 hover:text-rose-300 hover:underline transition-colors"
+      onclick={handleHardResetCompendiumCache}
+      class="px-3.5 py-1.5 bg-rose-950/80 hover:bg-rose-900 border border-rose-800/80 text-rose-200 text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5"
+      title="Purge all documents, chunks, and lore cache without re-seeding dummy records"
     >
-      Clear All Lore
+      <span>💥</span>
+      <span>Hard Reset Compendium Cache</span>
     </button>
   </div>
 
-  <!-- Drag-and-Drop Dropzone -->
-  <div
-    role="region"
-    aria-label="Lore Dossier Drag and Drop Target"
-    ondragover={(e) => { e.preventDefault(); isDragging = true; }}
-    ondragleave={() => isDragging = false}
-    ondrop={onDrop}
-    class="border-2 border-dashed rounded-2xl p-8 text-center transition-all flex flex-col items-center justify-center min-h-[180px] {isDragging ? 'border-indigo-500 bg-indigo-950/20 shadow-lg shadow-indigo-500/10' : 'border-slate-700 bg-slate-900/40 hover:border-slate-600'}"
-  >
-    <div class="w-12 h-12 rounded-2xl bg-indigo-600/15 border border-indigo-500/30 flex items-center justify-center text-2xl mb-3">
-      📜
+  <!-- Folder Scanning & Drag-and-Drop Dropzone -->
+  <div class="space-y-3">
+    <div class="flex items-center justify-between">
+      <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Supported Formats:</span>
+      <span class="text-[11px] font-mono text-indigo-400">.md · .txt · .json · .jsonl · .csv · .tsv · .zip · .ds · .dd2vtt · .pdf</span>
     </div>
-    <p class="text-sm font-bold text-slate-200">
-      Drag &amp; Drop Markdown or Text Dossiers Here
-    </p>
-    <p class="text-xs text-slate-400 mt-1 max-w-sm">
-      Supports <code class="text-indigo-300">.md</code> and <code class="text-indigo-300">.txt</code> (e.g. <em>Aleamos Lore - Non Campaign.md</em>). Parses categories, essence tags, and regional dialect markers.
-    </p>
 
-    <label class="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-1.5">
-      <span>📂 Browse Files</span>
-      <input type="file" multiple accept=".md,.txt" class="hidden" onchange={onFileInput} />
-    </label>
+    <div
+      role="region"
+      aria-label="Universal Ingestion Drop Target"
+      ondragover={(e) => { e.preventDefault(); isDragging = true; }}
+      ondragleave={() => isDragging = false}
+      ondrop={onDrop}
+      class="border-2 border-dashed rounded-2xl p-8 text-center transition-all flex flex-col items-center justify-center min-h-[190px] {isDragging ? 'border-indigo-500 bg-indigo-950/20 shadow-lg shadow-indigo-500/10' : 'border-slate-700 bg-slate-900/40 hover:border-slate-600'}"
+    >
+      <div class="w-12 h-12 rounded-2xl bg-indigo-600/15 border border-indigo-500/30 flex items-center justify-center text-2xl mb-3">
+        📥
+      </div>
+      <p class="text-sm font-bold text-slate-200">
+        Drag &amp; Drop Multi-Format Lore or Map Files Here
+      </p>
+      <p class="text-xs text-slate-400 mt-1 max-w-md">
+        Processes markdown header hierarchies, JSON matrices, TSV tables, ZIP archives, Line of Sight geometry, and PDF pages.
+      </p>
+
+      <div class="mt-4 flex items-center gap-3 flex-wrap justify-center">
+        <!-- Native Directory Picker (Obsidian Vaults) -->
+        <button
+          type="button"
+          onclick={handleNativeFolderScan}
+          class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
+          title="Scan campaign vault or local folder using native file dialog"
+        >
+          <span>📁</span>
+          <span>Scan Campaign Folder</span>
+        </button>
+
+        <!-- Multi-file picker -->
+        <label class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-1.5">
+          <span>📄 Browse Files</span>
+          <input
+            type="file"
+            multiple
+            accept=".md,.txt,.json,.jsonl,.csv,.tsv,.zip,.ds,.dd2vtt,.uvtt,.pdf"
+            class="hidden"
+            onchange={onFileInput}
+          />
+        </label>
+
+        <!-- Hidden directory input for web browser fallback -->
+        <input
+          type="file"
+          bind:this={folderInputEl}
+          webkitdirectory
+          class="hidden"
+          onchange={onFileInput}
+        />
+      </div>
+    </div>
   </div>
 
-  <!-- Progress & Results -->
+  <!-- Status & Progress -->
   {#if isProcessing}
     <div class="p-4 bg-indigo-950/40 border border-indigo-800/50 rounded-xl space-y-2 animate-pulse">
       <div class="flex items-center gap-2 text-xs font-bold text-indigo-300">
         <span class="inline-block animate-spin">⏳</span>
-        <span>{progressStatus || 'Processing dossier...'}</span>
+        <span>{progressStatus || 'Processing files...'}</span>
       </div>
       <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
         <div class="bg-indigo-500 h-full w-2/3 animate-pulse"></div>
@@ -160,38 +244,43 @@
     </div>
   {/if}
 
-  {#if lastResult}
-    <div class="p-4 bg-emerald-950/40 border border-emerald-800/50 rounded-xl space-y-2 text-xs text-emerald-200">
+  <!-- Scrollable Ingestion Activity Log -->
+  {#if activityLogs.length > 0}
+    <div class="space-y-2">
       <div class="flex items-center justify-between">
-        <span class="font-bold flex items-center gap-1.5">
-          <span>✅</span> Ingested: <span class="font-mono text-white">{lastResult.docName}</span>
-        </span>
-        {#if lastResult.purgedMockCount > 0}
-          <span class="px-2 py-0.5 bg-rose-900/60 text-rose-300 rounded font-mono text-[10px]">
-            Purged {lastResult.purgedMockCount} placeholder files
-          </span>
-        {/if}
+        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">
+          Activity Log ({activityLogs.length} Entries)
+        </h4>
+        <button
+          type="button"
+          onclick={() => activityLogs = []}
+          class="text-[11px] text-slate-500 hover:text-slate-300"
+        >
+          Clear Log
+        </button>
       </div>
-      <div class="grid grid-cols-3 gap-2 pt-2 border-t border-emerald-800/30 text-center font-mono">
-        <div class="bg-slate-900/70 p-2 rounded-lg">
-          <div class="text-base font-black text-white">{lastResult.categoriesFound.length}</div>
-          <div class="text-[10px] text-slate-400">Categories</div>
-        </div>
-        <div class="bg-slate-900/70 p-2 rounded-lg">
-          <div class="text-base font-black text-white">{lastResult.sectionsCount}</div>
-          <div class="text-[10px] text-slate-400">Sections</div>
-        </div>
-        <div class="bg-slate-900/70 p-2 rounded-lg">
-          <div class="text-base font-black text-white">{lastResult.chunksCount}</div>
-          <div class="text-[10px] text-slate-400">Chunks Indexed</div>
-        </div>
+
+      <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+        {#each activityLogs as log}
+          <div class="p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="px-1.5 py-0.5 rounded bg-indigo-950 border border-indigo-800/60 font-mono text-[10px] text-indigo-300 font-bold shrink-0">
+                {log.format}
+              </span>
+              <span class="font-medium text-slate-200 truncate">{log.fileName}</span>
+            </div>
+            <div class="flex items-center gap-3 shrink-0 text-[11px] font-mono text-slate-400">
+              <span>{log.chunksCount} chunks</span>
+              <span>{(log.sizeBytes / 1024).toFixed(1)} KB</span>
+              {#if log.success}
+                <span class="text-emerald-400 font-bold">✓ Ready</span>
+              {:else}
+                <span class="text-rose-400 font-bold">✗ Failed</span>
+              {/if}
+            </div>
+          </div>
+        {/each}
       </div>
-      {#if lastResult.categoriesFound.length > 0}
-        <div class="pt-1 text-[11px] text-slate-300">
-          <span class="text-slate-400 font-semibold">Identified Categories:</span>
-          {lastResult.categoriesFound.join(' • ')}
-        </div>
-      {/if}
     </div>
   {/if}
 
@@ -205,14 +294,19 @@
 
     {#if existingDocuments.length === 0}
       <div class="p-6 bg-slate-900/40 border border-slate-800 rounded-xl text-center text-xs text-slate-500">
-        No documents currently indexed in IndexedDB. Drop a file above to ground your campaign.
+        No documents currently indexed in IndexedDB. Drop files or scan a campaign folder above.
       </div>
     {:else}
       <div class="space-y-2 max-h-56 overflow-y-auto pr-1">
         {#each existingDocuments as doc (doc.id)}
           <div class="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs">
             <div class="flex items-center gap-2.5 min-w-0">
-              <span class="text-base">{doc.type === 'md' ? '📘' : '📄'}</span>
+              <span class="text-base">
+                {#if doc.type === 'md'}📘
+                {:else if doc.type === 'pdf'}📕
+                {:else if doc.type === 'json'}📙
+                {:else}📄{/if}
+              </span>
               <div class="min-w-0">
                 <div class="font-bold text-slate-200 truncate">{doc.name}</div>
                 <div class="text-[10px] text-slate-500 font-mono">

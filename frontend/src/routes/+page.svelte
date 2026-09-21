@@ -13,7 +13,7 @@
   import LoreWikiView from '../lib/components/lore/LoreWikiView.svelte';
   import HandoutStudioView from '../lib/components/handouts/HandoutStudioView.svelte';
   import PlayerHandoutModal from '../lib/components/handouts/PlayerHandoutModal.svelte';
-  import AudioDrawer from '../lib/components/audio/AudioDrawer.svelte';
+  import SoundboardDrawer from '../lib/components/audio/SoundboardDrawer.svelte';
   import SettingsModal from '../lib/components/settings/SettingsModal.svelte';
 
   // Aleamos Downtime, Logistics & Crafting
@@ -22,9 +22,11 @@
   import BastionManagerView from '../lib/components/bastion/BastionManagerView.svelte';
   import StrongholdDashboard from '../lib/components/stronghold/StrongholdDashboard.svelte';
 
-  // Dual Right Utility Dock Panels
-  import ArchivistPanel from '../lib/components/ai/ArchivistPanel.svelte';
-  import CopilotPanel from '../lib/components/ai/CopilotPanel.svelte';
+  // Floating Window Shells & Panels
+  import FloatingPanel from '../lib/components/ui/FloatingPanel.svelte';
+  import DualChatPanel from '../lib/components/ai/DualChatPanel.svelte';
+  import SourceExplorerDrawer from '../lib/components/sources/SourceExplorerDrawer.svelte';
+  import { floatingWindowsStore } from '../lib/stores/floatingWindowsStore.svelte';
 
   // Utilities
   import { generateQrCodeSvg } from '../lib/utils/qrcode';
@@ -37,25 +39,10 @@
   let lanIp = $state(typeof localStorage !== 'undefined' ? localStorage.getItem('vtt_lan_ip') || '192.168.1.100' : '192.168.1.100');
   let lanPort = $state(5173);
 
-  // Modals & Drawers
-  let isAudioOpen = $state(false);
+  // Modals & Popovers
   let isSettingsOpen = $state(false);
   let isPlayerPortalOpen = $state(false);
   let copiedJoinLink = $state(false);
-
-  // Right Dock Toggles
-  let isArchivistDockOpen = $state(true);
-  let isCopilotDockOpen = $state(true);
-  let dockLayout = $state<'split' | 'archivist-only' | 'copilot-only'>('split');
-
-  // Reactively open right dock panels when selected from sidebar
-  $effect(() => {
-    if (activeTab === 'archivist') {
-      isArchivistDockOpen = true;
-    } else if (activeTab === 'copilot') {
-      isCopilotDockOpen = true;
-    }
-  });
 
   // Computed LAN Player Link & Scannable QR Code
   let playerJoinUrl = $derived(`http://${lanIp}:${lanPort}/play`);
@@ -79,22 +66,18 @@
     const handleSwitchTab = (e: Event) => {
       const detail = (e as CustomEvent<{ tab: DmTab }>).detail;
       if (detail?.tab) {
-        if (detail.tab === 'archivist') {
-          isArchivistDockOpen = true;
-        } else if (detail.tab === 'copilot') {
-          isCopilotDockOpen = true;
-        } else {
-          activeTab = detail.tab;
-        }
+        activeTab = detail.tab;
       }
     };
-    const handleToggleAudio = () => { isAudioOpen = true; };
+    const handleToggleAudio = () => {
+      floatingWindowsStore.open('audio');
+    };
 
     window.addEventListener('vtt:switch-tab', handleSwitchTab);
     window.addEventListener('vtt:toggle-audio', handleToggleAudio);
 
     dropCleanup = registerGlobalDropZone((asset) => {
-      if (asset.category === 'audio') isAudioOpen = true;
+      if (asset.category === 'audio') floatingWindowsStore.open('audio');
     });
 
     return () => {
@@ -210,39 +193,47 @@
 
       <span class="w-px h-4 bg-slate-800 mx-1"></span>
 
-      <!-- Right Dock View Toggles -->
-      <div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
+      <!-- Global Floating Tools Toggles (Top Navigation Bar Beside Settings) -->
+      <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
         <button
-          onclick={() => isArchivistDockOpen = !isArchivistDockOpen}
-          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {isArchivistDockOpen ? 'bg-indigo-700 text-white' : 'text-slate-400 hover:text-slate-200'}"
-          title="Toggle Rules Archivist Panel"
+          type="button"
+          onclick={() => floatingWindowsStore.toggleWindow('sources')}
+          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {floatingWindowsStore.windows.sources.isOpen ? 'bg-indigo-700 text-white' : 'text-slate-400 hover:text-slate-200'}"
+          title="Local Sources Engine & Rulebook Explorer"
         >
-          📖 Rules
+          📚 Sources
         </button>
         <button
-          onclick={() => isCopilotDockOpen = !isCopilotDockOpen}
-          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {isCopilotDockOpen ? 'bg-amber-600 text-slate-950' : 'text-slate-400 hover:text-slate-200'}"
-          title="Toggle Session Co-Pilot Terminal"
+          type="button"
+          onclick={() => floatingWindowsStore.toggleWindow('copilot')}
+          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {floatingWindowsStore.windows.copilot.isOpen ? 'bg-indigo-700 text-white' : 'text-slate-400 hover:text-slate-200'}"
+          title="Session Co-Pilot Terminal"
         >
           🤖 Co-Pilot
+        </button>
+        <button
+          type="button"
+          onclick={() => floatingWindowsStore.toggleWindow('archivist')}
+          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {floatingWindowsStore.windows.archivist.isOpen ? 'bg-indigo-700 text-white' : 'text-slate-400 hover:text-slate-200'}"
+          title="Rules Archivist (SRD & Lore RAG)"
+        >
+          📖 Archivist
+        </button>
+        <button
+          type="button"
+          onclick={() => floatingWindowsStore.toggleWindow('audio')}
+          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {floatingWindowsStore.windows.audio.isOpen ? 'bg-indigo-700 text-white' : 'text-slate-400 hover:text-slate-200'}"
+          title="Audio Studio & Soundboard"
+        >
+          🎵 Audio
         </button>
       </div>
 
       <span class="w-px h-4 bg-slate-800 mx-1"></span>
 
-      <!-- Audio Studio Drawer Button -->
-      <button
-        onclick={() => isAudioOpen = !isAudioOpen}
-        class="px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1 {isAudioOpen
-          ? 'bg-indigo-700/30 text-indigo-300 border-indigo-600/40'
-          : 'text-slate-400 hover:bg-slate-800 border-transparent'}"
-        title="Open Audio Studio"
-      >
-        <span>🎵</span> Audio
-      </button>
-
       <!-- Settings Modal Button -->
       <button
+        type="button"
         onclick={() => isSettingsOpen = true}
         class="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors text-sm"
         title="Settings & Campaign Persistence"
@@ -253,7 +244,7 @@
   </header>
 
   <!-- ═════════════════════════════════════════════════════════════════════════
-       2. WORKSPACE BODY: SIDEBAR + CENTRAL STAGE + DUAL RIGHT DOCK
+       2. WORKSPACE BODY: SIDEBAR + CENTRAL FULL-WIDTH STAGE
   ══════════════════════════════════════════════════════════════════════════ -->
   <div class="flex-1 flex min-h-0 overflow-hidden relative">
 
@@ -278,7 +269,7 @@
           <TacticalMat />
         </div>
 
-        <!-- ⚗️ Alchemy Lab & 28-Essence Matrix -->
+        <!-- ⚗️ Alchemy Lab & Crafting Workbench -->
         <div class="absolute inset-0 {activeTab === 'alchemy' ? '' : 'hidden'}">
           <AlchemyWorkbench />
         </div>
@@ -288,7 +279,7 @@
           <GuildNoticeBoard />
         </div>
 
-        <!-- 🏰 Stronghold / Bastion Zero-State Manager & Room Point Upgrades -->
+        <!-- 🏰 Stronghold / Bastion Zero-State Manager -->
         <div class="absolute inset-0 {activeTab === 'stronghold' ? '' : 'hidden'}">
           <BastionManagerView />
         </div>
@@ -302,60 +293,25 @@
         <div class="absolute inset-0 {activeTab === 'handouts' ? '' : 'hidden'}">
           <HandoutStudioView />
         </div>
-
-        <!-- 🎵 Dedicated Audio Studio View -->
-        <div class="absolute inset-0 {activeTab === 'audio' ? '' : 'hidden'}">
-          <div class="h-full flex flex-col items-center justify-center p-8 text-center space-y-4 bg-slate-950">
-            <div class="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-3xl shadow-lg">🎵</div>
-            <div>
-              <h2 class="text-lg font-black text-slate-100 uppercase tracking-wide">Audio Studio &amp; Dual-Bus Soundboard</h2>
-              <p class="text-xs text-slate-400 mt-1 max-w-md">Control background ambience music with linear crossfades and trigger instant procedural sound effects.</p>
-            </div>
-            <button
-              onclick={() => isAudioOpen = true}
-              class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2"
-            >
-              <span>🔊</span> Open Audio Studio Drawer
-            </button>
-          </div>
-        </div>
       </div>
     </main>
 
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         3. DUAL INDEPENDENT RIGHT UTILITY DOCK (NO LEGACY COIN PURSE)
-    ════════════════════════════════════════════════════════════════════════ -->
-    {#if isArchivistDockOpen || isCopilotDockOpen}
-      <aside
-        class="w-96 max-w-full bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 z-20 shadow-2xl transition-all"
-        aria-label="AI Utilities Dock"
-      >
-        <!-- Stacked / Split Layout -->
-        {#if isArchivistDockOpen && isCopilotDockOpen}
-          <div class="flex-1 min-h-0 flex flex-col divide-y divide-slate-800">
-            <div class="h-1/2 min-h-0 flex flex-col">
-              <ArchivistPanel />
-            </div>
-            <div class="h-1/2 min-h-0 flex flex-col">
-              <CopilotPanel />
-            </div>
-          </div>
-        {:else if isArchivistDockOpen}
-          <div class="flex-1 min-h-0 flex flex-col">
-            <ArchivistPanel />
-          </div>
-        {:else if isCopilotDockOpen}
-          <div class="flex-1 min-h-0 flex flex-col">
-            <CopilotPanel />
-          </div>
-        {/if}
-      </aside>
-    {/if}
-
   </div>
 
-  <!-- Global Audio Drawer, Settings Modal, and Player Handout Overlay -->
-  <AudioDrawer bind:isOpen={isAudioOpen} />
+  <!-- Global Non-Blocking Floating Panels, Modals, and Overlays -->
+  <SoundboardDrawer />
   <SettingsModal bind:isOpen={isSettingsOpen} />
   <PlayerHandoutModal />
+
+  <FloatingPanel id="sources" title="Local Source Engine & Rulebook Explorer" icon="📚">
+    <SourceExplorerDrawer />
+  </FloatingPanel>
+
+  <FloatingPanel id="copilot" title="AI DM Co-Pilot Terminal" icon="🤖">
+    <DualChatPanel initialMode="copilot" />
+  </FloatingPanel>
+
+  <FloatingPanel id="archivist" title="Rules Archivist (SRD & Lore RAG)" icon="📖">
+    <DualChatPanel initialMode="archivist" />
+  </FloatingPanel>
 </div>

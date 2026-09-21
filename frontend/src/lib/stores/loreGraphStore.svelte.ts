@@ -347,12 +347,9 @@ class LoreGraphStore {
       this.activeEntityId = loadedEntities[0]?.id || null;
       this.isLoaded = true;
     } else {
-      // 2. Fall back to initial seed data
-      const seed = createInitialSeedData();
-      this.entities = seed.entities;
-      this.relationships = seed.relationships;
-      this.activeEntityId = seed.entities[0].id;
-      this.persist();
+      this.entities = [];
+      this.relationships = [];
+      this.activeEntityId = null;
       this.isLoaded = true;
     }
 
@@ -557,6 +554,18 @@ class LoreGraphStore {
     this.activeEntityId = seed.entities[0].id;
     this.persist();
   }
+
+  /**
+   * Hard reset clearing all lore entities and relationships.
+   */
+  clearAll() {
+    this.entities = [];
+    this.relationships = [];
+    this.activeEntityId = null;
+    this.persist();
+  }
 }
 
 export const loreGraphStore = new LoreGraphStore();
+export const loreStore = loreGraphStore;
+

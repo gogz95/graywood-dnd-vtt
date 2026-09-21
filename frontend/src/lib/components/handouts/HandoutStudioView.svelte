@@ -280,10 +280,12 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
     docContent = docContent + '\n' + snippet;
   }
 
-  let selectedHub = $state<SettlementHub>('Ostrava Harbor');
+  let selectedHubPreset = $state<'Capital City' | 'Frontier Town' | 'Coastal Village' | 'Custom'>('Capital City');
+  let customHubName = $state<string>('');
+  let activeHub = $derived(selectedHubPreset === 'Custom' ? (customHubName.trim() || 'Frontier Outpost') : selectedHubPreset);
 
   function handleGenerateLocalizedContract() {
-    const contract = generateLocalizedHubContract(selectedHub);
+    const contract = generateLocalizedHubContract(activeHub);
     docTitle = contract.title;
     docSubtitle = `${contract.commissioner} (${contract.originSettlement})`;
     docTheme = 'contract';
@@ -293,13 +295,13 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
     docDmNotes = contract.dmNotes;
     broadcastStatus = {
       type: 'success',
-      text: `Generated ${selectedHub} contract (${contract.id}) with escrow in Concord Sovereigns!`
+      text: `Generated ${activeHub} contract (${contract.id}) with escrow in Gold Pieces!`
     };
     setTimeout(() => { broadcastStatus = null; }, 3000);
   }
 
   function handleGenerateContract(cat?: ContractClassification) {
-    const contract = generateProceduralContract(cat);
+    const contract = generateProceduralContract(cat, activeHub);
     docTitle = contract.title;
     docSubtitle = `${contract.commissioner} (${contract.originSettlement})`;
     docTheme = 'contract';
@@ -331,17 +333,26 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
 
     <!-- Center Broadcast & Generator Action Controls -->
     <div class="flex items-center gap-2">
-      <!-- Settlement Hub Dropdown -->
+      <!-- Settlement Hub Dropdown & Custom Text Input -->
       <div class="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs">
-        <span class="text-slate-500 font-bold uppercase text-[10px]">Hub:</span>
+        <span class="text-slate-500 font-bold uppercase text-[10px]">Settlement:</span>
         <select
-          bind:value={selectedHub}
+          bind:value={selectedHubPreset}
           class="bg-transparent text-amber-300 font-bold text-xs focus:outline-none cursor-pointer"
         >
-          <option value="Ostrava Harbor" class="bg-slate-900 text-slate-200">Ostrava Harbor</option>
-          <option value="Kladno Deep Foundry" class="bg-slate-900 text-slate-200">Kladno Deep Foundry</option>
-          <option value="Port Ruceas" class="bg-slate-900 text-slate-200">Port Ruceas</option>
+          <option value="Capital City" class="bg-slate-900 text-slate-200">Capital City</option>
+          <option value="Frontier Town" class="bg-slate-900 text-slate-200">Frontier Town</option>
+          <option value="Coastal Village" class="bg-slate-900 text-slate-200">Coastal Village</option>
+          <option value="Custom" class="bg-slate-900 text-slate-200">Custom Name...</option>
         </select>
+        {#if selectedHubPreset === 'Custom'}
+          <input
+            type="text"
+            bind:value={customHubName}
+            placeholder="Settlement name..."
+            class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-200 w-32 focus:outline-none focus:border-indigo-500"
+          />
+        {/if}
       </div>
 
       <button

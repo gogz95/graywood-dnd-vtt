@@ -801,6 +801,39 @@ export class SessionStoreManager {
       transferredItem,
     };
   }
+
+  lastReceivedEvent: any = null;
+  private subscribers = new Set<(state: SessionStoreManager) => void>();
+
+  sendWebSocketMessage(payload: any) {
+    sendWsEvent(payload);
+  }
+
+  subscribe(fn: (state: SessionStoreManager) => void) {
+    this.subscribers.add(fn);
+    fn(this);
+    return () => {
+      this.subscribers.delete(fn);
+    };
+  }
+
+  notifySubscribers() {
+    for (const sub of this.subscribers) {
+      try {
+        sub(this);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  }
 }
 
 export const sessionStore = new SessionStoreManager();
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('vtt:battlemat-ws-event', ((e: CustomEvent) => {
+    sessionStore.lastReceivedEvent = e.detail;
+    sessionStore.notifySubscribers();
+  }) as EventListener);
+}
+

@@ -80,6 +80,14 @@ class FloatingWindowsManager {
     }
   }
 
+  open(id: WindowId) {
+    this.openWindow(id);
+  }
+
+  close(id: WindowId) {
+    this.closeWindow(id);
+  }
+
   closeWindow(id: WindowId) {
     if (this.windows[id]) {
       this.windows[id].isOpen = false;

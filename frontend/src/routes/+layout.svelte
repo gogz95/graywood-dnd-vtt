@@ -20,7 +20,6 @@
   import SourceExplorerDrawer from '../lib/components/sources/SourceExplorerDrawer.svelte';
   import { floatingWindowsStore } from '../lib/stores/floatingWindowsStore.svelte';
   import { initAutoSaver, type CampaignBundle } from '../lib/utils/campaignPersistence';
-  import { autoLoadFirstRunSeeds } from '../lib/db/seedLoader';
   import { registerGlobalDropZone, type DroppedAsset } from '../lib/utils/assetDrop';
 
   // ── View state ─────────────────────────────────────────────────────────────
@@ -76,12 +75,9 @@
 
     stopAutoSaver = initAutoSaver();
 
-    // First-run: auto-seed IndexedDB compendium with vanilla 5e SRD data
-    autoLoadFirstRunSeeds().catch(console.warn);
-
     dropCleanup = registerGlobalDropZone((asset: DroppedAsset) => {
       lastDrop = asset.fileName;
-      if (asset.category === 'audio') audioOpen = true;
+      if (asset.category === 'audio') floatingWindowsStore.open('audio');
       setTimeout(() => { lastDrop = null; }, 3500);
     });
   });
@@ -96,7 +92,7 @@
   });
 
   function handleToggleAudio() {
-    audioOpen = true;
+    floatingWindowsStore.open('audio');
   }
 
   let stopAutoSaver: (() => void) | null = null;
@@ -153,9 +149,6 @@
     { id: 'battlemat',  icon: '🗺️', label: 'Tactical',  title: 'Tactical Mat (PixiJS Canvas)' },
     { id: 'lore',       icon: '📚', label: 'Lore',       title: 'Relational Lore Graph & Trade Valuation' },
     { id: 'handouts',   icon: '📜', label: 'Handouts',   title: 'Parchment Handout Studio & Broadcast' },
-    { id: 'archivist',  icon: '📖', label: 'Archivist',  title: 'Rules Archivist (SRD & Rules RAG)' },
-    { id: 'copilot',    icon: '🤖', label: 'Co-Pilot',   title: 'Session Co-Pilot (Live DM Terminal)' },
-    { id: 'audio',      icon: '🎵', label: 'Audio',      title: 'Audio Studio & Dual-Bus Soundboard' },
   ];
 </script>
 
@@ -214,8 +207,8 @@
       </button>
 
       <button id="open-audio"
-        onclick={() => { audioOpen = !audioOpen; if (audioOpen) settingsOpen = false; }}
-        class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {audioOpen ? 'bg-indigo-700/30 text-indigo-300 border border-indigo-700/40' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
+        onclick={() => floatingWindowsStore.toggleWindow('audio')}
+        class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {floatingWindowsStore.windows.audio.isOpen ? 'bg-indigo-700/30 text-indigo-300 border border-indigo-700/40' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
         title="Soundboard & Atmospheric Audio">
         🎵 Audio
       </button>
@@ -302,23 +295,6 @@
           <div class="absolute inset-0 {activeTab === 'battlemat'  ? '' : 'hidden'}"><TacticalCanvasContainer /></div>
           <div class="absolute inset-0 {activeTab === 'lore'       ? '' : 'hidden'}"><LoreWikiView /></div>
           <div class="absolute inset-0 {activeTab === 'handouts'   ? '' : 'hidden'}"><HandoutStudioView /></div>
-          <div class="absolute inset-0 {activeTab === 'archivist'  ? '' : 'hidden'}"><DualChatPanel initialMode="archivist" /></div>
-          <div class="absolute inset-0 {activeTab === 'copilot'    ? '' : 'hidden'}"><DualChatPanel initialMode="copilot" /></div>
-          <div class="absolute inset-0 {activeTab === 'audio'      ? '' : 'hidden'}">
-            <div class="h-full flex flex-col items-center justify-center p-8 text-center space-y-4 bg-slate-950">
-              <div class="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-3xl shadow-lg">🎵</div>
-              <div>
-                <h2 class="text-lg font-black text-slate-100 uppercase tracking-wide">Audio Studio &amp; Dual-Bus Soundboard</h2>
-                <p class="text-xs text-slate-400 mt-1 max-w-md">Control looping background ambience with 1.5s linear crossfading and trigger low-latency procedural sound effects.</p>
-              </div>
-              <button
-                onclick={() => audioOpen = true}
-                class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2"
-              >
-                <span>🔊</span> Open Audio Studio Drawer
-              </button>
-            </div>
-          </div>
         </div>
       </main>
 

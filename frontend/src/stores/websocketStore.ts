@@ -253,6 +253,12 @@ function handleIncomingWsEvent(event: WsEvent): void {
       }
       break;
 
+    case 'BATTLEMAT_WS_EVENT':
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:battlemat-ws-event', { detail: event }));
+      }
+      break;
+
     case 'TOKEN_MOVE':
     case 'SYSTEM_MESSAGE':
     case 'AUTH_REQUEST':

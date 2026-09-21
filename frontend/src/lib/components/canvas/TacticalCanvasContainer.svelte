@@ -20,6 +20,8 @@
   import GeneratorDrawer from '../map/GeneratorDrawer.svelte';
   import CanvasDrawingToolbar, { type DrawTool } from '../map/CanvasDrawingToolbar.svelte';
   import { importDungeonScrawlFile } from '../../importers/dungeonScrawlImporter';
+  import { initDmSyncListener, broadcastBattlematUpdate } from '../../services/battlematSyncBridge';
+  import { pushMapToBattlemat } from '../../services/mapDispatchService';
 
   export interface MapToken {
     id: string;
@@ -475,6 +477,12 @@
         t.id === draggingToken!.id ? { ...t, x: gx, y: gy } : t
       );
       canvasStore.moveToken(draggingToken.id, gx, gy);
+      broadcastBattlematUpdate({
+        type: 'TOKEN_MOVE',
+        tokenId: draggingToken.id,
+        x: gx,
+        y: gy
+      });
       onTokenMove?.(draggingToken.id, gx, gy);
     }
     draggingToken = null;
@@ -493,8 +501,17 @@
   function loadMapFromUrl(url: string) {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => { mapImg = img; mapImageUrl = url; };
-    img.onerror = () => { alert('Could not load image from that URL.'); };
+    img.onload = () => {
+      mapImg = img;
+      mapImageUrl = url;
+      broadcastBattlematUpdate({
+        type: 'MAP_TEXTURE_UPDATE',
+        url,
+        width: img.naturalWidth,
+        height: img.naturalHeight
+      });
+    };
+    img.onerror = () => {};
     img.src = url;
   }
 
@@ -565,13 +582,19 @@
     const file = files[0];
     const name = file.name.toLowerCase();
 
-    // 1. Dungeon Scrawl vector map (.ds, .uvtt, or .json DS format)
-    if (name.endsWith('.ds') || name.endsWith('.uvtt')) {
+    // 1. Dungeon Scrawl & Universal VTT vector map (.ds, .uvtt, .dd2vtt)
+    if (name.endsWith('.ds') || name.endsWith('.uvtt') || name.endsWith('.dd2vtt')) {
       const result = await importDungeonScrawlFile(file, gridSize);
       if (result.success) {
         const text = await file.text();
         const parsed = parseDungeonScrawl(text, gridSize);
         handleLoadDungeonMap(parsed);
+        const wallCoords = parsed.walls.map(w => ({ x1: w.p1.x, y1: w.p1.y, x2: w.p2.x, y2: w.p2.y }));
+        if (parsed.imageBlob) {
+          await pushMapToBattlemat(parsed.imageBlob, { name: result.name, gridSize: parsed.gridSize, walls: wallCoords });
+        } else {
+          canvasStore.setWallsAndDoors(parsed.walls, parsed.doors);
+        }
         dsImportFeedback = `✓ Loaded "${result.name}" — ${result.wallsCount} walls, ${result.doorsCount} doors`;
         setTimeout(() => { dsImportFeedback = null; }, 3500);
       } else {
@@ -589,8 +612,9 @@
       return;
     }
 
-    // 3. Raster map image (PNG, SVG, JPG, WEBP)
+    // 3. Raster map image (PNG, SVG, JPG, WEBP) -> Automatic direct push to battlemat
     if (/\.(png|svg|jpg|jpeg|webp)$/i.test(name)) {
+      await pushMapToBattlemat(file, { name: file.name, gridSize });
       const url = URL.createObjectURL(file);
       loadMapFromUrl(url);
       mapImageUrl = file.name;
@@ -648,6 +672,7 @@
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
   onMount(() => {
+    initDmSyncListener();
     if (!canvasEl) return;
     ctx = canvasEl.getContext('2d');
     syncCanvasSize();

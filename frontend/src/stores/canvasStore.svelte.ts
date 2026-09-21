@@ -52,14 +52,36 @@ export interface ViewportTransform {
   zoom: number;
 }
 
+export interface CanvasStateSnapshot {
+  mapImageUrl: string;
+  mapWidth?: number;
+  mapHeight?: number;
+  tokens: CanvasToken[];
+  walls: WallSegment[];
+  doors: DoorPrimitive[];
+  gridSize: number;
+  gridOpacity: number;
+  gridColor?: string;
+  fogExplored: string[];
+  aoeTemplates: SpellAoeTemplate[];
+  ruler: RulerMeasurement | null;
+  dmViewport: ViewportTransform;
+  projectorViewport: ViewportTransform;
+  dynamicLightingEnabled: boolean;
+  wallVisibilityEnabled: boolean;
+}
+
 export interface BattleMatState {
   tokens: CanvasToken[];
   walls: WallSegment[];
   doors: DoorPrimitive[];
   cityMap: WatabouCityMap | null;
   mapImageUrl: string;
+  mapWidth?: number;
+  mapHeight?: number;
   gridSize: number;
   gridOpacity: number;
+  gridColor?: string;
   activeTokenId: string | null;
   lockProjectorPan: boolean;
   dmViewport: ViewportTransform;
@@ -72,30 +94,27 @@ export interface BattleMatState {
 }
 
 const STORAGE_KEY = 'vtt_battlemat_state';
-const BROADCAST_CHANNEL_NAME = 'vtt_battlemat_sync';
+const BROADCAST_CHANNEL_NAME = 'dnd_battlemat_sync';
 
 function loadInitialState(): BattleMatState {
   const fallback: BattleMatState = {
-    tokens: [
-      { id: 'tok-1', name: 'Valen (Rogue)', x: 6, y: 8, color: '#f59e0b', isPlayer: true, hp: 28, maxHp: 32, isVisible: true, conditions: [], isOrbSealed: false, sizeInCells: 1, sightRadiusFeet: 60 },
-      { id: 'tok-2', name: 'Althaea (Wizard)', x: 5, y: 9, color: '#6366f1', isPlayer: true, hp: 22, maxHp: 22, isVisible: true, conditions: ['Concentrating'], isOrbSealed: false, sizeInCells: 1, sightRadiusFeet: 30 },
-      { id: 'tok-3', name: 'Kaelen (Fighter)', x: 7, y: 7, color: '#ef4444', isPlayer: true, hp: 44, maxHp: 44, isVisible: true, conditions: [], isOrbSealed: false, sizeInCells: 1, sightRadiusFeet: 30 },
-      { id: 'tok-4', name: 'Shadow Stalker', x: 12, y: 5, color: '#881337', isPlayer: false, hp: 35, maxHp: 35, isVisible: true, conditions: [], isOrbSealed: false, sizeInCells: 1, sightRadiusFeet: 60 },
-      { id: 'tok-5', name: 'Lurking Sentry (Hidden)', x: 15, y: 12, color: '#4c0519', isPlayer: false, hp: 18, maxHp: 18, isVisible: false, conditions: [], isOrbSealed: false, sizeInCells: 1, sightRadiusFeet: 30 },
-    ],
+    tokens: [],
     walls: [],
     doors: [],
     cityMap: null,
     mapImageUrl: '',
+    mapWidth: 0,
+    mapHeight: 0,
     gridSize: 60,
     gridOpacity: 0.35,
-    activeTokenId: 'tok-1',
+    gridColor: '#6366f1',
+    activeTokenId: null,
     lockProjectorPan: false,
     dmViewport: { x: 120, y: 80, zoom: 1.0 },
     projectorViewport: { x: 120, y: 80, zoom: 1.0 },
     aoeTemplates: [],
     ruler: null,
-    fogExplored: ['5,8', '6,8', '7,8', '5,9', '6,9', '7,9', '7,7', '6,7'],
+    fogExplored: [],
     dynamicLightingEnabled: true,
     wallVisibilityEnabled: true,
   };
@@ -118,8 +137,11 @@ class CanvasStoreClass {
   doors = $state<DoorPrimitive[]>([]);
   cityMap = $state<WatabouCityMap | null>(null);
   mapImageUrl = $state<string>('');
+  mapWidth = $state<number>(0);
+  mapHeight = $state<number>(0);
   gridSize = $state<number>(60);
   gridOpacity = $state<number>(0.35);
+  gridColor = $state<string>('#6366f1');
   activeTokenId = $state<string | null>(null);
   lockProjectorPan = $state<boolean>(false);
   dmViewport = $state<ViewportTransform>({ x: 0, y: 0, zoom: 1 });
@@ -434,14 +456,60 @@ class CanvasStoreClass {
     this.broadcast('FOG_EXPLORED_SYNC', this.fogExplored);
   }
 
-  setBackgroundTexture(url: string) {
-    this.mapImageUrl = url;
-    this.broadcast('FULL_STATE_SYNC', { mapImageUrl: url });
+  setBackgroundTexture(texture: string | { url: string; width: number; height: number; name?: string }) {
+    if (typeof texture === 'string') {
+      this.mapImageUrl = texture;
+    } else {
+      this.mapImageUrl = texture.url;
+      this.mapWidth = texture.width;
+      this.mapHeight = texture.height;
+    }
+    this.broadcast('FULL_STATE_SYNC', {
+      mapImageUrl: this.mapImageUrl,
+      mapWidth: this.mapWidth,
+      mapHeight: this.mapHeight
+    });
   }
 
   setGridSize(size: number) {
     this.gridSize = Math.max(10, Math.min(200, size));
     this.broadcast('FULL_STATE_SYNC', { gridSize: this.gridSize });
+  }
+
+  setGridColor(color: string) {
+    this.gridColor = color;
+    this.broadcast('FULL_STATE_SYNC', { gridColor: color });
+  }
+
+  setWallCollisions(walls: Array<{ x1: number; y1: number; x2: number; y2: number }>) {
+    this.walls = walls.map((w, i) => ({
+      id: `wall-col-${Date.now()}-${i}`,
+      p1: { x: w.x1, y: w.y1 },
+      p2: { x: w.x2, y: w.y2 },
+      blockingType: 'BOTH'
+    }));
+    this.broadcast('WALLS_DOORS_SYNC', { walls: this.walls, doors: this.doors });
+  }
+
+  getSnapshot(): CanvasStateSnapshot {
+    return {
+      mapImageUrl: this.mapImageUrl,
+      mapWidth: this.mapWidth,
+      mapHeight: this.mapHeight,
+      tokens: $state.snapshot(this.tokens),
+      walls: $state.snapshot(this.walls),
+      doors: $state.snapshot(this.doors),
+      gridSize: this.gridSize,
+      gridOpacity: this.gridOpacity,
+      gridColor: this.gridColor,
+      fogExplored: [...this.fogExplored],
+      aoeTemplates: $state.snapshot(this.aoeTemplates),
+      ruler: this.ruler ? { ...this.ruler } : null,
+      dmViewport: { ...this.dmViewport },
+      projectorViewport: { ...this.projectorViewport },
+      dynamicLightingEnabled: this.dynamicLightingEnabled,
+      wallVisibilityEnabled: this.wallVisibilityEnabled,
+    };
   }
 
   requestSync() {

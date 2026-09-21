@@ -52,10 +52,12 @@ export interface CompanionAnimal {
 }
 
 export interface CurrencyWallet {
-  gp: number; // Concord Sovereigns
-  sp: number; // Silver Disks
-  cp: number; // Copper Bits
-  sunTradeBars: number; // Sun Trade Bars (50 gp each)
+  cp: number; // Copper (cp)
+  sp: number; // Silver (sp)
+  ep?: number; // Electrum (ep)
+  gp: number; // Gold (gp)
+  pp?: number; // Platinum (pp)
+  sunTradeBars?: number; // Legacy trade bars
 }
 
 export interface CharacterDeathSaves {
