@@ -45,7 +45,7 @@ impl SettlementProfile {
              WHERE id = ?1",
         )?;
 
-        stmt.query_row([id], |row| Self::from_row(row)).optional()
+        stmt.query_row([id], Self::from_row).optional()
     }
 
     pub fn get_ostrava(conn: &Connection) -> rusqlite::Result<Option<Self>> {
@@ -100,7 +100,7 @@ impl SettlementContract {
              ORDER BY min_level ASC, reward_gold DESC",
         )?;
 
-        let iter = stmt.query_map([settlement_id], |row| Self::from_row(row))?;
+        let iter = stmt.query_map([settlement_id], Self::from_row)?;
         let mut results = Vec::new();
         for item in iter {
             results.push(item?);

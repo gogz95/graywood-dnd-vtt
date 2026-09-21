@@ -223,6 +223,7 @@
   }
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="relative w-full h-full bg-slate-950 text-slate-100 overflow-hidden select-none"
   role="region"
@@ -458,10 +459,13 @@
       onclick={() => isEditingPin = false}
       role="presentation"
     >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <div
         class="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-5 space-y-4"
         onclick={(e) => e.stopPropagation()}
         role="dialog"
+        tabindex="-1"
         aria-label="Edit Map POI Pin"
       >
         <div class="flex items-center justify-between border-b border-slate-800 pb-2">
@@ -477,8 +481,9 @@
 
         <div class="space-y-3 text-xs">
           <div>
-            <label class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Pin Name / Label</label>
+            <label for="atlas-pin-label" class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Pin Name / Label</label>
             <input
+              id="atlas-pin-label"
               type="text"
               bind:value={editingPin.label}
               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500"
@@ -486,8 +491,9 @@
           </div>
 
           <div>
-            <label class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Icon Category</label>
+            <label for="atlas-pin-icon" class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Icon Category</label>
             <select
+              id="atlas-pin-icon"
               bind:value={editingPin.icon}
               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500"
             >
@@ -499,8 +505,9 @@
           </div>
 
           <div>
-            <label class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Description / Lore</label>
+            <label for="atlas-pin-desc" class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Description / Lore</label>
             <textarea
+              id="atlas-pin-desc"
               bind:value={editingPin.description}
               rows="3"
               class="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-amber-500"
@@ -508,8 +515,9 @@
           </div>
 
           <div>
-            <label class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Linked Tactical Battlemap</label>
+            <label for="atlas-pin-battlemap" class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Linked Tactical Battlemap</label>
             <select
+              id="atlas-pin-battlemap"
               bind:value={editingPin.linkedTacticalMapId}
               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500"
             >

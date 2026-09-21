@@ -181,7 +181,7 @@
         </div>
 
         <!-- 🏰 Unified Holdings & Downtime (Strongholds, Guild, Crafting) -->
-        <div class="absolute inset-0 {uiStore.activeView !== 'bestiary' && (activeTab === 'holdings' || activeTab === 'alchemy' || activeTab === 'guild' || activeTab === 'stronghold') ? '' : 'hidden'}">
+        <div class="absolute inset-0 {uiStore.activeView !== 'bestiary' && activeTab === 'holdings' ? '' : 'hidden'}">
           <UnifiedHoldingsView />
         </div>
 

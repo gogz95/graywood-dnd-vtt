@@ -40,7 +40,7 @@ impl ElementalEssence {
              ORDER BY tier ASC, name ASC",
         )?;
 
-        let iter = stmt.query_map([], |row| Self::from_row(row))?;
+        let iter = stmt.query_map([], Self::from_row)?;
         let mut results = Vec::new();
         for item in iter {
             results.push(item?);
@@ -56,7 +56,7 @@ impl ElementalEssence {
              WHERE id = ?1",
         )?;
 
-        stmt.query_row([id], |row| Self::from_row(row)).optional()
+        stmt.query_row([id], Self::from_row).optional()
     }
 }
 
@@ -88,7 +88,7 @@ impl ItemSocket {
              ORDER BY socket_index ASC",
         )?;
 
-        let iter = stmt.query_map([item_id], |row| Self::from_row(row))?;
+        let iter = stmt.query_map([item_id], Self::from_row)?;
         let mut results = Vec::new();
         for item in iter {
             results.push(item?);

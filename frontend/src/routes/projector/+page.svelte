@@ -589,9 +589,11 @@
 
 {#if activeHandout}
   <!-- Animated High-Resolution Player Handout Modal Overlay -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in select-none cursor-pointer"
     role="dialog"
+    tabindex="-1"
     aria-modal="true"
     aria-label="Broadcast Handout"
     onclick={() => activeHandout = null}

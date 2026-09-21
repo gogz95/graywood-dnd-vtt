@@ -49,8 +49,8 @@ pub async fn spawn_combatant_token_cmd(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    let combatant_id = format!("combatant-{}", &uuid_v4_simple());
-    let token_id = format!("token-{}", &uuid_v4_simple());
+    let combatant_id = format!("combatant-{}", uuid_v4_simple());
+    let token_id = format!("token-{}", uuid_v4_simple());
     let combatant_name = payload
         .custom_name
         .clone()
