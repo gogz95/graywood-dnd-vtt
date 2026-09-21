@@ -8,8 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "vite build --mode development",
+    "test": "vitest run",
     "lint": "tsc --noEmit",
-    "tauri": "npx @tauri-apps/cli"
+    "tauri": "npx @tauri-apps/cli",
+    "tauri:build": "tauri build",
+    "tauri:dev": "tauri dev"
   },
   "dependencies": {
     "clsx": "^2.1.1",

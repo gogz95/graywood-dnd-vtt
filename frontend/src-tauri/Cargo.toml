@@ -1,0 +1,32 @@
+[package]
+name = "aleamos-desktop"
+version = "0.1.0"
+description = "Aleamos DM Desktop backend"
+edition = "2021"
+
+[lib]
+name = "aleamos_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+rusqlite = { version = "0.31", features = ["bundled", "bundled-full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1.38", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
+futures-util = "0.3"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+mime_guess = "2.0"
+zip = { version = "2.1", default-features = false, features = ["deflate"] }
+rfd = "0.14"
+tauri = { version = "2.0", optional = true, features = [] }
+tauri-plugin-window-state = { version = "2.0", optional = true }
+
+[features]
+default = []
+custom-protocol = ["tauri/custom-protocol"]

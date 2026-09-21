@@ -34,7 +34,7 @@ export function slugifyPackageName(name: string): string {
 /**
  * Parses raw text from a PDF file using pdfjs-dist
  */
-export async function extractPdfTextPages(file: File | Blob): Promise<string[]> {
+export async function extractPdfTextPages(file: File | Blob | ArrayBuffer | Uint8Array): Promise<string[]> {
   const pdfjsLib = await import('pdfjs-dist');
   if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
     try {
@@ -47,8 +47,17 @@ export async function extractPdfTextPages(file: File | Blob): Promise<string[]> 
     }
   }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+  let buffer: Uint8Array;
+  if (file instanceof Uint8Array) {
+    buffer = file;
+  } else if (file instanceof ArrayBuffer) {
+    buffer = new Uint8Array(file);
+  } else {
+    const arrayBuffer = await file.arrayBuffer();
+    buffer = new Uint8Array(arrayBuffer);
+  }
+
+  const loadingTask = pdfjsLib.getDocument({ data: buffer });
   const pdfDoc = await loadingTask.promise;
   const pagesText: string[] = [];
 
@@ -59,7 +68,16 @@ export async function extractPdfTextPages(file: File | Blob): Promise<string[]> 
       .map((item: any) => item.str || '')
       .filter((str: string) => str.trim().length > 0);
 
-    pagesText.push(pageStrings.join(' '));
+    const rawText = pageStrings.join(' ');
+    const cleanText = rawText
+      .replace(/\b\d+\s+0\s+[Rnf]\b/g, '')
+      .replace(/<<[\s\S]*?>>/g, '')
+      .replace(/\b(obj|endobj|xref|trailer|startxref)\b/g, '')
+      .trim();
+
+    if (cleanText.length > 0) {
+      pagesText.push(cleanText);
+    }
   }
 
   return pagesText;

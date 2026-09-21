@@ -15,6 +15,7 @@
   import PlayerHandoutModal from '../lib/components/handouts/PlayerHandoutModal.svelte';
   import Sidebar, { type DmTab } from '../lib/components/navigation/Sidebar.svelte';
   import SoundboardDrawer   from '../lib/components/audio/SoundboardDrawer.svelte';
+  import QuickReferenceDrawer from '../lib/components/dm/QuickReferenceDrawer.svelte';
   import SettingsModal      from '../lib/components/settings/SettingsModal.svelte';
   import FloatingPanel      from '../lib/components/ui/FloatingPanel.svelte';
   import SourceExplorerDrawer from '../lib/components/sources/SourceExplorerDrawer.svelte';
@@ -45,6 +46,7 @@
 
   // ── Drawers ────────────────────────────────────────────────────────────────
   let audioOpen    = $state(false);
+  let quickRefOpen = $state(false);
   let settingsOpen = $state(false);
 
   // ── Drop zone feedback ─────────────────────────────────────────────────────
@@ -72,6 +74,7 @@
     window.addEventListener('vtt:load-battle-map', handleAutoBattleMat);
     window.addEventListener('vtt:campaign-loaded', handleCampaignLoaded);
     window.addEventListener('vtt:toggle-audio', handleToggleAudio);
+    window.addEventListener('vtt:toggle-quick-ref', handleToggleQuickRef);
 
     stopAutoSaver = initAutoSaver();
 
@@ -89,10 +92,15 @@
     window.removeEventListener('vtt:load-battle-map', handleAutoBattleMat);
     window.removeEventListener('vtt:campaign-loaded', handleCampaignLoaded);
     window.removeEventListener('vtt:toggle-audio', handleToggleAudio);
+    window.removeEventListener('vtt:toggle-quick-ref', handleToggleQuickRef);
   });
 
   function handleToggleAudio() {
     floatingWindowsStore.open('audio');
+  }
+
+  function handleToggleQuickRef() {
+    quickRefOpen = !quickRefOpen;
   }
 
   let stopAutoSaver: (() => void) | null = null;
@@ -370,6 +378,7 @@
 
   <!-- Modals & Drawers -->
   <SoundboardDrawer bind:isOpen={audioOpen} />
+  <QuickReferenceDrawer bind:isOpen={quickRefOpen} />
   <SettingsModal bind:isOpen={settingsOpen} />
   <PlayerHandoutModal />
 

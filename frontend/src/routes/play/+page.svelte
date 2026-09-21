@@ -395,17 +395,23 @@
     window.addEventListener('vtt:roster-updated', handleRosterUpdate);
     window.addEventListener('vtt:inventory-updated', handleInventoryUpdate);
 
-    // 6. Resilient Networking: 5-second WebSocket heartbeat loop
+    // 6. Resilient Networking: periodic 15-second heartbeat ping over the session channel
     const heartbeatTimer = setInterval(() => {
       if (isAuthenticated) {
         sendWsEvent({
           type: 'PING',
           payload: { timestamp: Date.now(), pin: enteredPin || character?.pin }
         });
+      } else {
+        // Auto-reconnect with cached PIN if connection drops
+        const savedPin = typeof localStorage !== 'undefined' ? localStorage.getItem('vtt_active_pin') : null;
+        if (savedPin && savedPin.length === 4 && !isConnecting) {
+          attemptPinLogin(savedPin);
+        }
       }
-    }, 5000);
+    }, 15000);
 
-    // 7. Tab-Sleep Reconnection: reconnect automatically when tab wakes up
+    // 7. Tab-Sleep & Network Reconnection: reconnect automatically when tab wakes up or network recovers
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const savedPin = localStorage.getItem('vtt_active_pin');
@@ -419,11 +425,21 @@
         }
       }
     };
+
+    const handleOnline = () => {
+      const savedPin = typeof localStorage !== 'undefined' ? localStorage.getItem('vtt_active_pin') : null;
+      if (savedPin && savedPin.length === 4 && (!isAuthenticated || !character)) {
+        attemptPinLogin(savedPin);
+      }
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
 
     return () => {
       clearInterval(heartbeatTimer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
       window.removeEventListener('vtt:handout-broadcast', handleBroadcast);
       window.removeEventListener('vtt:handout-dismiss', handleDismiss);
       window.removeEventListener('vtt:dm-whisper', handleWhisper);
@@ -451,7 +467,7 @@
   }
 
   function attemptPinLogin(pinToVerify: string) {
-    const pin = pinToVerify.trim();
+    const pin = String(pinToVerify).trim();
     if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
       triggerAuthFailure('Wrong PIN');
       return;
@@ -468,9 +484,10 @@
       const rawRoster = localStorage.getItem('vtt_party_roster');
       if (rawRoster) {
         const roster = JSON.parse(rawRoster);
-        const match = roster.find((m: any) => m.pin === pin);
+        const match = roster.find((m: any) => String(m.pin).trim() === String(pin).trim());
         if (match) {
-          if (match.isOrbSealed) {
+          const isStowed = Boolean(match.isOrbSealed || match.isStowed || match.inReserve);
+          if (isStowed) {
             triggerAuthFailure('Character is currently in reserve. Contact the DM to return to active play.');
             return;
           }

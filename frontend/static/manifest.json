@@ -1,0 +1,25 @@
+{
+  "name": "5e SRD Virtual Tabletop",
+  "short_name": "5e-VTT",
+  "description": "Hardened 5e SRD Virtual Tabletop Workstation with Dual-Map Hierarchy and Local Storage",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#1e293b",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

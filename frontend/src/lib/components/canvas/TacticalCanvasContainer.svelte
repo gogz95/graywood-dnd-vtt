@@ -22,8 +22,13 @@
   import GeneratorDrawer from '../map/GeneratorDrawer.svelte';
   import CanvasDrawingToolbar, { type DrawTool } from '../map/CanvasDrawingToolbar.svelte';
   import { importDungeonScrawlFile } from '../../importers/dungeonScrawlImporter';
-  import { initDmSyncListener, broadcastBattlematUpdate } from '../../services/battlematSyncBridge';
+  import { initDmSyncListener, cleanupDmSyncListener, broadcastBattlematUpdate } from '../../services/battlematSyncBridge';
   import { pushMapToBattlemat } from '../../services/mapDispatchService';
+  import { mapsDb } from '../../db/mapsDb';
+  import { WeatherCanvasRenderer } from '../../canvas/weatherCanvasRenderer';
+  import TacticalHotbar from '../combat/TacticalHotbar.svelte';
+  import SceneEnvironmentWidget from '../dm/SceneEnvironmentWidget.svelte';
+  import type { WeatherType } from '../../types/maps';
 
   export interface MapToken {
     id: string;
@@ -34,6 +39,8 @@
     isPlayer: boolean;
     hp: number;
     maxHp: number;
+    size?: number;    // 1=Medium/Small, 2=Large, 3=Huge, 4=Gargantuan
+    ac?: number;
   }
 
   // ── Props ──────────────────────────────────────────────────────────────────
@@ -48,6 +55,10 @@
   // ── Canvas refs & context ──────────────────────────────────────────────────
   let canvasEl = $state<HTMLCanvasElement | null>(null);
   let ctx: CanvasRenderingContext2D | null = null;
+  let weatherCanvasEl = $state<HTMLCanvasElement | null>(null);
+  let weatherRenderer: WeatherCanvasRenderer | null = null;
+  let ingestionWorker: Worker | null = null;
+  let heightmapWorker: Worker | null = null;
 
   // ── Map settings ───────────────────────────────────────────────────────────
   let gridSize     = $state(60);     // px per cell
@@ -250,9 +261,10 @@
 
   function drawToken(c: CanvasRenderingContext2D, tok: MapToken) {
     const pad = gridSize * 0.1;
+    const tokScale = tok.size || 1;
     const x = tok.x * gridSize + pad;
     const y = tok.y * gridSize + pad;
-    const size = gridSize - pad * 2;
+    const size = gridSize * tokScale - pad * 2;
     const cx = x + size / 2;
     const cy = y + size / 2;
     const radius = size / 2;
@@ -325,7 +337,10 @@
   }
 
   function tokenAt(gx: number, gy: number): MapToken | undefined {
-    return tokens.find(t => t.x === gx && t.y === gy);
+    return tokens.find(t => {
+      const s = t.size || 1;
+      return gx >= t.x && gx < t.x + s && gy >= t.y && gy < t.y + s;
+    });
   }
 
   // ── Resize observer ────────────────────────────────────────────────────────
@@ -337,6 +352,17 @@
     if (canvasEl.width !== w || canvasEl.height !== h) {
       canvasEl.width  = w;
       canvasEl.height = h;
+    }
+    if (weatherCanvasEl && (weatherCanvasEl.width !== w || weatherCanvasEl.height !== h)) {
+      weatherCanvasEl.width = w;
+      weatherCanvasEl.height = h;
+    }
+  }
+
+  function handleWeatherChangedEvent(e: Event) {
+    const detail = (e as CustomEvent<{ type: WeatherType; intensity: number }>).detail;
+    if (detail && weatherRenderer) {
+      weatherRenderer.setWeatherPreset(detail.type, detail.intensity);
     }
   }
 
@@ -624,6 +650,60 @@
   async function handleCanvasDrop(e: DragEvent) {
     e.preventDefault();
     isDroppingMap = false;
+
+    // 0. Intercept MONSTER_TOKEN drop events from Bestiary
+    const rawData = e.dataTransfer?.getData('application/json') || e.dataTransfer?.getData('text/plain');
+    if (rawData) {
+      try {
+        const payload = JSON.parse(rawData);
+        if (payload && (payload.type === 'MONSTER_TOKEN' || payload.monsterId)) {
+          const { wx, wy } = screenToWorld(e.clientX, e.clientY);
+          const { gx, gy } = worldToGrid(wx, wy);
+
+          let tokenSize = 1;
+          const s = (payload.size || '').toLowerCase();
+          if (s.includes('large')) tokenSize = 2;
+          else if (s.includes('huge')) tokenSize = 3;
+          else if (s.includes('gargantuan')) tokenSize = 4;
+
+          const newTok: MapToken = {
+            id: `tok-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+            name: payload.name || 'Monster',
+            x: gx,
+            y: gy,
+            color: payload.color || '#ef4444',
+            isPlayer: false,
+            hp: payload.hp || 20,
+            maxHp: payload.hp || 20,
+            size: tokenSize,
+            ac: payload.ac || 10
+          };
+          tokens = [...tokens, newTok];
+
+          // Persist token if active battlemap in mapsDb
+          try {
+            const activeId = localStorage.getItem('vtt_active_battlemap_id');
+            if (activeId) {
+              mapsDb.tacticalMaps.get(activeId).then((map) => {
+                if (map) {
+                  const updatedTokens = [...(map.tokens || []), {
+                    tokenId: newTok.id,
+                    x: newTok.x,
+                    y: newTok.y,
+                    elevationFt: 0,
+                    isVisibleToPlayers: true
+                  }];
+                  mapsDb.tacticalMaps.update(activeId, { tokens: updatedTokens });
+                }
+              });
+            }
+          } catch (_) {}
+
+          return;
+        }
+      } catch (_) {}
+    }
+
     const files = e.dataTransfer?.files;
     if (!files || files.length === 0) return;
     const file = files[0];
@@ -720,20 +800,46 @@
     syncCanvasSize();
     resizeObserver = new ResizeObserver(() => { syncCanvasSize(); });
     resizeObserver.observe(canvasEl.parentElement!);
+    if (weatherCanvasEl) {
+      weatherRenderer = new WeatherCanvasRenderer(weatherCanvasEl);
+    }
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('vtt:load-battle-map', handleBattleMapEvent);
     window.addEventListener('vtt:spawn-token', handleSpawnTokenEvent);
+    window.addEventListener('vtt:weather-changed', handleWeatherChangedEvent);
     rafId = requestAnimationFrame(render);
   });
 
   onDestroy(() => {
     cancelAnimationFrame(rafId);
     resizeObserver?.disconnect();
+    weatherRenderer?.destroy();
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
     window.removeEventListener('vtt:load-battle-map', handleBattleMapEvent);
     window.removeEventListener('vtt:spawn-token', handleSpawnTokenEvent);
+    window.removeEventListener('vtt:weather-changed', handleWeatherChangedEvent);
+    cleanupDmSyncListener();
+    if (mapImageUrl && mapImageUrl.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(mapImageUrl);
+      } catch (_) {}
+    }
+    if (ingestionWorker) {
+      ingestionWorker.terminate();
+      ingestionWorker = null;
+    }
+    if (heightmapWorker) {
+      heightmapWorker.terminate();
+      heightmapWorker = null;
+    }
+    if (canvasEl) {
+      canvasEl.width = 0;
+      canvasEl.height = 0;
+    }
+    ctx = null;
+    mapImg = null;
   });
 </script>
 
@@ -987,8 +1093,21 @@
         oncontextmenu={handleContextMenu}
         onmouseleave={() => { hoveredCell = null; handleMouseUp(new MouseEvent('mouseup')); }}
       ></canvas>
-      <!-- Floating Vector Drawing & Fog Toolbar Overlay -->
-      <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
+
+      <!-- Weather Particle FX Canvas Layer -->
+      <canvas
+        bind:this={weatherCanvasEl}
+        class="absolute inset-0 pointer-events-none touch-none select-none z-10"
+      ></canvas>
+
+      <!-- Top-Right Floating Scene Weather & Environment Widget -->
+      <div class="absolute top-3 right-4 z-20 pointer-events-auto">
+        <SceneEnvironmentWidget />
+      </div>
+
+      <!-- Floating Vector Drawing, Weather & Macro Hotbar Overlays -->
+      <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex flex-col items-center gap-2">
+        <TacticalHotbar />
         <CanvasDrawingToolbar />
       </div>
 

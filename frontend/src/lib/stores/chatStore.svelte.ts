@@ -3,6 +3,7 @@
 // Svelte 5 runes implementation managing dice rolls, arithmetic breakdowns, and public/secret whisper channels.
 
 import { audioEngine } from '../audio/AudioEngine';
+import { soundboardEngine } from '../audio/soundboardEngine';
 import { sendWsEvent, latestDiceRollStore } from '../../stores/websocketStore';
 
 export interface RollTerm {
@@ -293,8 +294,11 @@ class ChatStore {
     };
 
     // Play appropriate sound effect
+    soundboardEngine.onDiceRoll(breakdown.isCritical, breakdown.isFumble);
     if (breakdown.isCritical) {
       audioEngine.triggerSfx('sfx-critical');
+    } else if (breakdown.isFumble) {
+      audioEngine.triggerSfx('sfx-fumble');
     } else if (actionType === 'attack') {
       audioEngine.triggerSfx('sfx-sword');
     } else {

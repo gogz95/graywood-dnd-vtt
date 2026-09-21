@@ -17,6 +17,7 @@
   import { chatStore } from '../../stores/chatStore.svelte';
   import { compendiumStore } from '../../stores/compendiumStore.svelte';
   import type { CompendiumMonster } from '../../db/compendiumDb';
+  import { rulesEngine } from '../../stores/rulesEngine.svelte';
 
   const STORAGE_KEY = 'vtt_encounters';
   const CONDITIONS = ['Blinded','Charmed','Deafened','Frightened','Grappled',
@@ -164,12 +165,23 @@
   function addCombatant() {
     if (!activeEncounterId || !newCombatantName.trim()) return;
     const nc: ActiveCombatant = {
-      id: genCombId(), encounter_id: activeEncounterId, token_id: '',
-      name: newCombatantName.trim(), initiative: newCombatantInit,
-      hp_current: newCombatantHp, hp_max: newCombatantHp, temp_hp: 0,
-      ac: newCombatantAc, is_monster: newIsMonster,
-      monster_compendium_id: null, multiattack_profile: null, conditions: [],
+      id: genCombId(),
+      encounter_id: activeEncounterId,
+      token_id: '',
+      name: newCombatantName.trim(),
+      initiative: Number(newCombatantInit) || 10,
+      hp_current: Number(newCombatantHp) || 20,
+      hp_max: Number(newCombatantHp) || 20,
+      temp_hp: 0,
+      ac: Number(newCombatantAc) || 10,
+      is_monster: newIsMonster,
+      monster_compendium_id: null,
+      multiattack_profile: null,
+      conditions: [],
     };
+    if (rulesEngine.isEnabled('enableDurabilitySystem')) {
+      (nc as any).durability = { currentRp: 10, maxRp: 10, isSundered: false };
+    }
     allEncounters = {
       ...allEncounters,
       [activeEncounterId]: { ...allEncounters[activeEncounterId], combatants: [...combatants, nc] },
@@ -192,18 +204,20 @@
 
   function rollAllInitiatives() {
     if (!activeEncounterId) return;
+    const triEnabled = rulesEngine.isEnabled('enableTriStatInitiative');
     allEncounters = {
       ...allEncounters,
       [activeEncounterId]: {
         ...allEncounters[activeEncounterId],
         combatants: combatants.map(c => {
           const scores = c.scores || { dex: 14, int: 10, wis: 10 };
-          const tri = calculateTriStatInitiative(scores);
+          const dexMod = Math.floor(((scores.dex ?? 10) - 10) / 2);
+          const tri = triEnabled ? calculateTriStatInitiative(scores) : { bonus: dexMod, bestStat: 'DEX' as const };
           const roll = Math.ceil(Math.random() * 20);
           return {
             ...c,
             initiative: roll + tri.bonus,
-            init_stat: tri.bestStat,
+            init_stat: triEnabled ? tri.bestStat : undefined,
           };
         }),
       },

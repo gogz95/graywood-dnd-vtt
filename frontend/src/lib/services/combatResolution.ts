@@ -5,8 +5,9 @@ import { canvasStore, type CanvasToken } from '../../stores/canvasStore.svelte';
 import { targetingStore } from '../stores/targetingStore.svelte';
 import { chatStore } from '../stores/chatStore.svelte';
 import { automationSettings } from '../stores/automationSettings.svelte';
-import { promptManualRoll } from './physicalDiceService.svelte';
+import { physicalDiceService, promptManualRoll } from './physicalDiceService.svelte';
 import { audioEngine } from '../audio/AudioEngine';
+import { calculateCover, type CoverResult } from '../mechanics/coverCalculator';
 
 export interface AttackResolutionResult {
   isTargeted: boolean;
@@ -24,7 +25,8 @@ export interface AttackResolutionResult {
  */
 export function resolveAttackAgainstTarget(
   totalAttackRoll: number,
-  isNatural20: boolean = false
+  isNatural20: boolean = false,
+  attackerId?: string
 ): AttackResolutionResult {
   const targetId = targetingStore.activeTargetTokenId;
   if (!targetId) {
@@ -36,32 +38,67 @@ export function resolveAttackAgainstTarget(
   }
 
   const token = canvasStore.tokens.find(t => t.id === targetId);
-  const targetAc = token?.ac || 10;
+  const baseAc = token?.ac || 10;
   const targetName = token?.name || 'Target';
+
+  // Calculate Ray-cast Cover against attacker
+  const attackerTokenId = attackerId || canvasStore.activeTokenId;
+  const attacker = attackerTokenId ? canvasStore.tokens.find(t => t.id === attackerTokenId) : undefined;
+
+  let coverResult: CoverResult | null = null;
+  if (attacker && token) {
+    const wallsAsMapWalls = canvasStore.walls.map((w, idx) => ({
+      id: `w-${idx}`,
+      p1: { x: w.p1.x, y: w.p1.y },
+      p2: { x: w.p2.x, y: w.p2.y },
+      type: 'wall' as const,
+    }));
+    coverResult = calculateCover(attacker, token, wallsAsMapWalls, canvasStore.tokens, canvasStore.gridSize);
+  }
+
+  if (coverResult && !coverResult.canTarget) {
+    return {
+      isTargeted: true,
+      targetId,
+      targetName,
+      targetAc: baseAc + coverResult.acBonus,
+      isHit: false,
+      isCrit: false,
+      summaryText: `🛡️ Attack Blocked! Target has Total Cover.`,
+      badgeClass: 'bg-slate-900 text-slate-400 border border-slate-700',
+    };
+  }
+
+  const effectiveAc = baseAc + (coverResult?.acBonus || 0);
+  const coverLabel = coverResult && coverResult.coverType !== 'none' ? ` [${coverResult.description}]` : '';
 
   if (isNatural20) {
     return {
       isTargeted: true,
       targetId,
       targetName,
-      targetAc,
+      targetAc: effectiveAc,
       isHit: true,
       isCrit: true,
-      summaryText: `⭐ CRITICAL HIT! (${totalAttackRoll} vs AC ${targetAc})`,
+      summaryText: `⭐ CRITICAL HIT! (${totalAttackRoll} vs AC ${effectiveAc}${coverLabel})`,
       badgeClass: 'bg-amber-500 text-slate-950 font-black',
     };
   }
 
-  const isHit = totalAttackRoll >= targetAc;
+  const isHit = totalAttackRoll >= effectiveAc;
   return {
     isTargeted: true,
     targetId,
     targetName,
-    targetAc,
+    targetAc: effectiveAc,
     isHit,
     isCrit: false,
-    summaryText: isHit ? `🎯 Hit! (${totalAttackRoll} vs AC ${targetAc})` : `🛡️ Miss! (${totalAttackRoll} vs AC ${targetAc})`,
-    badgeClass: isHit ? 'bg-emerald-900/80 text-emerald-200 border border-emerald-500/50' : 'bg-rose-950/80 text-rose-300 border border-rose-800/50',
+    summaryText: isHit
+      ? `🎯 Hit! (${totalAttackRoll} vs AC ${effectiveAc}${coverLabel})`
+      : `🛡️ Miss! (${totalAttackRoll} vs AC ${effectiveAc}${coverLabel})`,
+    badgeClass: isHit
+      ? 'bg-emerald-900/80 text-emerald-200 border border-emerald-500/50'
+      : 'bg-rose-950/80 text-rose-300 border border-rose-800/50',
   };
 }
 
@@ -127,8 +164,8 @@ export async function applyDamageToToken(
       }
     } else {
       try {
-        const manualSave = await promptManualRoll({
-          title: `${token.name} Concentration Check`,
+        const manualSave = await physicalDiceService.promptManualRoll({
+          title: 'Concentration Saving Throw',
           formula: '1d20 + CON',
           dc,
           actorName: token.name,

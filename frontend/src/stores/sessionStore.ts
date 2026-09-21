@@ -700,6 +700,42 @@ export class SessionStoreManager {
     return { success: true, effectiveCr };
   }
 
+  /**
+   * Validates player PIN against party roster.
+   * Enforces normalized string coercion and verifies that active party members
+   * with isStowed: false (or !character.inReserve) are immediately authenticated.
+   */
+  verifyCompanionPin(enteredPin: string | number): {
+    authenticated: boolean;
+    character?: any;
+    error?: string;
+  } {
+    const pin = String(enteredPin).trim();
+    if (!pin || pin.length !== 4) {
+      return { authenticated: false, error: 'Wrong PIN' };
+    }
+    try {
+      const rawRoster = typeof localStorage !== 'undefined' ? localStorage.getItem('vtt_party_roster') : null;
+      if (rawRoster) {
+        const roster = JSON.parse(rawRoster);
+        const match = roster.find((c: any) => String(c.pin).trim() === pin);
+        if (match) {
+          const isStowed = Boolean(match.isOrbSealed || match.isStowed || match.inReserve);
+          if (isStowed) {
+            return {
+              authenticated: false,
+              error: 'Character is currently in reserve. Contact the DM to return to active play.'
+            };
+          }
+          return { authenticated: true, character: match };
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return { authenticated: false, error: 'Wrong PIN' };
+  }
+
   get collaborativeStash(): PartyStashItem[] {
     return this.getPartyStash();
   }

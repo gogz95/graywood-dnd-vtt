@@ -14,6 +14,8 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
     "paths": {
+      "$lib": ["./src/lib"],
+      "$lib/*": ["./src/lib/*"],
       "pixi.js": ["../node_modules/pixi.js/lib/index.d.ts"],
       "visibility-polygon": ["../node_modules/visibility-polygon/index.d.ts"],
       "vitest": ["../node_modules/vitest/dist/index.d.ts"]

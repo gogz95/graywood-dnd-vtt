@@ -3,7 +3,23 @@
 // Stores parsed documents and extracted chunks directly into sourceDb (IndexedDB).
 
 import JSZip from 'jszip';
+import { writable } from 'svelte/store';
 import { sourceDb, type SourceDocument, type SourceChunk } from '../db/sourceStore';
+import { sniffMagicFormat, cleanTwoColumnTextStream } from '../workers/ingestionWorker';
+
+export interface IngestionProgressState {
+  isActive: boolean;
+  fileName: string;
+  progressPercent: number;
+  currentStep: string;
+}
+
+export const ingestionProgressStore = writable<IngestionProgressState>({
+  isActive: false,
+  fileName: '',
+  progressPercent: 0,
+  currentStep: '',
+});
 
 export interface IngestionFileResult {
   fileName: string;
@@ -30,6 +46,13 @@ export async function ingestUniversalFile(
 ): Promise<IngestionFileResult[]> {
   const ext = getExtension(fileName).toLowerCase();
   const results: IngestionFileResult[] = [];
+
+  ingestionProgressStore.set({
+    isActive: true,
+    fileName,
+    progressPercent: 10,
+    currentStep: `Preparing ${fileName}…`,
+  });
 
   try {
     switch (ext) {
@@ -80,6 +103,13 @@ export async function ingestUniversalFile(
       success: false,
       error: err?.message || 'Ingestion failure'
     });
+  } finally {
+    ingestionProgressStore.set({
+      isActive: false,
+      fileName,
+      progressPercent: 100,
+      currentStep: 'Ingestion completed',
+    });
   }
 
   return results;
@@ -88,6 +118,9 @@ export async function ingestUniversalFile(
 // ── 1. Markdown & Plaintext Chunking (~500 words per chunk) ──────────────────
 
 async function processTextOrMarkdown(file: File | Blob, fileName: string): Promise<IngestionFileResult> {
+  if (fileName.toLowerCase().endsWith('.pdf') || (file.type && file.type === 'application/pdf')) {
+    return processPdfFile(file, fileName);
+  }
   const text = await file.text();
   const docId = `doc-${generateId()}`;
   const now = Date.now();
@@ -447,8 +480,14 @@ async function processPdfFile(file: File | Blob, fileName: string): Promise<Inge
         .map((item: any) => item.str || '')
         .filter((str: string) => str.trim().length > 0);
 
-      const pageText = pageStrings.join(' ');
-      if (pageText.trim().length > 0) {
+      const rawText = pageStrings.join(' ');
+      const pageText = rawText
+        .replace(/\b\d+\s+0\s+[Rnf]\b/g, '')
+        .replace(/<<[\s\S]*?>>/g, '')
+        .replace(/\b(obj|endobj|xref|trailer|startxref)\b/g, '')
+        .trim();
+
+      if (pageText.length > 0) {
         extractedText += `\n\n--- Page ${pageNum} ---\n\n` + pageText;
         chunks.push({
           id: `chunk-${docId}-${pageNum - 1}`,
@@ -456,7 +495,7 @@ async function processPdfFile(file: File | Blob, fileName: string): Promise<Inge
           docName: fileName,
           chunkIndex: pageNum - 1,
           sectionHeader: `${fileName} — Page ${pageNum}`,
-          text: pageText.trim(),
+          text: pageText,
         });
       }
     }

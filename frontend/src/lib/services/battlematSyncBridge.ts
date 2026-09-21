@@ -39,6 +39,12 @@ export function initDmSyncListener() {
   };
 }
 
+export function cleanupDmSyncListener() {
+  if (broadcastChannel) {
+    broadcastChannel.onmessage = null;
+  }
+}
+
 export function initProjectorSyncListener(onUpdate: (msg: SyncMessage) => void) {
   if (broadcastChannel) {
     broadcastChannel.onmessage = (event: MessageEvent<SyncMessage>) => {

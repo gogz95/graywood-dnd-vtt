@@ -3,6 +3,7 @@
   import RootWorkspace from './routes/+page.svelte';
   import PlayerCompanionPortal from './routes/play/+page.svelte';
   import ProjectorBattleMatView from './routes/projector/+page.svelte';
+  import ErrorBoundary from './lib/components/system/ErrorBoundary.svelte';
 
   type Route = 'workspace' | 'play' | 'projector';
 
@@ -35,10 +36,12 @@
   });
 </script>
 
-{#if currentRoute === 'projector'}
-  <ProjectorBattleMatView />
-{:else if currentRoute === 'play'}
-  <PlayerCompanionPortal />
-{:else}
-  <RootWorkspace />
-{/if}
+<ErrorBoundary>
+  {#if currentRoute === 'projector'}
+    <ProjectorBattleMatView />
+  {:else if currentRoute === 'play'}
+    <PlayerCompanionPortal />
+  {:else}
+    <RootWorkspace />
+  {/if}
+</ErrorBoundary>

@@ -27,6 +27,7 @@
   import LoreIngestionSettingsTab from './LoreIngestionSettingsTab.svelte';
   import HomebrewSettingsTab from './HomebrewSettingsTab.svelte';
   import AutomationSettingsTab from './AutomationSettingsTab.svelte';
+  import StorageStatusWidget from '../dm/StorageStatusWidget.svelte';
 
   let { isOpen = $bindable(false) }: { isOpen?: boolean } = $props();
   let showKbModal = $state(false);
@@ -452,6 +453,9 @@
               <span class="font-mono text-slate-400">{formatRelativeTime(lastAutosavedTime)}</span>
             </div>
           </div>
+
+          <!-- Local IndexedDB Storage Quota & Health Monitor -->
+          <StorageStatusWidget />
         </div>
       {/if}
 

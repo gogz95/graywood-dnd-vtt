@@ -10,11 +10,17 @@
   import PartyRosterView from '../lib/components/party/PartyRosterView.svelte';
   import EncounterDashboard from '../lib/components/dm/EncounterDashboard.svelte';
   import TacticalMat from '../lib/components/canvas/TacticalMat.svelte';
+  import AtlasMapView from '../lib/components/map/AtlasMapView.svelte';
+  import ProjectorCastingBar from '../lib/components/navigation/ProjectorCastingBar.svelte';
   import LoreWikiView from '../lib/components/lore/LoreWikiView.svelte';
   import HandoutStudioView from '../lib/components/handouts/HandoutStudioView.svelte';
   import PlayerHandoutModal from '../lib/components/handouts/PlayerHandoutModal.svelte';
   import SoundboardDrawer from '../lib/components/audio/SoundboardDrawer.svelte';
   import SettingsModal from '../lib/components/settings/SettingsModal.svelte';
+  import FirstRunWizardModal from '../lib/components/modals/FirstRunWizardModal.svelte';
+  import OmnibarPalette from '../lib/components/navigation/OmnibarPalette.svelte';
+  import BestiaryDrawer from '../lib/components/bestiary/BestiaryDrawer.svelte';
+  import CalendarDisplayWidget from '../lib/components/navigation/CalendarDisplayWidget.svelte';
 
   // Aleamos Downtime, Logistics & Crafting
   import AlchemyWorkbench from '../lib/components/crafting/AlchemyWorkbench.svelte';
@@ -41,11 +47,13 @@
 
   // ── State ──────────────────────────────────────────────────────────────────
   let activeTab = $state<DmTab>('party');
+  let dmMapMode = $state<'tactical' | 'atlas'>('tactical');
   let campaignName = $state(typeof localStorage !== 'undefined' ? localStorage.getItem('vtt_campaign_name') || 'My 5e Campaign' : 'My 5e Campaign');
 
   // Modals & Popovers
   let isSettingsOpen = $state(false);
   let isPlayerPortalOpen = $state(false);
+  let isBestiaryOpen = $state(false);
 
   let stopAutoSaver: (() => void) | null = null;
   let dropCleanup: (() => void) | null = null;
@@ -94,8 +102,16 @@
       <span class="text-xs text-slate-400 font-semibold truncate">{campaignName}</span>
     </div>
 
-    <!-- Right: Player Portal launcher, Right Dock toggles, Audio, Settings -->
+    <!-- Center: In-World Campaign Calendar & Timekeeping -->
+    <CalendarDisplayWidget />
+
+    <!-- Right: Projector Casting, Player Portal launcher, Right Dock toggles, Audio, Settings -->
     <div class="flex items-center gap-2 shrink-0">
+
+      <!-- Projector Casting Switchboard -->
+      <ProjectorCastingBar />
+
+      <span class="w-px h-4 bg-slate-800 mx-0.5"></span>
 
       <!-- Player Join Portal Button -->
       <div>
@@ -149,6 +165,14 @@
         </button>
         <button
           type="button"
+          onclick={() => isBestiaryOpen = !isBestiaryOpen}
+          class="px-2 py-1 rounded text-[10px] font-bold transition-colors {isBestiaryOpen ? 'bg-amber-600 text-white font-black shadow-sm' : 'text-slate-400 hover:text-slate-200'}"
+          title="5e SRD Bestiary & Monster Compendium"
+        >
+          🐉 Bestiary
+        </button>
+        <button
+          type="button"
           onclick={() => chatStore.toggle()}
           class="px-2 py-1 rounded text-[10px] font-bold transition-colors {chatStore.isOpen ? 'bg-amber-500 text-slate-950 font-black' : 'text-amber-400/90 hover:text-amber-300'}"
           title="Session Chat & Universal Dice Log"
@@ -195,9 +219,31 @@
           <EncounterDashboard />
         </div>
 
-        <!-- 🗺️ Tactical Mat PixiJS Canvas -->
+        <!-- 🗺️ Tactical Mat PixiJS Canvas / Overland World Atlas -->
         <div class="absolute inset-0 {activeTab === 'battlemat' ? '' : 'hidden'}">
-          <TacticalMat />
+          <!-- DM Map View Mode Switcher -->
+          <div class="absolute top-3 right-4 z-20 flex items-center gap-1 bg-slate-900/90 backdrop-blur-md border border-slate-800 p-1 rounded-xl shadow-xl text-xs">
+            <button
+              type="button"
+              onclick={() => dmMapMode = 'tactical'}
+              class="px-2.5 py-1 rounded-lg font-bold transition-all {dmMapMode === 'tactical' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}"
+            >
+              ⚔️ Tactical Battlemap
+            </button>
+            <button
+              type="button"
+              onclick={() => dmMapMode = 'atlas'}
+              class="px-2.5 py-1 rounded-lg font-bold transition-all {dmMapMode === 'atlas' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}"
+            >
+              🗺️ World Atlas
+            </button>
+          </div>
+
+          {#if dmMapMode === 'atlas'}
+            <AtlasMapView isDm={true} />
+          {:else}
+            <TacticalMat />
+          {/if}
         </div>
 
         <!-- ⚗️ Alchemy Lab & Crafting Workbench -->
@@ -231,6 +277,7 @@
 
   <!-- Global Non-Blocking Floating Panels, Modals, and Overlays -->
   <SoundboardDrawer />
+  <BestiaryDrawer bind:isOpen={isBestiaryOpen} />
   <SettingsModal bind:isOpen={isSettingsOpen} />
   <PlayerCompanionPortalModal bind:isOpen={isPlayerPortalOpen} />
   <PlayerHandoutModal />
@@ -252,4 +299,10 @@
 
   <!-- Global Physical Tabletop Dice Manual Input Modal -->
   <PhysicalDicePromptModal />
+
+  <!-- Global Omnibar Search & Command Palette (Ctrl+K) -->
+  <OmnibarPalette />
+
+  <!-- Initial Setup Wizard Modal -->
+  <FirstRunWizardModal />
 </div>

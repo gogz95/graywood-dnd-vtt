@@ -28,6 +28,8 @@
   import { initProjectorSyncListener, type SyncMessage } from '../../lib/services/battlematSyncBridge';
   import { fogOfWarLayer } from '../../lib/canvas/fogOfWarLayer';
   import InitiativeRibbon from '../../lib/components/combat/InitiativeRibbon.svelte';
+  import { projectorStore } from '../../lib/stores/projectorStore.svelte';
+  import AtlasMapView from '../../lib/components/map/AtlasMapView.svelte';
 
   let canvasEl = $state<HTMLCanvasElement | null>(null);
   let ctx: CanvasRenderingContext2D | null = null;
@@ -209,24 +211,26 @@
     }
 
     // 6. Tactical Grid
-    const startCol = Math.floor(-vp.x / vp.zoom / gridSize) - 1;
-    const startRow = Math.floor(-vp.y / vp.zoom / gridSize) - 1;
-    const cols = Math.ceil(w / vp.zoom / gridSize) + 2;
-    const rows = Math.ceil(h / vp.zoom / gridSize) + 2;
+    if (projectorStore.playerSettings.showGrid) {
+      const startCol = Math.floor(-vp.x / vp.zoom / gridSize) - 1;
+      const startRow = Math.floor(-vp.y / vp.zoom / gridSize) - 1;
+      const cols = Math.ceil(w / vp.zoom / gridSize) + 2;
+      const rows = Math.ceil(h / vp.zoom / gridSize) + 2;
 
-    ctx.strokeStyle = `rgba(99, 102, 241, ${canvasStore.gridOpacity * 0.75})`;
-    ctx.lineWidth = 0.6 / vp.zoom;
-    for (let c = startCol; c <= startCol + cols; c++) {
-      ctx.beginPath();
-      ctx.moveTo(c * gridSize, startRow * gridSize);
-      ctx.lineTo(c * gridSize, (startRow + rows) * gridSize);
-      ctx.stroke();
-    }
-    for (let r = startRow; r <= startRow + rows; r++) {
-      ctx.beginPath();
-      ctx.moveTo(startCol * gridSize, r * gridSize);
-      ctx.lineTo((startCol + cols) * gridSize, r * gridSize);
-      ctx.stroke();
+      ctx.strokeStyle = `rgba(99, 102, 241, ${canvasStore.gridOpacity * 0.75})`;
+      ctx.lineWidth = 0.6 / vp.zoom;
+      for (let c = startCol; c <= startCol + cols; c++) {
+        ctx.beginPath();
+        ctx.moveTo(c * gridSize, startRow * gridSize);
+        ctx.lineTo(c * gridSize, (startRow + rows) * gridSize);
+        ctx.stroke();
+      }
+      for (let r = startRow; r <= startRow + rows; r++) {
+        ctx.beginPath();
+        ctx.moveTo(startCol * gridSize, r * gridSize);
+        ctx.lineTo((startCol + cols) * gridSize, r * gridSize);
+        ctx.stroke();
+      }
     }
 
     // 7. Dynamic Fog of War & Player Line-of-Sight Masking
@@ -377,14 +381,16 @@
 
     // Player Vitality Bar vs. Monster Vitality Pip
     if (tok.isPlayer) {
-      // Players see their own HP bar
-      const barH = Math.max(3, gridSize * 0.08);
-      const barY = y + size - barH - 2;
-      c.fillStyle = 'rgba(0,0,0,0.6)';
-      c.fillRect(x + 2, barY, size - 4, barH);
-      const pct = Math.max(0, Math.min(1, tok.hp / tok.maxHp));
-      c.fillStyle = pct <= 0.25 ? '#ef4444' : pct <= 0.5 ? '#f59e0b' : '#22c55e';
-      c.fillRect(x + 2, barY, (size - 4) * pct, barH);
+      if (projectorStore.playerSettings.showHealthBars) {
+        // Players see their own HP bar
+        const barH = Math.max(3, gridSize * 0.08);
+        const barY = y + size - barH - 2;
+        c.fillStyle = 'rgba(0,0,0,0.6)';
+        c.fillRect(x + 2, barY, size - 4, barH);
+        const pct = Math.max(0, Math.min(1, tok.hp / tok.maxHp));
+        c.fillStyle = pct <= 0.25 ? '#ef4444' : pct <= 0.5 ? '#f59e0b' : '#22c55e';
+        c.fillRect(x + 2, barY, (size - 4) * pct, barH);
+      }
     } else {
       // Monsters NEVER show exact HP numbers to players — show Vitality state pip
       const vit = getVitalityState(tok.hp, tok.maxHp);
@@ -406,89 +412,151 @@
   <title>Projector Battle Mat — Aleamos 5e VTT</title>
 </svelte:head>
 
-<div class="fixed inset-0 bg-slate-950 text-slate-100 font-sans select-none overflow-hidden flex flex-col">
+{#if projectorStore.castSource === 'blackout'}
+  <!-- Blackout Mode: Pitch black screen -->
+  <div class="fixed inset-0 bg-black z-50 flex items-center justify-center select-none cursor-none" aria-label="Projector Blackout"></div>
+{:else if projectorStore.castSource === 'atlas'}
+  <!-- World Atlas Mode: Overland vector map with POI pins -->
+  <div class="fixed inset-0 bg-slate-950 text-slate-100 font-sans select-none overflow-hidden flex flex-col">
+    <InitiativeRibbon isDm={false} />
+    <div class="relative flex-1 w-full h-full">
+      <AtlasMapView isDm={false} activeMapId={projectorStore.activeMapId} />
+    </div>
+    <!-- Bottom-Left Status Watermark -->
+    <div class="absolute bottom-3 left-4 z-10 pointer-events-none text-[10px] font-mono font-bold text-slate-600/70 uppercase tracking-wider flex items-center gap-2">
+      <span>PROJECTOR ATLAS DISPLAY</span>
+      <span class="text-emerald-500/80">🗺️ OVERLAND VIEW</span>
+    </div>
+  </div>
+{:else if projectorStore.castSource === 'handout'}
+  <!-- Handout Mode: Full-screen framed visual with parchment backing & vignette -->
+  <div class="fixed inset-0 bg-stone-950 text-stone-900 font-serif select-none overflow-hidden flex flex-col items-center justify-center p-6 md:p-12">
+    <!-- Ambient dark vignette background -->
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_transparent_40%,_rgba(0,0,0,0.85)_100%)] pointer-events-none z-10"></div>
 
-  <!-- ═════════════════════════════════════════════════════════════════════════
-       SHARED INITIATIVE RIBBON (PLAYER-FACING, READ-ONLY)
-  ══════════════════════════════════════════════════════════════════════════ -->
-  <InitiativeRibbon isDm={false} />
+    <div class="relative z-20 max-w-4xl w-full max-h-[90vh] flex flex-col bg-[#f4ebd0] border-4 border-[#8c6d46] rounded-lg shadow-2xl overflow-hidden p-6 md:p-8 text-stone-900">
+      {#if projectorStore.activeHandout}
+        <h1 class="text-2xl md:text-4xl font-bold font-serif tracking-wider text-center text-[#3b2a1a] border-b-2 border-[#8c6d46]/40 pb-3 mb-6">
+          {projectorStore.activeHandout.title}
+        </h1>
 
-  {#if liveCombat && liveCombat.combatants && liveCombat.combatants.length > 0}
-    {@const activeCombatant = liveCombat.combatants.find(c => c.is_active)}
-    {@const onDeckCombatant = liveCombat.combatants.find(c => c.is_on_deck)}
-    <div class="absolute top-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-      <div class="flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-slate-950/80 backdrop-blur-md border border-slate-800/80 shadow-2xl shadow-indigo-950/50">
-        
-        <!-- Round Badge -->
-        <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-indigo-950/80 border border-indigo-500/40 text-indigo-200 text-xs font-mono font-black">
-          <span>⚔️</span>
-          <span>RND {liveCombat.round}</span>
-        </div>
-
-        <!-- Active Combatant -->
-        <div class="flex items-center gap-2">
-          <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Turn:</span>
-          {#if activeCombatant}
-            {@const tok = canvasStore.tokens.find(t => t.id === activeCombatant.id || t.name.toLowerCase() === activeCombatant.name.toLowerCase())}
-            {@const isMonsterHiddenByFog = !activeCombatant.is_player && canvasStore.dynamicLightingEnabled && activeVisionPolygons.length > 0 && tok
-              ? !activeVisionPolygons.some(({ polygon }) => isPointInPolygon({ x: (tok.x + 0.5) * canvasStore.gridSize, y: (tok.y + 0.5) * canvasStore.gridSize }, polygon))
-              : false}
-            {@const isRedacted = Boolean(activeCombatant.is_hidden || isMonsterHiddenByFog)}
-            {@const vit = tok ? getVitalityState(tok.hp, tok.maxHp) : null}
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-black text-amber-300 animate-pulse">
-                {isRedacted ? 'Unknown Creature' : activeCombatant.name}
-              </span>
-              {#if vit && !activeCombatant.is_player && !isRedacted}
-                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border {vit.badgeBg} {vit.textColor} {vit.borderColor}">
-                  {vit.label}
-                </span>
-              {/if}
+        <div class="flex-1 overflow-y-auto flex flex-col items-center gap-6 pr-2">
+          {#if projectorStore.activeHandout.imageUrl}
+            <div class="max-h-[55vh] flex items-center justify-center border-2 border-[#8c6d46]/50 rounded p-2 bg-[#ebdcb9]/40 shadow-inner">
+              <img
+                src={projectorStore.activeHandout.imageUrl}
+                alt={projectorStore.activeHandout.title}
+                class="max-h-[50vh] max-w-full object-contain rounded drop-shadow-md"
+              />
             </div>
-          {:else}
-            <span class="text-sm font-bold text-slate-400">None</span>
+          {/if}
+
+          {#if projectorStore.activeHandout.playerContent}
+            <div class="w-full prose prose-stone max-w-none text-base md:text-lg leading-relaxed text-[#2c1d11] whitespace-pre-line text-center md:text-left font-serif">
+              {projectorStore.activeHandout.playerContent}
+            </div>
           {/if}
         </div>
-
-        <!-- Divider -->
-        <div class="w-px h-5 bg-slate-800"></div>
-
-        <!-- On Deck Combatant -->
-        {#if onDeckCombatant}
-          {@const onDeckTok = canvasStore.tokens.find(t => t.id === onDeckCombatant.id || t.name.toLowerCase() === onDeckCombatant.name.toLowerCase())}
-          {@const isOnDeckHiddenByFog = !onDeckCombatant.is_player && canvasStore.dynamicLightingEnabled && activeVisionPolygons.length > 0 && onDeckTok
-            ? !activeVisionPolygons.some(({ polygon }) => isPointInPolygon({ x: (onDeckTok.x + 0.5) * canvasStore.gridSize, y: (onDeckTok.y + 0.5) * canvasStore.gridSize }, polygon))
-            : false}
-          <div class="flex items-center gap-1.5 text-xs text-slate-400">
-            <span class="text-[10px] uppercase font-semibold">On Deck:</span>
-            <span class="font-bold text-slate-200">
-              {onDeckCombatant.is_hidden || isOnDeckHiddenByFog ? 'Unknown' : onDeckCombatant.name}
-            </span>
-          </div>
-        {/if}
-
-      </div>
+      {:else}
+        <div class="flex flex-col items-center justify-center py-20 text-stone-500 font-sans">
+          <span class="text-4xl mb-3">📜</span>
+          <p class="text-lg">No handout currently selected for display.</p>
+        </div>
+      {/if}
     </div>
-  {/if}
 
-  <!-- ═════════════════════════════════════════════════════════════════════════
-       FULLSCREEN BATTLE MAT CANVAS
-  ══════════════════════════════════════════════════════════════════════════ -->
-  <div class="relative flex-1 w-full h-full">
-    <canvas
-      bind:this={canvasEl}
-      class="block w-full h-full cursor-default"
-    ></canvas>
+    <!-- Bottom Status Watermark -->
+    <div class="absolute bottom-3 left-4 z-20 pointer-events-none text-[10px] font-mono font-bold text-stone-500/80 uppercase tracking-wider flex items-center gap-2">
+      <span>PROJECTOR HANDOUT DISPLAY</span>
+      <span class="text-amber-500/90">📜 PLAYER LORE</span>
+    </div>
   </div>
+{:else}
+  <!-- Battlemap Mode: Full Tactical Canvas -->
+  <div class="fixed inset-0 bg-slate-950 text-slate-100 font-sans select-none overflow-hidden flex flex-col">
 
-  <!-- Bottom-Left Decoupled Status Watermark -->
-  <div class="absolute bottom-3 left-4 z-10 pointer-events-none text-[10px] font-mono font-bold text-slate-600/70 uppercase tracking-wider flex items-center gap-2">
-    <span>PROJECTOR DISPLAY</span>
-    {#if canvasStore.lockProjectorPan}
-      <span class="text-amber-500/80">🔒 CAMERA LOCKED</span>
-    {:else}
-      <span class="text-emerald-500/80">🎥 SYNCED TO DM</span>
+    <!-- ═════════════════════════════════════════════════════════════════════════
+         SHARED INITIATIVE RIBBON (PLAYER-FACING, READ-ONLY)
+    ══════════════════════════════════════════════════════════════════════════ -->
+    <InitiativeRibbon isDm={false} />
+
+    {#if liveCombat && liveCombat.combatants && liveCombat.combatants.length > 0}
+      {@const activeCombatant = liveCombat.combatants.find(c => c.is_active)}
+      {@const onDeckCombatant = liveCombat.combatants.find(c => c.is_on_deck)}
+      <div class="absolute top-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+        <div class="flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-slate-950/80 backdrop-blur-md border border-slate-800/80 shadow-2xl shadow-indigo-950/50">
+          
+          <!-- Round Badge -->
+          <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-indigo-950/80 border border-indigo-500/40 text-indigo-200 text-xs font-mono font-black">
+            <span>⚔️</span>
+            <span>RND {liveCombat.round}</span>
+          </div>
+
+          <!-- Active Combatant -->
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Turn:</span>
+            {#if activeCombatant}
+              {@const tok = canvasStore.tokens.find(t => t.id === activeCombatant.id || t.name.toLowerCase() === activeCombatant.name.toLowerCase())}
+              {@const isMonsterHiddenByFog = !activeCombatant.is_player && canvasStore.dynamicLightingEnabled && activeVisionPolygons.length > 0 && tok
+                ? !activeVisionPolygons.some(({ polygon }) => isPointInPolygon({ x: (tok.x + 0.5) * canvasStore.gridSize, y: (tok.y + 0.5) * canvasStore.gridSize }, polygon))
+                : false}
+              {@const isRedacted = Boolean(activeCombatant.is_hidden || isMonsterHiddenByFog)}
+              {@const vit = tok ? getVitalityState(tok.hp, tok.maxHp) : null}
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-black text-amber-300 animate-pulse">
+                  {isRedacted ? 'Unknown Creature' : activeCombatant.name}
+                </span>
+                {#if vit && !activeCombatant.is_player && !isRedacted}
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border {vit.badgeBg} {vit.textColor} {vit.borderColor}">
+                    {vit.label}
+                  </span>
+                {/if}
+              </div>
+            {:else}
+              <span class="text-sm font-bold text-slate-400">None</span>
+            {/if}
+          </div>
+
+          <!-- Divider -->
+          <div class="w-px h-5 bg-slate-800"></div>
+
+          <!-- On Deck Combatant -->
+          {#if onDeckCombatant}
+            {@const onDeckTok = canvasStore.tokens.find(t => t.id === onDeckCombatant.id || t.name.toLowerCase() === onDeckCombatant.name.toLowerCase())}
+            {@const isOnDeckHiddenByFog = !onDeckCombatant.is_player && canvasStore.dynamicLightingEnabled && activeVisionPolygons.length > 0 && onDeckTok
+              ? !activeVisionPolygons.some(({ polygon }) => isPointInPolygon({ x: (onDeckTok.x + 0.5) * canvasStore.gridSize, y: (onDeckTok.y + 0.5) * canvasStore.gridSize }, polygon))
+              : false}
+            <div class="flex items-center gap-1.5 text-xs text-slate-400">
+              <span class="text-[10px] uppercase font-semibold">On Deck:</span>
+              <span class="font-bold text-slate-200">
+                {onDeckCombatant.is_hidden || isOnDeckHiddenByFog ? 'Unknown' : onDeckCombatant.name}
+              </span>
+            </div>
+          {/if}
+
+        </div>
+      </div>
     {/if}
-  </div>
 
-</div>
+    <!-- ═════════════════════════════════════════════════════════════════════════
+         FULLSCREEN BATTLE MAT CANVAS
+    ══════════════════════════════════════════════════════════════════════════ -->
+    <div class="relative flex-1 w-full h-full">
+      <canvas
+        bind:this={canvasEl}
+        class="block w-full h-full cursor-default"
+      ></canvas>
+    </div>
+
+    <!-- Bottom-Left Decoupled Status Watermark -->
+    <div class="absolute bottom-3 left-4 z-10 pointer-events-none text-[10px] font-mono font-bold text-slate-600/70 uppercase tracking-wider flex items-center gap-2">
+      <span>PROJECTOR DISPLAY</span>
+      {#if canvasStore.lockProjectorPan}
+        <span class="text-amber-500/80">🔒 CAMERA LOCKED</span>
+      {:else}
+        <span class="text-emerald-500/80">🎥 SYNCED TO DM</span>
+      {/if}
+    </div>
+
+  </div>
+{/if}
