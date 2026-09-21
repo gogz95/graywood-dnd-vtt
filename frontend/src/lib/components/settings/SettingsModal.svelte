@@ -746,21 +746,21 @@
             <div class="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onclick={() => uiTheme.setDisplayMode('standard')}
+                onclick={() => uiTheme.setDisplayMode('DM_COMMAND')}
                 class="p-2.5 rounded-xl border text-center transition-all
-                  {uiTheme.displayMode === 'standard' ? 'bg-indigo-950/60 border-indigo-500 text-indigo-200' : 'bg-slate-950 border-slate-800 text-slate-400'}"
+                  {uiTheme.displayMode === 'DM_COMMAND' ? 'bg-indigo-950/60 border-indigo-500 text-indigo-200' : 'bg-slate-950 border-slate-800 text-slate-400'}"
               >
-                <span class="font-bold block text-xs">Standard Desktop</span>
+                <span class="font-bold block text-xs">DM Command</span>
                 <span class="text-[10px] text-slate-500">Full tools &amp; sidebars</span>
               </button>
 
               <button
                 type="button"
-                onclick={() => uiTheme.setDisplayMode('theater')}
+                onclick={() => uiTheme.setDisplayMode('COMPACT')}
                 class="p-2.5 rounded-xl border text-center transition-all
-                  {uiTheme.displayMode === 'theater' ? 'bg-indigo-950/60 border-indigo-500 text-indigo-200' : 'bg-slate-950 border-slate-800 text-slate-400'}"
+                  {uiTheme.displayMode === 'COMPACT' ? 'bg-indigo-950/60 border-indigo-500 text-indigo-200' : 'bg-slate-950 border-slate-800 text-slate-400'}"
               >
-                <span class="font-bold block text-xs">Theater View</span>
+                <span class="font-bold block text-xs">Compact View</span>
                 <span class="text-[10px] text-slate-500">Expanded central stage</span>
               </button>
             </div>

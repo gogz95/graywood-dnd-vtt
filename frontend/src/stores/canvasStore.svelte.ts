@@ -484,9 +484,10 @@ class CanvasStoreClass {
   setWallCollisions(walls: Array<{ x1: number; y1: number; x2: number; y2: number }>) {
     this.walls = walls.map((w, i) => ({
       id: `wall-col-${Date.now()}-${i}`,
-      p1: { x: w.x1, y: w.y1 },
-      p2: { x: w.x2, y: w.y2 },
-      blockingType: 'BOTH'
+      x1: w.x1,
+      y1: w.y1,
+      x2: w.x2,
+      y2: w.y2
     }));
     this.broadcast('WALLS_DOORS_SYNC', { walls: this.walls, doors: this.doors });
   }

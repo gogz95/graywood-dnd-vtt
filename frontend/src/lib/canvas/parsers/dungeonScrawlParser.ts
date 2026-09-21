@@ -22,6 +22,8 @@ export interface DoorPrimitive {
   state: DoorState;
   width?: number;
   name?: string;
+  doorType?: 'STANDARD' | 'SECRET' | 'PORTCULLIS';
+  type?: string;
 }
 
 export interface FloorPolygon {

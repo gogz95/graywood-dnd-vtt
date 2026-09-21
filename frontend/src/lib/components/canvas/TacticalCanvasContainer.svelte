@@ -589,12 +589,7 @@
         const text = await file.text();
         const parsed = parseDungeonScrawl(text, gridSize);
         handleLoadDungeonMap(parsed);
-        const wallCoords = parsed.walls.map(w => ({ x1: w.p1.x, y1: w.p1.y, x2: w.p2.x, y2: w.p2.y }));
-        if (parsed.imageBlob) {
-          await pushMapToBattlemat(parsed.imageBlob, { name: result.name, gridSize: parsed.gridSize, walls: wallCoords });
-        } else {
-          canvasStore.setWallsAndDoors(parsed.walls, parsed.doors);
-        }
+        canvasStore.setWallsAndDoors(parsed.walls, parsed.doors);
         dsImportFeedback = `✓ Loaded "${result.name}" — ${result.wallsCount} walls, ${result.doorsCount} doors`;
         setTimeout(() => { dsImportFeedback = null; }, 3500);
       } else {

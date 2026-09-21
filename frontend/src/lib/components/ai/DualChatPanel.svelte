@@ -37,7 +37,10 @@
 
   // ── View Mode State ─────────────────────────────────────────────────────────
   let { initialMode = 'dual' }: { initialMode?: ViewMode } = $props();
-  let viewMode = $state<ViewMode>(initialMode);
+  let viewMode = $state<ViewMode>('dual');
+  $effect.pre(() => {
+    if (initialMode) viewMode = initialMode;
+  });
   let showKbModal = $state(false);
 
   // ═══════════════════════════════════════════════════════════════════════════

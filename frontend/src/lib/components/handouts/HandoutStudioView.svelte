@@ -88,15 +88,15 @@ Vance found the skeleton of a surveyor wedged beneath a fallen lintel. In his be
     },
     contract: {
       title: 'MERCANTILE ESCORT INDENTURE',
-      subtitle: 'REGISTERED AT THE OAKHAVEN TRADE EXCHANGE',
+      subtitle: 'REGISTERED AT THE TRADE EXCHANGE',
       theme: 'contract',
       sealType: 'imperial_black',
-      sealText: 'OAKHAVEN GUILD OF CARTERS',
-      contentMarkdown: `This indenture of service is made between **The Silver Hand Mercenaries** (*Party of the First Part*) and **Master Orin Vance of Vance & Sons Freight** (*Party of the Second Part*).
+      sealText: 'GUILD OF CARTERS',
+      contentMarkdown: `This indenture of service is made between **The Vanguard Company** (*Party of the First Part*) and **Master Orin of the Freight Syndicate** (*Party of the Second Part*).
 
 :::columns
 ### Article I: Scope of Escort
-The First Party covenants to furnish four competent armed escorts for the duration of the overland transit from Oakhaven Depot to High Sun Sanctuary, guaranteeing safe passage of six heavy wagons laden with iron billets.
+The First Party covenants to furnish four competent armed escorts for the duration of the overland transit from Trade Depot to the High Fortress, guaranteeing safe passage of six heavy wagons laden with iron billets.
 
 ### Article II: Hazard Indemnity
 In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, the First Party retains full discretion over tactical retreats. The Second Party covenants to pay a hazard bonus of **50 GP** per fallen guard beast.
@@ -108,13 +108,13 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
 - Retainer of **150 GP** payable upon departure from the depot.
 - Remaining balance of **350 GP** payable upon delivery of cargo with seals intact.
 
-[!SIGNATURE: Commander Valen, First Party]
-[!SIGNATURE: Master Orin Vance, Second Party]`,
-      dmNotes: 'Orin Vance is secretly transporting smuggled void glass shards hidden beneath the iron ingots.',
+[!SIGNATURE: Commander Marcus, First Party]
+[!SIGNATURE: Master Orin, Second Party]`,
+      dmNotes: 'Orin is secretly transporting contraband hidden beneath the iron ingots.',
     },
   };
 
-  // ── Saved Handouts State ───────────────────────────────────────────────────
+  // ── Saved Handouts State (STRICT ZERO-MOCK INITIALIZATION) ─────────────────
   let savedHandouts = $state<HandoutDocument[]>([]);
   let activeHandoutId = $state<string>('');
   let previewScale = $state<number>(100);
@@ -153,24 +153,28 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
     try {
       const raw = localStorage.getItem(STORAGE_HANDOUTS_KEY);
       if (raw) {
-        savedHandouts = JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        // Purge legacy mock presets
+        savedHandouts = parsed.filter((d: HandoutDocument) =>
+          !d.id?.startsWith('preset-') &&
+          !d.title?.includes('GORGON BLOODHOOK') &&
+          !d.title?.includes('MERCANTILE ESCORT')
+        );
       }
     } catch { /* storage safe */ }
 
-    if (savedHandouts.length === 0) {
-      // Seed with built-in presets
-      const seeded: HandoutDocument[] = Object.entries(PRESETS).map(([key, p], i) => ({
-        ...p,
-        id: `preset-${key}-${Date.now() + i}`,
-        createdAt: Date.now() - (4 - i) * 86400000,
-        updatedAt: Date.now(),
-      }));
-      savedHandouts = seeded;
-      saveHandoutsToStorage();
-    }
-
+    // Mount completely empty without auto-seeding mock records
     if (savedHandouts.length > 0) {
       loadHandout(savedHandouts[0]);
+    } else {
+      activeHandoutId = '';
+      docTitle = 'New Handout Document';
+      docSubtitle = '';
+      docTheme = 'classic';
+      docSealType = 'wax_red';
+      docSealText = 'SEALED & WITNESSED';
+      docContent = '';
+      docDmNotes = '';
     }
   }
 

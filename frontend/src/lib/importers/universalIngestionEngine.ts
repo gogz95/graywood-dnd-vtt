@@ -424,8 +424,18 @@ async function processPdfFile(file: File | Blob, fileName: string): Promise<Inge
   let extractedText = '';
 
   try {
-    // Dynamically load pdfjs-dist
+    // Dynamically load pdfjs-dist and configure worker source
     const pdfjsLib = await import('pdfjs-dist');
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      try {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          'pdfjs-dist/build/pdf.worker.min.mjs',
+          import.meta.url
+        ).toString();
+      } catch {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version || '4.0.379'}/build/pdf.worker.min.mjs`;
+      }
+    }
     const arrayBuffer = await file.arrayBuffer();
     const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
     const pdfDoc = await loadingTask.promise;

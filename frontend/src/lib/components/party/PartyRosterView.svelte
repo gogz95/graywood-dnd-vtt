@@ -42,16 +42,12 @@
     wis?: number;
     cha?: number;
     weaponName?: string;
-    weaponCurrentRp?: number;
-    weaponMaxRp?: number;
     armorName?: string;
-    armorCurrentRp?: number;
-    armorMaxRp?: number;
-    sovereignsGp?: number;
-    sunDisks10Gp?: number;
-    tradeBars50Gp?: number;
-    silverSp?: number;
-    copperCp?: number;
+    cp?: number;
+    sp?: number;
+    ep?: number;
+    gp?: number;
+    pp?: number;
     hitDiceCurrent?: number;
     hitDiceMax?: number;
     manaToxicity?: number;
@@ -296,15 +292,11 @@
       const roll = Math.floor(Math.random() * hitDieSize) + 1;
       const healed = Math.max(1, roll + conMod);
       const newHp = Math.min(m.hpMax, m.hpCurrent + healed);
-      const newWeaponRp = m.weaponCurrentRp !== undefined && m.weaponMaxRp !== undefined ? Math.min(m.weaponMaxRp, m.weaponCurrentRp + 5) : undefined;
-      const newArmorRp = m.armorCurrentRp !== undefined && m.armorMaxRp !== undefined ? Math.min(m.armorMaxRp, m.armorCurrentRp + 5) : undefined;
       audioEngine.triggerSfx('sfx-rest');
       return {
         ...m,
         hpCurrent: newHp,
-        hitDiceCurrent: hitDiceLeft - 1,
-        weaponCurrentRp: newWeaponRp,
-        armorCurrentRp: newArmorRp
+        hitDiceCurrent: hitDiceLeft - 1
       };
     });
   }
@@ -351,16 +343,12 @@
       wis: char.wis,
       cha: char.cha,
       weaponName: char.weaponName,
-      weaponCurrentRp: char.weaponCurrentRp,
-      weaponMaxRp: char.weaponMaxRp,
       armorName: char.armorName,
-      armorCurrentRp: char.armorCurrentRp,
-      armorMaxRp: char.armorMaxRp,
-      sovereignsGp: char.sovereignsGp,
-      sunDisks10Gp: char.sunDisks10Gp,
-      tradeBars50Gp: char.tradeBars50Gp,
-      silverSp: char.silverSp,
-      copperCp: char.copperCp,
+      cp: char.cp,
+      sp: char.sp,
+      ep: char.ep,
+      gp: char.gp,
+      pp: char.pp,
       hitDiceCurrent: char.level,
       hitDiceMax: char.level,
       manaToxicity: 0,
@@ -1184,9 +1172,20 @@
 <!-- ═══════════════════════════════════════════════════════════════════════
      BOUND ANIMAL & PET DRAWER
 ════════════════════════════════════════════════════════════════════════════ -->
-<PetManagerDrawer
-  bind:isOpen={isPetDrawerOpen}
-/>
+{#if isPetDrawerOpen}
+  <div
+    role="presentation"
+    class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    onclick={(e) => { if (e.target === e.currentTarget) isPetDrawerOpen = false; }}
+  >
+    <div class="w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-2xl p-4 shadow-2xl">
+      <div class="flex justify-end mb-2">
+        <button onclick={() => isPetDrawerOpen = false} class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-bold text-xs">Close ✕</button>
+      </div>
+      <PetManagerDrawer isDm={true} />
+    </div>
+  </div>
+{/if}
 
 <!-- ═══════════════════════════════════════════════════════════════════════
      FULL 5E ALEAMOS CHARACTER SHEET INSPECTOR MODAL
@@ -1201,14 +1200,6 @@
   {@const wisMod = getAbilityMod(m.wis ?? 10)}
   {@const chaMod = getAbilityMod(m.cha ?? 10)}
   {@const abilityMods = { str: strMod, dex: dexMod, con: conMod, int: intMod, wis: wisMod, cha: chaMod }}
-  {@const wMax = m.weaponMaxRp ?? 30}
-  {@const wCur = m.weaponCurrentRp ?? 30}
-  {@const wSunder = Math.floor(wMax * 0.25)}
-  {@const isWSundered = wCur <= wSunder}
-  {@const aMax = m.armorMaxRp ?? 25}
-  {@const aCur = m.armorCurrentRp ?? 25}
-  {@const aSunder = Math.floor(aMax * 0.25)}
-  {@const isASundered = aCur <= aSunder}
 
   <div
     role="presentation"
@@ -1341,7 +1332,7 @@
             </div>
             <div>
               <span class="text-[9px] uppercase font-bold text-amber-300 block">Gold (gp)</span>
-              <span class="text-sm font-black text-amber-200 font-mono">{m.gp ?? m.sovereignsGp ?? 0}</span>
+              <span class="text-sm font-black text-amber-200 font-mono">{m.gp ?? 0}</span>
             </div>
             <div>
               <span class="text-[9px] uppercase font-bold text-indigo-300/80 block">Electrum (ep)</span>
@@ -1349,11 +1340,11 @@
             </div>
             <div>
               <span class="text-[9px] uppercase font-bold text-slate-300 block">Silver (sp)</span>
-              <span class="text-sm font-black text-slate-200 font-mono">{m.sp ?? m.silverSp ?? 0}</span>
+              <span class="text-sm font-black text-slate-200 font-mono">{m.sp ?? 0}</span>
             </div>
             <div>
               <span class="text-[9px] uppercase font-bold text-amber-700 block">Copper (cp)</span>
-              <span class="text-sm font-black text-amber-600 font-mono">{m.cp ?? m.copperCp ?? 0}</span>
+              <span class="text-sm font-black text-amber-600 font-mono">{m.cp ?? 0}</span>
             </div>
           </div>
         </div>

@@ -32,44 +32,76 @@ async function runTests() {
 
   console.log('--- 1. Testing Relational Lore Graph Database Store ---');
 
-  // Seed generic 5e data for testing
-  loreGraphStore.resetToDefaultSeed();
+  // Verify store can be cleared to zero-state (zero mock data baseline)
+  loreGraphStore.clearAll();
+  assert(loreGraphStore.entities.length === 0, 'Store must initialize or clear strictly to 0 entities');
+  assert(loreGraphStore.relationships.length === 0, 'Store must initialize or clear strictly to 0 relationships');
 
-  // Verify generic 5e seed data
-  assert(loreGraphStore.entities.length >= 6, 'Store should be seeded with at least 6 initial entities');
-  assert(loreGraphStore.relationships.length >= 5, 'Store should be seeded with at least 5 initial relationships');
+  // Add test entities dynamically
+  const guardFaction = loreGraphStore.addEntity({
+    type: 'FACTION',
+    name: 'City Guard Watch',
+    summary: 'Metropolitan security and peacekeepers.',
+    bodyMarkdown: '### Headquarters\nCentral Citadel Watchtower.',
+    tags: ['faction', 'guard', 'city'],
+    attributes: { leader: 'Commander Marcus' }
+  });
 
-  const valen = loreGraphStore.entities.find(e => e.name === 'Commander Valen');
-  const silverHand = loreGraphStore.entities.find(e => e.name === 'The Silver Hand Mercenaries');
-  const sanctuary = loreGraphStore.entities.find(e => e.name === 'High Sun Sanctuary');
+  const marcus = loreGraphStore.addEntity({
+    type: 'NPC',
+    name: 'Commander Marcus',
+    summary: 'High Commander of the Watch.',
+    bodyMarkdown: '### Details\nVeteran warrior.',
+    tags: ['npc', 'commander', 'guard'],
+    attributes: { cr: 8, hp: 110, ac: 18 }
+  });
 
-  assert(valen !== undefined, 'Commander Valen entity should exist in seed data');
-  assert(silverHand !== undefined, 'The Silver Hand Mercenaries entity should exist in seed data');
-  assert(sanctuary !== undefined, 'High Sun Sanctuary entity should exist in seed data');
+  const fort = loreGraphStore.addEntity({
+    type: 'LOCATION',
+    name: 'North Gate Citadel',
+    summary: 'Fortified stone keep and gatehouse.',
+    bodyMarkdown: 'Defensive bastion.',
+    tags: ['location', 'fortress'],
+    attributes: { defenseRating: 'Tier 3' }
+  });
+
+  // Link entities
+  loreGraphStore.addRelationship({
+    sourceId: marcus.id,
+    targetId: guardFaction.id,
+    relationType: 'MEMBER_OF',
+    notes: 'Marcus commands the guard.'
+  });
+
+  loreGraphStore.addRelationship({
+    sourceId: guardFaction.id,
+    targetId: fort.id,
+    relationType: 'CONTROLS',
+    notes: 'Garrison base.'
+  });
 
   // Test bidirectional relationship queries
-  const valenLinks = loreGraphStore.getLinkedEntities(valen!.id);
-  console.log(`Commander Valen links count: ${valenLinks.length}`);
-  assert(valenLinks.length >= 1, 'Commander Valen should have at least 1 linked relationship');
-  const memberLink = valenLinks.find(l => l.entity.id === silverHand!.id);
-  assert(memberLink !== undefined, 'Valen should be linked to Silver Hand Mercenaries');
-  assert(memberLink?.relation.relationType === 'MEMBER_OF', 'Valen should be MEMBER_OF Silver Hand');
+  const marcusLinks = loreGraphStore.getLinkedEntities(marcus.id);
+  assert(marcusLinks.length >= 1, 'Commander Marcus should have at least 1 linked relationship');
+  const memberLink = marcusLinks.find(l => l.entity.id === guardFaction.id);
+  assert(memberLink !== undefined, 'Marcus should be linked to City Guard Watch');
+  assert(memberLink?.relation.relationType === 'MEMBER_OF', 'Marcus should be MEMBER_OF City Guard');
 
-  const silverHandLinks = loreGraphStore.getLinkedEntities(silverHand!.id);
-  const incomingValen = silverHandLinks.find(l => l.entity.id === valen!.id);
-  assert(incomingValen !== undefined, 'Silver Hand should have incoming relationship from Valen');
-  assert(incomingValen?.direction === 'incoming', 'Relation direction should be incoming to Silver Hand');
+  const factionLinks = loreGraphStore.getLinkedEntities(guardFaction.id);
+  const incomingMarcus = factionLinks.find(l => l.entity.id === marcus.id);
+  assert(incomingMarcus !== undefined, 'Guard should have incoming relationship from Marcus');
+  assert(incomingMarcus?.direction === 'incoming', 'Relation direction should be incoming to Guard');
 
   // Test search queries
-  const searchNpc = loreGraphStore.searchEntities('Valen', 'NPC');
-  assert(searchNpc.length === 1 && searchNpc[0].id === valen!.id, 'Search for Valen as NPC should return Valen');
+  const searchNpc = loreGraphStore.searchEntities('Marcus', 'NPC');
+  assert(searchNpc.length === 1 && searchNpc[0].id === marcus.id, 'Search for Marcus as NPC should return Marcus');
 
-  const searchTag = loreGraphStore.searchEntities('', 'ALL', 'mercenary');
-  assert(searchTag.length >= 1, 'Tag search for mercenary should return matching entities');
+  const searchTag = loreGraphStore.searchEntities('', 'ALL', 'guard');
+  assert(searchTag.length >= 2, 'Tag search for guard should return matching entities');
 
   // Test @mention suggestions
-  const suggestions = loreGraphStore.getMentionSuggestions('Var');
-  assert(suggestions.some(s => s.name === 'Archmage Varis'), 'Mention suggestion for "Var" should return Archmage Varis');
+  const suggestions = loreGraphStore.getMentionSuggestions('Marc');
+  assert(suggestions.some(s => s.name === 'Commander Marcus'), 'Mention suggestion for "Marc" should return Commander Marcus');
 
   // Test Entity CRUD
   const createdEntity = loreGraphStore.addEntity({
@@ -90,7 +122,7 @@ async function runTests() {
   // Test Relationship CRUD
   const newRel = loreGraphStore.addRelationship({
     sourceId: createdEntity.id,
-    targetId: silverHand!.id,
+    targetId: guardFaction.id,
     relationType: 'ALLIED_WITH',
     notes: 'Mutual border defense treaty.',
   });

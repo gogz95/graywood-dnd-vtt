@@ -6,12 +6,16 @@
 
   let {
     companions = $bindable([]),
+    isDm = false,
     onFeedAnimal,
-    onRollMorale
+    onRollMorale,
+    onRemoveAnimal
   }: {
     companions?: CompanionAnimal[];
+    isDm?: boolean;
     onFeedAnimal?: (animalId: string) => void;
     onRollMorale?: (animal: CompanionAnimal, rollResult: { d20: number; total: number; success: boolean }) => void;
+    onRemoveAnimal?: (animalId: string) => void;
   } = $props();
 
   let activeTab = $state<'list' | 'add'>('list');
@@ -94,6 +98,11 @@
       triggerMoraleCheck(animal);
     }
   }
+
+  function handleRemoveAnimal(animalId: string) {
+    companions = companions.filter(c => c.id !== animalId);
+    if (onRemoveAnimal) onRemoveAnimal(animalId);
+  }
 </script>
 
 <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg text-slate-100">
@@ -113,12 +122,14 @@
       >
         Roster
       </button>
-      <button
-        onclick={() => activeTab = 'add'}
-        class="px-2 py-1 rounded font-semibold transition-colors {activeTab === 'add' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}"
-      >
-        + Add Beast
-      </button>
+      {#if isDm}
+        <button
+          onclick={() => activeTab = 'add'}
+          class="px-2 py-1 rounded font-semibold transition-colors {activeTab === 'add' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}"
+        >
+          + Add Beast (DM)
+        </button>
+      {/if}
     </div>
   </div>
 
@@ -260,6 +271,15 @@
                 >
                   +
                 </button>
+                {#if isDm}
+                  <button
+                    onclick={() => handleRemoveAnimal(animal.id)}
+                    class="w-5 h-5 bg-rose-950/80 hover:bg-rose-800 text-rose-300 rounded flex items-center justify-center font-bold text-xs ml-1"
+                    title="Remove Animal (DM)"
+                  >
+                    ✕
+                  </button>
+                {/if}
               </div>
             </div>
 

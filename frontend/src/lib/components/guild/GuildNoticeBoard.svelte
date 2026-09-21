@@ -1,9 +1,5 @@
 <!-- GuildNoticeBoard.svelte — Procedural Guild Contract Generator & Adventurers' Guild Headquarters -->
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import { audioEngine } from '../../audio/AudioEngine';
-  import { sessionStore } from '../../../stores/sessionStore';
-
+<script module lang="ts">
   export type ContractType = 'Exploration' | 'Hunt' | 'Protection' | 'Resource Gathering' | 'Find';
   export type GuildRank = 'Apprentice' | 'Journeyman' | 'Adept' | 'Master' | 'Grandmaster';
 
@@ -13,10 +9,10 @@
     classification: ContractType;
     client: string;
     description: string;
-    destination: string; // Regional waybill destination
+    destination: string; // Regional destination
     rewardGp: number;
     escrowDepositedGp: number; // 100% upfront escrow
-    deadlineDecades: number; // 10-day Decade deadlines
+    deadlineDays: number; // Standard 5e duration: 7, 14, or 30 days
     daysRemaining: number;
     reputationGain: number;
     minRank: GuildRank;
@@ -32,6 +28,12 @@
     lastDuesPaidEpochDay: number;
     totalCompletedContracts: number;
   }
+</script>
+
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { audioEngine } from '../../audio/AudioEngine';
+  import { sessionStore } from '../../../stores/sessionStore';
 
   const STORAGE_CONTRACTS_KEY = 'vtt_guild_contracts';
   const STORAGE_PROFILE_KEY = 'vtt_guild_profile';
@@ -52,7 +54,7 @@
     Find: { badgeBg: 'bg-purple-950/70', border: 'border-purple-700/60', text: 'text-purple-300', icon: '🔍' },
   };
 
-  // State
+  // State (STRICT ZERO-MOCK INITIALIZATION)
   let contracts = $state<GuildContract[]>([]);
   let profile = $state<GuildProfile>({
     rank: 'Journeyman',
@@ -74,13 +76,23 @@
   function loadState() {
     try {
       const rawC = localStorage.getItem(STORAGE_CONTRACTS_KEY);
-      if (rawC) contracts = JSON.parse(rawC);
-      else contracts = generateInitialContracts();
+      if (rawC) {
+        const parsed = JSON.parse(rawC);
+        // Purge legacy mock contracts
+        contracts = parsed.filter((c: any) =>
+          !c.title?.includes('Bloodhorn Chimera') &&
+          !c.title?.includes('Pyric Sulfur') &&
+          !c.client?.includes('House Vane') &&
+          !c.client?.includes('Temple Scribes')
+        );
+      } else {
+        contracts = [];
+      }
 
       const rawP = localStorage.getItem(STORAGE_PROFILE_KEY);
       if (rawP) profile = JSON.parse(rawP);
     } catch {
-      contracts = generateInitialContracts();
+      contracts = [];
     }
   }
 
@@ -94,44 +106,44 @@
     loadState();
   });
 
-  // ── Procedural Generator Templates ──────────────────────────────────────────
+  // ── Procedural Generator Templates (Neutral 5e SRD) ─────────────────────────
   const PROCEDURAL_POOLS = {
     clients: [
-      'Merchants & Traders Guild', 'Miners Guild Syndicate', 'Town Guard High Command',
-      'The Arcane Archive', 'Temple Scribes of the Dawn', 'Master Apothecary Corvus',
+      'Merchants & Traders Guild', 'Miners Guild Syndicate', 'Town Watch High Command',
+      'The Arcane Archive', 'Temple of the Dawn', 'Master Herbalist Conclave',
       'The Municipal Council', 'Dockmaster & Harbor Guild', 'Order of the Golden Scale'
     ],
     destinations: [
-      'Weeping Mire — Sector 4', 'Sunken Crypts of the Ancients', 'Obsidian Spire Foothills',
-      'Whispering Pines — Eastern Verge', 'Shattered Crags Post 3', 'Old Dwarven Aqueducts',
+      'Weeping Mire — Sector 4', 'Sunken Crypts of the Ancients', 'Basalt Foothills',
+      'Whispering Pines — Eastern Verge', 'Shattered Crags Post 3', 'Old Aqueducts',
       'Black Hollow Barrows', 'Ruins of the Border Bastion', 'Serpent Coast Shallows'
     ],
     huntMonsters: [
-      { name: 'Bloodhorn Chimera', cr: 6, reward: 450 },
-      { name: 'Venomscale Basilisk Broodmother', cr: 5, reward: 350 },
-      { name: 'Graveclaw Owlbear Pack', cr: 4, reward: 250 },
-      { name: 'Cinderwing Wyvern', cr: 7, reward: 600 },
-      { name: 'Gorgon of the Shattered Vale', cr: 5, reward: 380 },
+      { name: 'Chimera', cr: 6, reward: 450 },
+      { name: 'Basilisk Broodmother', cr: 5, reward: 350 },
+      { name: 'Owlbear Pack', cr: 4, reward: 250 },
+      { name: 'Wyvern', cr: 7, reward: 600 },
+      { name: 'Gorgon of the Vale', cr: 5, reward: 380 },
     ],
     explorationSites: [
       { name: 'Subterranean Sunken Amphitheater', objective: 'Survey and map all navigable subterranean chambers' },
-      { name: 'Flooded Obsidian Catacombs', objective: 'Chart secret corridors and locate structural breach points' },
-      { name: 'Old Imperial Watchtower Spire', objective: 'Clear upper parapet and establish signal lantern beacon' },
+      { name: 'Flooded Catacombs', objective: 'Chart secret corridors and locate structural breach points' },
+      { name: 'Old Watchtower Spire', objective: 'Clear upper parapet and establish signal lantern beacon' },
     ],
     resources: [
-      { name: 'Grave Lotus Blooms (x10)', objective: 'Harvest undisturbed blossoms from cemetery soil under moonlight' },
-      { name: 'Pyric Sulfur Crystals (x6)', objective: 'Extract intact volcanic mineral nodes without thermal detonation' },
-      { name: 'Pure Wyrm Blood Sample', objective: 'Collect uncoagulated essence in lead-lined alchemical phial' },
+      { name: 'Rare Grave Lotus (x10)', objective: 'Harvest undisturbed blossoms from cemetery soil under moonlight' },
+      { name: 'Pure Alchemical Sulfur (x6)', objective: 'Extract intact volcanic mineral nodes without thermal detonation' },
+      { name: 'Wyvern Venom Sample', objective: 'Collect uncoagulated essence in lead-lined alchemical phial' },
     ],
     protectionClients: [
-      { cargo: 'Alchemical Reagents Caravan', route: 'High Road to Crossford', reward: 300 },
-      { cargo: 'Silver Bar Ingot Waybill', route: 'Smelter Way to Guild Vault', reward: 400 },
+      { cargo: 'Alchemical Reagents Caravan', route: 'High Road to Crossroads', reward: 300 },
+      { cargo: 'Silver Bar Ingot Waybill', route: 'Smelter Way to Vault', reward: 400 },
       { cargo: 'Archivist Scholarly Expedition', route: 'Ancient Standing Stones', reward: 250 },
     ],
     findArtifacts: [
-      { item: 'Enchanted Astrolabe of Marut', reward: 500, desc: 'A lost mechanical planar navigation device.' },
-      { item: 'Missing Merchant Guild Ledger', reward: 200, desc: 'Stolen accounting records detailing illicit black market tariffs.' },
-      { item: 'Ancient Signet Ring of House Vane', reward: 350, desc: 'Family heirloom lost in goblin-infested scrublands.' },
+      { item: 'Ancient Planar Astrolabe', reward: 500, desc: 'A lost mechanical navigation device.' },
+      { item: 'Smuggler Tariff Ledger', reward: 200, desc: 'Stolen accounting records detailing illicit tariffs.' },
+      { item: 'Ancient Signet Ring of the Council', reward: 350, desc: 'Heirloom lost in goblin-infested scrublands.' },
     ],
   };
 
@@ -206,8 +218,8 @@
       destination,
       rewardGp,
       escrowDepositedGp: rewardGp, // 100% upfront escrow
-      deadlineDecades: 1, // 10-day Decade deadline
-      daysRemaining: 10,
+      deadlineDays: 14,
+      daysRemaining: 14,
       reputationGain: Math.floor(rewardGp / 10),
       minRank,
       status: 'Available',

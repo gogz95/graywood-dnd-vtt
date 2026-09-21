@@ -31,7 +31,7 @@
   };
 
   // State
-  let state = $state<StrongholdState>(DEFAULT_STRONGHOLD);
+  let shState = $state<StrongholdState>(DEFAULT_STRONGHOLD);
   let pcLaborLevel = $state(8); // Default Party Level for labor discount
   let depositAmount = $state(1000);
   let feedbackMessage = $state<string | null>(null);
@@ -40,7 +40,7 @@
     try {
       const raw = localStorage.getItem(STORAGE_STRONGHOLD_KEY);
       if (raw) {
-        state = { ...DEFAULT_STRONGHOLD, ...JSON.parse(raw) };
+        shState = { ...DEFAULT_STRONGHOLD, ...JSON.parse(raw) };
         return;
       }
     } catch {
@@ -51,8 +51,8 @@
 
   function saveState() {
     if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(STORAGE_STRONGHOLD_KEY, JSON.stringify(state));
-    window.dispatchEvent(new CustomEvent('vtt:stronghold-updated', { detail: state }));
+    localStorage.setItem(STORAGE_STRONGHOLD_KEY, JSON.stringify(shState));
+    window.dispatchEvent(new CustomEvent('vtt:stronghold-updated', { detail: shState }));
   }
 
   onMount(() => {
@@ -60,11 +60,11 @@
   });
 
   // Derived calculations
-  let allocatedRp = $derived(calculateAllocatedRp(state.facilities));
-  let availableRp = $derived(Math.max(0, state.currentRp - allocatedRp));
+  let allocatedRp = $derived(calculateAllocatedRp(shState.facilities));
+  let availableRp = $derived(Math.max(0, shState.currentRp - allocatedRp));
 
   let nextUpgradeStep = $derived(
-    state.currentRp < 6 ? UPGRADE_PROGRESSION[state.currentRp] : null
+    shState.currentRp < 6 ? UPGRADE_PROGRESSION[shState.currentRp] : null
   );
 
   let laborDiscount = $derived(calculateLaborDiscount(pcLaborLevel));
@@ -72,9 +72,9 @@
     nextUpgradeStep ? laborDiscount.calculateDiscountedCost(nextUpgradeStep.baseCostGp) : 0
   );
 
-  let payroll = $derived(calculatePayroll(state.skilledHirelingsCount, state.unskilledHirelingsCount));
-  let desertionAudit = $derived(evaluateDesertionRisk(state.daysUnpaid));
-  let staffingRequirements = $derived(calculateStaffingRequirements(state.currentRp, state.facilities));
+  let payroll = $derived(calculatePayroll(shState.skilledHirelingsCount, shState.unskilledHirelingsCount));
+  let desertionAudit = $derived(evaluateDesertionRisk(shState.daysUnpaid));
+  let staffingRequirements = $derived(calculateStaffingRequirements(shState.currentRp, shState.facilities));
 
   function flash(msg: string) {
     feedbackMessage = msg;
@@ -89,15 +89,15 @@
       flash(`Insufficient Room Points! Need ${def.rpCost} RP, but only ${availableRp} available.`);
       return;
     }
-    if (state.facilities.includes(fId)) {
+    if (shState.facilities.includes(fId)) {
       flash(`${def.name} is already built!`);
       return;
     }
 
-    state.facilities = [...state.facilities, fId];
+    shState.facilities = [...shState.facilities, fId];
     // Suggest staffing
-    state.skilledHirelingsCount += def.recommendedSkilledHirelings;
-    state.unskilledHirelingsCount += def.recommendedUnskilledHirelings;
+    shState.skilledHirelingsCount += def.recommendedSkilledHirelings;
+    shState.unskilledHirelingsCount += def.recommendedUnskilledHirelings;
     saveState();
     audioEngine.triggerSfx('sfx-sword');
     flash(`Constructed ${def.name}!`);
@@ -105,11 +105,11 @@
 
   function demolishFacility(fId: FacilityId) {
     const def = FACILITIES[fId];
-    if (!state.facilities.includes(fId)) return;
-    state.facilities = state.facilities.filter(id => id !== fId);
+    if (!shState.facilities.includes(fId)) return;
+    shState.facilities = shState.facilities.filter((id: FacilityId) => id !== fId);
     if (def) {
-      state.skilledHirelingsCount = Math.max(0, state.skilledHirelingsCount - def.recommendedSkilledHirelings);
-      state.unskilledHirelingsCount = Math.max(0, state.unskilledHirelingsCount - def.recommendedUnskilledHirelings);
+      shState.skilledHirelingsCount = Math.max(0, shState.skilledHirelingsCount - def.recommendedSkilledHirelings);
+      shState.unskilledHirelingsCount = Math.max(0, shState.unskilledHirelingsCount - def.recommendedUnskilledHirelings);
     }
     saveState();
     audioEngine.triggerSfx('sfx-rest');
@@ -119,13 +119,13 @@
   // Upgrades
   function startUpgrade() {
     if (!nextUpgradeStep) return;
-    if (state.treasuryGp < discountedUpgradeCost) {
+    if (shState.treasuryGp < discountedUpgradeCost) {
       flash(`Insufficient treasury gold! Need ${discountedUpgradeCost} gp.`);
       return;
     }
 
-    state.treasuryGp -= discountedUpgradeCost;
-    state.activeUpgrade = {
+    shState.treasuryGp -= discountedUpgradeCost;
+    shState.activeUpgrade = {
       targetRp: nextUpgradeStep.toRp,
       baseCostGp: nextUpgradeStep.baseCostGp,
       finalCostGp: discountedUpgradeCost,
@@ -140,20 +140,20 @@
   }
 
   function progressUpgrade(days: number) {
-    if (!state.activeUpgrade) return;
-    state.activeUpgrade.daysCompleted += days;
-    if (state.activeUpgrade.daysCompleted >= state.activeUpgrade.totalDays) {
-      state.currentRp = state.activeUpgrade.targetRp;
-      const target = state.activeUpgrade.targetRp;
+    if (!shState.activeUpgrade) return;
+    shState.activeUpgrade.daysCompleted += days;
+    if (shState.activeUpgrade.daysCompleted >= shState.activeUpgrade.totalDays) {
+      shState.currentRp = shState.activeUpgrade.targetRp;
+      const target = shState.activeUpgrade.targetRp;
       // Auto-staff to match upgraded RP formula
-      const req = calculateStaffingRequirements(target, state.facilities);
-      state.skilledHirelingsCount = Math.max(state.skilledHirelingsCount, req.recommendedSkilled);
-      state.unskilledHirelingsCount = Math.max(state.unskilledHirelingsCount, req.recommendedUnskilled);
-      state.activeUpgrade = null;
+      const req = calculateStaffingRequirements(target, shState.facilities);
+      shState.skilledHirelingsCount = Math.max(shState.skilledHirelingsCount, req.recommendedSkilled);
+      shState.unskilledHirelingsCount = Math.max(shState.unskilledHirelingsCount, req.recommendedUnskilled);
+      shState.activeUpgrade = null;
       audioEngine.triggerSfx('sfx-bell');
       flash(`🎉 Stronghold expanded to ${target} Room Points! Hireling staff updated to match upgraded tier.`);
     } else {
-      flash(`Construction advanced by ${days} days (${state.activeUpgrade.daysCompleted}/${state.activeUpgrade.totalDays} days).`);
+      flash(`Construction advanced by ${days} days (${shState.activeUpgrade.daysCompleted}/${shState.activeUpgrade.totalDays} days).`);
     }
     saveState();
   }
@@ -161,36 +161,36 @@
   // Payroll Management
   function payPayrollDays(daysCount: number) {
     const cost = Number((payroll.totalDailyGp * daysCount).toFixed(2));
-    if (state.treasuryGp < cost) {
+    if (shState.treasuryGp < cost) {
       flash(`Insufficient treasury funds to pay ${daysCount} day(s) of payroll (${cost} gp)!`);
       return;
     }
 
-    state.treasuryGp = Math.max(0, Number((state.treasuryGp - cost).toFixed(2)));
-    state.daysUnpaid = 0;
+    shState.treasuryGp = Math.max(0, Number((shState.treasuryGp - cost).toFixed(2)));
+    shState.daysUnpaid = 0;
     saveState();
     audioEngine.triggerSfx('sfx-bell');
     flash(`Disbursed ${cost} gp for ${daysCount} day(s) payroll. Staff morale restored to Loyal!`);
   }
 
   function advanceUnpaidDay() {
-    state.daysUnpaid += 1;
+    shState.daysUnpaid += 1;
     saveState();
-    if (state.daysUnpaid >= 7) {
+    if (shState.daysUnpaid >= 7) {
       audioEngine.triggerSfx('sfx-sword');
     }
   }
 
   function depositTreasury() {
     if (depositAmount <= 0) return;
-    state.treasuryGp += depositAmount;
+    shState.treasuryGp += depositAmount;
     saveState();
     flash(`Deposited ${depositAmount} gp into Stronghold Treasury.`);
   }
 
   function withdrawTreasury(amount: number) {
-    if (amount <= 0 || state.treasuryGp < amount) return;
-    state.treasuryGp -= amount;
+    if (amount <= 0 || shState.treasuryGp < amount) return;
+    shState.treasuryGp -= amount;
     saveState();
     flash(`Withdrew ${amount} gp from Stronghold Treasury.`);
   }
@@ -206,12 +206,12 @@
         <div class="flex items-center gap-2">
           <input
             type="text"
-            bind:value={state.name}
+            bind:value={shState.name}
             onchange={saveState}
             class="bg-slate-950 border border-slate-700/60 rounded px-2 py-0.5 text-base font-black text-slate-100 focus:outline-none focus:border-amber-500"
           />
           <select
-            bind:value={state.type}
+            bind:value={shState.type}
             onchange={saveState}
             class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-amber-300 font-semibold focus:outline-none"
           >
@@ -234,7 +234,7 @@
           <span class="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">Room Points (RP)</span>
           <div class="flex items-center gap-1.5 mt-0.5">
             <span class="text-base font-mono font-black text-amber-300">{allocatedRp}</span>
-            <span class="text-xs text-slate-500 font-mono">/ {state.currentRp} RP</span>
+            <span class="text-xs text-slate-500 font-mono">/ {shState.currentRp} RP</span>
             <span class="text-[10px] font-bold px-1.5 py-0.2 rounded {availableRp > 0 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50' : 'bg-slate-800 text-slate-400'}">
               {availableRp} Free
             </span>
@@ -244,7 +244,7 @@
         <div class="w-20 h-2 bg-slate-800 rounded-full overflow-hidden flex">
           <div
             class="bg-amber-500 h-full transition-all"
-            style="width: {(allocatedRp / state.currentRp) * 100}%"
+            style="width: {(allocatedRp / shState.currentRp) * 100}%"
           ></div>
         </div>
       </div>
@@ -252,7 +252,7 @@
       <!-- Treasury Gauge -->
       <div class="px-3.5 py-1.5 rounded-xl bg-slate-950 border border-slate-800">
         <span class="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">Stronghold Treasury</span>
-        <span class="text-base font-mono font-black text-emerald-400">{state.treasuryGp.toLocaleString()} gp</span>
+        <span class="text-base font-mono font-black text-emerald-400">{shState.treasuryGp.toLocaleString()} gp</span>
       </div>
 
       <!-- Morale & Desertion Badge -->
@@ -291,32 +291,32 @@
         <h3 class="text-xs font-black uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
           <span>📐</span> Sequential Room Point Engine
         </h3>
-        <span class="text-[10px] font-bold text-slate-400 font-mono">Current: Tier {state.currentRp} RP</span>
+        <span class="text-[10px] font-bold text-slate-400 font-mono">Current: Tier {shState.currentRp} RP</span>
       </div>
 
       <!-- Upgrade Progress or Start Upgrade Card -->
-      {#if state.activeUpgrade}
+      {#if shState.activeUpgrade}
         <div class="p-4 rounded-2xl bg-amber-950/20 border border-amber-800/60 space-y-3">
           <div class="flex items-center justify-between text-xs">
             <span class="font-bold text-amber-200 flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-              Expansion Underway: {state.currentRp} ➔ {state.activeUpgrade.targetRp} RP
+              Expansion Underway: {shState.currentRp} ➔ {shState.activeUpgrade.targetRp} RP
             </span>
             <span class="font-mono font-bold text-slate-300">
-              {state.activeUpgrade.daysCompleted} / {state.activeUpgrade.totalDays} Days
+              {shState.activeUpgrade.daysCompleted} / {shState.activeUpgrade.totalDays} Days
             </span>
           </div>
 
           <div class="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
             <div
               class="bg-amber-500 h-full rounded-full transition-all"
-              style="width: {(state.activeUpgrade.daysCompleted / state.activeUpgrade.totalDays) * 100}%"
+              style="width: {(shState.activeUpgrade.daysCompleted / shState.activeUpgrade.totalDays) * 100}%"
             ></div>
           </div>
 
           <div class="flex items-center justify-between text-[11px] text-slate-400">
-            <span>PC Labor Discount: <strong>{state.activeUpgrade.pcLaborLevelApplied * 0.5}%</strong> applied</span>
-            <span>Cost: <strong>{state.activeUpgrade.finalCostGp.toLocaleString()} gp</strong></span>
+            <span>PC Labor Discount: <strong>{shState.activeUpgrade.pcLaborLevelApplied * 0.5}%</strong> applied</span>
+            <span>Cost: <strong>{shState.activeUpgrade.finalCostGp.toLocaleString()} gp</strong></span>
           </div>
 
           <!-- Advance Construction Controls -->
@@ -328,7 +328,7 @@
               +10 Days Work
             </button>
             <button
-              onclick={() => progressUpgrade(state.activeUpgrade ? state.activeUpgrade.totalDays - state.activeUpgrade.daysCompleted : 0)}
+              onclick={() => progressUpgrade(shState.activeUpgrade ? shState.activeUpgrade.totalDays - shState.activeUpgrade.daysCompleted : 0)}
               class="flex-1 py-1.5 px-2 bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-black rounded-lg transition-colors shadow-sm"
             >
               Complete Now
@@ -386,7 +386,7 @@
 
           <button
             onclick={startUpgrade}
-            disabled={state.treasuryGp < discountedUpgradeCost}
+            disabled={shState.treasuryGp < discountedUpgradeCost}
             class="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-black rounded-xl transition-all shadow-md shadow-indigo-600/30 flex items-center justify-center gap-1.5"
           >
             <span>🔨</span> Initiate {nextUpgradeStep.toRp} RP Construction
@@ -406,8 +406,8 @@
         <div class="space-y-1 text-xs">
           {#each Object.values(UPGRADE_PROGRESSION) as step}
             <div class="p-2 rounded-lg border flex items-center justify-between font-mono {
-              state.currentRp > step.toRp ? 'bg-slate-900/30 border-slate-800/40 text-slate-600 line-through' :
-              state.currentRp === step.fromRp ? 'bg-indigo-950/30 border-indigo-700/60 text-indigo-200 font-bold' :
+              shState.currentRp > step.toRp ? 'bg-slate-900/30 border-slate-800/40 text-slate-600 line-through' :
+              shState.currentRp === step.fromRp ? 'bg-indigo-950/30 border-indigo-700/60 text-indigo-200 font-bold' :
               'bg-slate-950 border-slate-800 text-slate-400'
             }">
               <span>{step.fromRp} ➔ {step.toRp} RP</span>
@@ -459,7 +459,7 @@
 
       <div class="space-y-3">
         {#each Object.values(FACILITIES) as fac}
-          {@const isBuilt = state.facilities.includes(fac.id)}
+          {@const isBuilt = shState.facilities.includes(fac.id)}
           <div class="p-3.5 rounded-2xl border transition-all {isBuilt
             ? 'bg-indigo-950/20 border-indigo-600/70 shadow-md shadow-indigo-950/20'
             : 'bg-slate-900 border-slate-800 opacity-80 hover:opacity-100'}">
@@ -539,15 +539,15 @@
       <!-- Staffing Roster Controls -->
       <div class="space-y-3 bg-slate-900 p-4 rounded-2xl border border-slate-800">
         <div class="flex items-center justify-between text-[11px] pb-2 border-b border-slate-800/80">
-          <span class="text-slate-400 font-medium">Formula Target ({state.currentRp} RP):</span>
+          <span class="text-slate-400 font-medium">Formula Target ({shState.currentRp} RP):</span>
           <div class="flex items-center gap-2">
             <span class="font-mono font-bold text-amber-300">
               {staffingRequirements.recommendedSkilled} Skilled · {staffingRequirements.recommendedUnskilled} Unskilled
             </span>
             <button
               onclick={() => {
-                state.skilledHirelingsCount = staffingRequirements.recommendedSkilled;
-                state.unskilledHirelingsCount = staffingRequirements.recommendedUnskilled;
+                shState.skilledHirelingsCount = staffingRequirements.recommendedSkilled;
+                shState.unskilledHirelingsCount = staffingRequirements.recommendedUnskilled;
                 saveState();
                 flash('Staffing aligned with codified RP formula.');
               }}
@@ -567,12 +567,12 @@
           </div>
           <div class="flex items-center gap-1.5">
             <button
-              onclick={() => { if (state.skilledHirelingsCount > 0) { state.skilledHirelingsCount--; saveState(); } }}
+              onclick={() => { if (shState.skilledHirelingsCount > 0) { shState.skilledHirelingsCount--; saveState(); } }}
               class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold"
             >-</button>
-            <span class="w-8 text-center font-mono font-bold text-sm text-amber-300">{state.skilledHirelingsCount}</span>
+            <span class="w-8 text-center font-mono font-bold text-sm text-amber-300">{shState.skilledHirelingsCount}</span>
             <button
-              onclick={() => { state.skilledHirelingsCount++; saveState(); }}
+              onclick={() => { shState.skilledHirelingsCount++; saveState(); }}
               class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold"
             >+</button>
           </div>
@@ -586,12 +586,12 @@
           </div>
           <div class="flex items-center gap-1.5">
             <button
-              onclick={() => { if (state.unskilledHirelingsCount > 0) { state.unskilledHirelingsCount--; saveState(); } }}
+              onclick={() => { if (shState.unskilledHirelingsCount > 0) { shState.unskilledHirelingsCount--; saveState(); } }}
               class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold"
             >-</button>
-            <span class="w-8 text-center font-mono font-bold text-sm text-slate-200">{state.unskilledHirelingsCount}</span>
+            <span class="w-8 text-center font-mono font-bold text-sm text-slate-200">{shState.unskilledHirelingsCount}</span>
             <button
-              onclick={() => { state.unskilledHirelingsCount++; saveState(); }}
+              onclick={() => { shState.unskilledHirelingsCount++; saveState(); }}
               class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold"
             >+</button>
           </div>
@@ -610,8 +610,8 @@
         </div>
         <div class="flex items-center justify-between text-xs pt-2 border-t border-slate-800">
           <span class="text-slate-400">Days Unpaid:</span>
-          <span class="font-mono font-black {state.daysUnpaid > 0 ? 'text-rose-400' : 'text-emerald-400'}">
-            {state.daysUnpaid} Days
+          <span class="font-mono font-black {shState.daysUnpaid > 0 ? 'text-rose-400' : 'text-emerald-400'}">
+            {shState.daysUnpaid} Days
           </span>
         </div>
       </div>
@@ -638,7 +638,7 @@
       <div class="space-y-2 pt-1">
         <button
           onclick={() => payPayrollDays(1)}
-          disabled={state.treasuryGp < payroll.totalDailyGp}
+          disabled={shState.treasuryGp < payroll.totalDailyGp}
           class="w-full py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-30 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-700/20 flex items-center justify-center gap-1.5"
         >
           <span>💰</span> Disburse 1 Day ({payroll.totalDailyGp} gp)
@@ -646,7 +646,7 @@
 
         <button
           onclick={() => payPayrollDays(30)}
-          disabled={state.treasuryGp < payroll.totalMonthlyGp}
+          disabled={shState.treasuryGp < payroll.totalMonthlyGp}
           class="w-full py-2 bg-indigo-700 hover:bg-indigo-600 disabled:opacity-30 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-700/20 flex items-center justify-center gap-1.5"
         >
           <span>📅</span> Disburse 30 Days ({payroll.totalMonthlyGp} gp)

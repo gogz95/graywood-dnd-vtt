@@ -135,7 +135,7 @@
 
   function loadSampleCity() {
     // Generate realistic multi-district settlement with wards, lots, walls, and roads
-    const sampleFeatures = [
+    const sampleFeatures: Array<{ properties: Record<string, unknown>; geometry: { type: string; coordinates: any } }> = [
       // Defensive wall
       { properties: { type: 'wall' }, geometry: { type: 'LineString', coordinates: [[-350, -250], [350, -250], [350, 250], [-350, 250], [-350, -250]] } },
       // Main street
@@ -167,7 +167,7 @@
     for (const b of bldgs) {
       sampleFeatures.push({
         properties: b.properties,
-        geometry: { type: 'Polygon', coordinates: [[...b.coords, b.coords[0]]] } as unknown as { type: string; coordinates: unknown },
+        geometry: { type: 'Polygon', coordinates: [[...b.coords, b.coords[0]]] },
       });
     }
 

@@ -6,9 +6,7 @@
   import { onMount, onDestroy } from 'svelte';
   import {
     sessionStore,
-    calculateTriStatInitiative,
     applyHpMutationWithExhaustionCheck,
-    calculateEquipmentDurability,
     EXHAUSTION_PENALTIES
   } from '../../stores/sessionStore';
   import {
@@ -25,6 +23,8 @@
   import ManaRecoveryModal from '../../lib/components/party/ManaRecoveryModal.svelte';
   import PetManagerDrawer from '../../lib/components/player/PetManagerDrawer.svelte';
   import WhisperInboxModal from '../../lib/components/player/WhisperInboxModal.svelte';
+  import DowntimeManager from '../../lib/components/downtime/DowntimeManager.svelte';
+  import SpellbookDrawer from '../../lib/components/player/SpellbookDrawer.svelte';
   import type { CompanionAnimal } from '../../lib/types/character';
   import {
     sendTradeOffer,
@@ -90,18 +90,15 @@
   // ── Active Player Session State (NULL until authenticated — ZERO DATA LEAKAGE) ─
   let character = $state<PlayerCharacter | null>(null);
 
-  // Tri-Stat Initiative (safely derived)
-  let triStat = $derived(
-    character
-      ? calculateTriStatInitiative({
-          dex: character.dex,
-          int: character.int,
-          wis: character.wis,
-        })
-      : { bonus: 0, bestStat: 'DEX' as const, label: '+0 (DEX)' }
+  // Standard 5e DEX Initiative (safely derived)
+  let initiativeMod = $derived(
+    character ? Math.floor((character.dex - 10) / 2) : 0
+  );
+  let initiativeLabel = $derived(
+    initiativeMod >= 0 ? `+${initiativeMod} (DEX)` : `${initiativeMod} (DEX)`
   );
 
-  // Equipment with Durability RP
+  // Equipment & Companions
   let equipment = $state<PlayerItem[]>([]);
   let companions = $state<CompanionAnimal[]>([]);
 
@@ -113,18 +110,28 @@
   let isDigitalDiceEnabled = $state(true);
   let latestRollResult = $state<{ formula: string; result: number; rolls: number[]; isCrit?: boolean } | null>(null);
 
-  // Scratchpad Notes (LocalStorage)
-  let personalNotes = $state(typeof localStorage !== 'undefined' ? localStorage.getItem('vtt_player_scratchpad') || '' : '');
+  // Session Notes (LocalStorage Keyed by Character ID)
+  let personalNotes = $state('');
   $effect(() => {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('vtt_player_scratchpad', personalNotes);
+    if (character && typeof localStorage !== 'undefined') {
+      personalNotes = localStorage.getItem(`vtt_player_notes_${character.id}`) || '';
     }
   });
+
+  function handleNotesInput(e: Event) {
+    const val = (e.target as HTMLTextAreaElement).value;
+    personalNotes = val;
+    if (character && typeof localStorage !== 'undefined') {
+      localStorage.setItem(`vtt_player_notes_${character.id}`, val);
+    }
+  }
 
   // UI Drawers & Modals
   let isStatsDrawerOpen = $state(false);
   let isWhispersDrawerOpen = $state(false);
   let isManaModalOpen = $state(false);
+  let isSpellbookOpen = $state(false);
+  let isDowntimeOpen = $state(false);
   let activeWhisperAlert = $state<WhisperMessage | null>(null);
 
   // Incoming Broadcast Handout Modal
@@ -213,7 +220,7 @@
     } else if (baseClass.includes('fighter')) {
       equipment = [
         { id: 'eq-1', name: 'Steel Longsword', type: 'weapon', currentRp: 20, maxRp: 20, attackBonus: 7, damageFormula: '1d8+4', damageType: 'slashing', description: 'Well-balanced martial blade.' },
-        { id: 'eq-2', name: 'Chain Mail Armor', type: 'armor', currentRp: 0, maxRp: 25, acBonus: 6, description: 'Interlocking steel rings. Sunder fractured.' },
+        { id: 'eq-2', name: 'Chain Mail Armor', type: 'armor', currentRp: 25, maxRp: 25, acBonus: 6, description: 'Interlocking steel rings. Fully functional standard armor.' },
         { id: 'eq-3', name: 'Heavy Iron Shield', type: 'armor', currentRp: 15, maxRp: 15, acBonus: 2, description: 'Reinforced wood and iron.' },
       ];
       spellSlots = [];
@@ -250,7 +257,7 @@
       equipment = [
         { id: 'eq-1', name: 'Blessed Warhammer', type: 'weapon', currentRp: 20, maxRp: 20, attackBonus: 6, damageFormula: '1d8+3', damageType: 'bludgeoning', description: 'Engraved with deity iconography.' },
         { id: 'eq-2', name: 'Scale Mail', type: 'armor', currentRp: 18, maxRp: 20, acBonus: 4, description: 'Overlapping brass scales.' },
-        { id: 'eq-3', name: 'Holy Relic Shield', type: 'armor', currentRp: 0, maxRp: 15, acBonus: 2, description: 'Battered in holy defense. Fractured.' },
+        { id: 'eq-3', name: 'Holy Relic Shield', type: 'armor', currentRp: 15, maxRp: 15, acBonus: 2, description: 'Blessed steel shield with holy crest.' },
       ];
       spellSlots = [
         { level: 1, total: 4, used: 1 },
@@ -265,7 +272,7 @@
       // Rogue / Default
       equipment = [
         { id: 'eq-1', name: 'Shadowforged Rapier', type: 'weapon', currentRp: 15, maxRp: 20, attackBonus: 7, damageFormula: '1d8+4', damageType: 'piercing', description: 'Finesse, light. Cold wrought dark steel.' },
-        { id: 'eq-2', name: 'Studded Leather Armor', type: 'armor', currentRp: 0, maxRp: 25, acBonus: 2, description: 'Reinforced with iron rivets. Badly sundered.' },
+        { id: 'eq-2', name: 'Studded Leather Armor', type: 'armor', currentRp: 25, maxRp: 25, acBonus: 2, description: 'Reinforced with iron rivets. Supple and sound.' },
         { id: 'eq-3', name: 'Dagger of Subtlety', type: 'weapon', currentRp: 10, maxRp: 10, attackBonus: 7, damageFormula: '1d4+4', damageType: 'piercing', description: 'Easily concealed beneath cloak.' },
       ];
       spellSlots = [
@@ -672,8 +679,7 @@
 
   function rollWeaponAttack(item: PlayerItem) {
     if (!character || item.attackBonus === undefined) return;
-    const dur = calculateEquipmentDurability({ currentRp: item.currentRp, maxRp: item.maxRp });
-    const attackBonus = (item.attackBonus || 0) + dur.effectivePenalty;
+    const attackBonus = item.attackBonus || 0;
     const d20 = Math.floor(Math.random() * 20) + 1;
     const total = d20 + attackBonus;
     const isCrit = d20 === 20;
@@ -793,7 +799,7 @@
   }
 </style>
 
-<div class="min-h-screen w-full bg-slate-950 text-slate-100 font-sans select-none flex flex-col">
+<div class="h-screen w-full bg-slate-950 text-slate-100 font-sans select-none flex flex-col overflow-hidden">
 
   <!-- ═════════════════════════════════════════════════════════════════════════
        GATEWAY: HARDENED PIN ENTRY (ZERO DATA LEAKAGE)
@@ -967,6 +973,24 @@
 
       <div class="flex items-center gap-2">
         <button
+          onclick={() => isSpellbookOpen = true}
+          class="p-1.5 rounded-lg bg-indigo-950/70 border border-indigo-600/50 hover:bg-indigo-900 text-indigo-200 text-xs font-bold flex items-center gap-1 transition-all"
+          title="Open Grimoire & Spellbook"
+        >
+          <span>📖</span>
+          <span class="text-[10px] hidden sm:inline">Spells</span>
+        </button>
+
+        <button
+          onclick={() => isDowntimeOpen = true}
+          class="p-1.5 rounded-lg bg-amber-950/70 border border-amber-600/50 hover:bg-amber-900 text-amber-200 text-xs font-bold flex items-center gap-1 transition-all"
+          title="Open 5e Downtime Activities"
+        >
+          <span>⏳</span>
+          <span class="text-[10px] hidden sm:inline">Downtime</span>
+        </button>
+
+        <button
           onclick={() => isDigitalDiceEnabled = !isDigitalDiceEnabled}
           class="p-1.5 rounded-lg border text-xs transition-colors {isDigitalDiceEnabled
             ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300'
@@ -1013,7 +1037,7 @@
     {/if}
 
     <!-- ── Main Scrollable Body ─────────────────────────────────────────── -->
-    <main class="flex-1 min-h-screen overflow-y-auto p-4 space-y-4 max-w-md mx-auto w-full pb-24">
+    <main class="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 max-w-md mx-auto w-full pb-24">
 
       <!-- 1. VITALS BAR (HP, AC, Speed, Initiative) -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
@@ -1030,8 +1054,8 @@
           </div>
 
           <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5">
-            <span class="text-[9px] font-bold uppercase text-slate-500 block">Tri-Stat Init</span>
-            <span class="text-lg font-black font-mono text-amber-300">⚡ {triStat.label}</span>
+            <span class="text-[9px] font-bold uppercase text-slate-500 block">Initiative</span>
+            <span class="text-lg font-black font-mono text-amber-300">⚡ {initiativeLabel}</span>
           </div>
         </div>
 
@@ -1123,7 +1147,7 @@
         <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
           <div class="flex items-center justify-between">
             <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Ability Scores &amp; Saves</h3>
-            <span class="text-[10px] text-slate-500 font-mono">Tri-Stat: {triStat.bestStat}</span>
+            <span class="text-[10px] text-indigo-400 font-mono">Init: {initiativeLabel}</span>
           </div>
 
           <div class="grid grid-cols-6 gap-1.5 text-center">
@@ -1208,29 +1232,27 @@
         </section>
       {/if}
 
-      <!-- 4. EQUIPMENT CARDS WITH RP DURABILITY & SUNDER TRACKER -->
+      <!-- 4. EQUIPMENT CARDS (STANDARD 5E SRD) -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
-        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Equipped Gear &amp; Resistance Points (RP)</h3>
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Equipped Gear &amp; Inventory</h3>
+          <span class="text-[10px] text-slate-500 font-mono">🔒 Inventory Edits Locked (DM Regulated)</span>
+        </div>
 
         <div class="space-y-2">
           {#each equipment as item (item.id)}
-            {@const dur = calculateEquipmentDurability({ currentRp: item.currentRp, maxRp: item.maxRp })}
-            <div class="bg-slate-950 border rounded-xl p-3 space-y-2 transition-all {dur.isBroken
-              ? 'border-rose-800/60 bg-rose-950/10'
-              : 'border-slate-800'}">
+            <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2 transition-all">
               <div class="flex items-start justify-between gap-2">
                 <div>
                   <div class="flex items-center gap-2">
-                    <span class="text-xs font-bold {dur.isBroken ? 'text-rose-300 line-through' : 'text-slate-200'}">
+                    <span class="text-xs font-bold text-slate-200">
                       {item.name}
                     </span>
-                    {#if dur.isBroken}
-                      <span class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-rose-950 text-rose-400 border border-rose-800/50">
-                        Broken (-1)
-                      </span>
-                    {/if}
+                    <span class="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase bg-slate-900 text-slate-400 border border-slate-800">
+                      {item.type}
+                    </span>
                   </div>
-                  <p class="text-[10px] text-slate-500 mt-0.5">{item.description}</p>
+                  <p class="text-[10px] text-slate-400 mt-0.5">{item.description}</p>
                 </div>
 
                 <!-- Reference Badge (Physical Mode) or Quick Roll -->
@@ -1243,32 +1265,18 @@
                         title="Click to roll attack and damage"
                       >
                         <span>⚔️</span>
-                        <span>+{item.attackBonus! + dur.effectivePenalty} | {item.damageFormula}</span>
+                        <span>+{item.attackBonus || 0} | {item.damageFormula}</span>
                       </button>
                     {:else}
                       <span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] font-bold text-amber-300 block">
-                        +{item.attackBonus! + dur.effectivePenalty} | {item.damageFormula}
+                        +{item.attackBonus || 0} | {item.damageFormula}
                       </span>
                     {/if}
                   {:else if item.type === 'armor'}
                     <span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] font-bold text-indigo-300 block">
-                      +{item.acBonus! + dur.effectivePenalty} AC
+                      +{item.acBonus || 0} AC
                     </span>
                   {/if}
-                </div>
-              </div>
-
-              <!-- Durability RP Bar -->
-              <div class="space-y-1">
-                <div class="flex items-center justify-between text-[10px] font-mono">
-                  <span class="text-slate-500">Durability RP</span>
-                  <span class="{dur.isBroken ? 'text-rose-400 font-bold' : 'text-slate-400'}">{item.currentRp} / {item.maxRp} RP ({dur.statusLabel})</span>
-                </div>
-                <div class="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                  <div
-                    class="h-full transition-all {dur.isBroken ? 'bg-rose-500' : dur.percent <= 30 ? 'bg-amber-500' : 'bg-indigo-500'}"
-                    style="width: {dur.percent}%"
-                  ></div>
                 </div>
               </div>
 
@@ -1366,7 +1374,7 @@
 
       <!-- Mount, Beast & Familiar Manager -->
       <section class="space-y-3">
-        <PetManagerDrawer bind:companions />
+        <PetManagerDrawer bind:companions isDm={false} />
       </section>
 
       <!-- 5. DIGITAL DICE ROLLER TRAY (When Enabled) -->
@@ -1420,21 +1428,40 @@
         </button>
       </section>
 
-      <!-- 7. PERSONAL SCRATCHPAD -->
+      <!-- 7. PERSONAL SESSION NOTES -->
       <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-2">
         <div class="flex items-center justify-between">
-          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Personal Notes &amp; Clues</h3>
-          <span class="text-[10px] text-slate-500 font-mono">Saved locally</span>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Session Notes &amp; Quest Clues</h3>
+          <span class="text-[10px] text-emerald-400 font-mono">● Auto-saving</span>
         </div>
         <textarea
-          bind:value={personalNotes}
-          rows="3"
-          placeholder="Jot down NPC secrets, loot reminders, or session clues..."
+          value={personalNotes}
+          oninput={handleNotesInput}
+          rows="4"
+          placeholder="Record campaign clues, secrets, NPC interactions, and personal objectives..."
           class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors font-sans resize-y"
         ></textarea>
       </section>
 
     </main>
+
+    <!-- ── Spellbook Grimoire Drawer ──────────────────────────────────────── -->
+    <SpellbookDrawer
+      bind:isOpen={isSpellbookOpen}
+      characterClass={character.class}
+      characterLevel={character.level}
+      spellcastingMod={Math.max(
+        Math.floor((character.int - 10) / 2),
+        Math.floor((character.wis - 10) / 2),
+        Math.floor((character.cha - 10) / 2)
+      )}
+    />
+
+    <!-- ── 5e SRD Downtime Manager Modal ──────────────────────────────────── -->
+    <DowntimeManager
+      bind:isOpen={isDowntimeOpen}
+      characterName={character.name}
+    />
 
     <!-- ── Secret DM Whispers Inbox Modal / Slide-Out ────────────────────── -->
     {#if isWhispersDrawerOpen}
@@ -1514,10 +1541,6 @@
     <!-- ── Incoming Peer Trade Banner Modal ──────────────────────────────── -->
     {#if incomingTrade}
       {@const enc = incomingEncumbrance}
-      {@const tradeDur = calculateEquipmentDurability({
-        currentRp: incomingTrade.item.currentRp,
-        maxRp: incomingTrade.item.maxRp
-      })}
       <div class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 p-4 flex items-center justify-center animate-in fade-in zoom-in-95 duration-200">
         <div class="w-full max-w-md bg-slate-900 border-2 border-indigo-500 rounded-3xl shadow-2xl shadow-indigo-600/30 overflow-hidden flex flex-col space-y-4 p-5">
 
@@ -1559,22 +1582,6 @@
                   +{incomingTrade.item.acBonus || 0} AC
                 </div>
               {/if}
-            </div>
-
-            <!-- Durability RP Preview -->
-            <div class="space-y-1 pt-1 border-t border-slate-900">
-              <div class="flex items-center justify-between text-[10px] font-mono">
-                <span class="text-slate-500">Durability RP ({tradeDur.statusLabel})</span>
-                <span class="{tradeDur.isBroken ? 'text-rose-400 font-bold' : 'text-slate-400'}">
-                  {incomingTrade.item.currentRp ?? incomingTrade.item.maxRp ?? 15} / {incomingTrade.item.maxRp ?? 15} RP
-                </span>
-              </div>
-              <div class="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                <div
-                  class="h-full {tradeDur.isBroken ? 'bg-rose-500' : tradeDur.percent <= 30 ? 'bg-amber-500' : 'bg-indigo-500'}"
-                  style="width: {tradeDur.percent}%"
-                ></div>
-              </div>
             </div>
 
             <!-- Metadata Badges: Essence & Perishables -->

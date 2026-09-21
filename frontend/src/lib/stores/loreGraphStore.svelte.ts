@@ -36,202 +36,27 @@ const DB_VERSION = 1;
 const STORAGE_ENTITIES_KEY = 'vtt_lore_entities';
 const STORAGE_RELATIONSHIPS_KEY = 'vtt_lore_relationships';
 
-// ── Generic 5e SRD Initial Seed Data ─────────────────────────────────────────
-function createInitialSeedData(): { entities: LoreEntity[]; relationships: LoreRelationship[] } {
-  const now = Date.now();
-  const entities: LoreEntity[] = [
-    {
-      id: 'entity-faction-silver-hand',
-      type: 'FACTION',
-      name: 'The Silver Hand Mercenaries',
-      summary: 'A disciplined brotherhood of veteran sellswords and shield-bearers sworn to preserve regional order.',
-      bodyMarkdown: `### Overview
-The **Silver Hand** represents one of the most respected free companies in the frontier marquisates. Bound by an unyielding mercenary code, they operate out of their fortified redoubt at High Sun Sanctuary.
+// ── Mock Data Purge Definition ───────────────────────────────────────────────
+const PURGED_MOCK_NAMES = new Set([
+  'The Silver Hand Mercenaries',
+  'Commander Valen',
+  'Archmage Varis',
+  'High Sun Sanctuary',
+  'Whispering Caverns',
+  'The Lost Relic of Sunpeak',
+  'Treaty of the Silver Vale'
+]);
 
-### Hierarchy & Organization
-- **Commander:** Valen the Ironheart
-- **Quartermaster:** Durnan Hammerfall
-- **Chief Arcanist:** Archmage Varis
-
-### Strategic Interests
-Currently contracted to defend border trade caravans from goblin raiders and monstrosities pouring forth from the @Whispering Caverns.`,
-      tags: ['faction', 'mercenary', 'military', 'order'],
-      attributes: {
-        leader: 'Commander Valen',
-        alignment: 'Lawful Neutral',
-        strength: '250 veteran fighters',
-        headquarters: 'High Sun Sanctuary',
-      },
-      createdAt: now - 86400000 * 10,
-      updatedAt: now - 86400000 * 2,
-    },
-    {
-      id: 'entity-npc-commander-valen',
-      type: 'NPC',
-      name: 'Commander Valen',
-      summary: 'High Commander of the Silver Hand; grizzled veteran with scarred full plate and heavy greatsword.',
-      bodyMarkdown: `### Combat Tactics
-Valen fights in close formation, commanding his frontline with resounding battle cries. He wields a *+1 Adamantine Greatsword* and wears ceremonial plate armor emblazoned with a silver gauntlet.
-
-### Roleplaying Details
-- **Personality Trait:** "I respect only those who stand firm when shields shatter."
-- **Bond:** Loyal unto death to his company officers.
-- **Flaw:** Suspicious of unsanctioned foreign spellcasters.`,
-      tags: ['npc', 'commander', 'warrior', 'cr-8'],
-      attributes: {
-        cr: 8,
-        hp: 112,
-        ac: 19,
-        alignment: 'Lawful Neutral',
-        role: 'Company Commander',
-      },
-      createdAt: now - 86400000 * 9,
-      updatedAt: now - 86400000 * 2,
-    },
-    {
-      id: 'entity-npc-archmage-varis',
-      type: 'NPC',
-      name: 'Archmage Varis',
-      summary: 'Elven evoker advisor offering tactical divination and battlefield evocation to allied forces.',
-      bodyMarkdown: `### Background
-A master of planar abjuration and battlefield evocation who pledged his staff to the Silver Hand following the Siege of Iron Crag.
-
-### Arcane Arsenal
-Varis specializes in defensive barriers, *Wall of Force*, and precision *Chain Lightning*. He maintains an extensive library in High Sun Sanctuary.`,
-      tags: ['npc', 'mage', 'spellcaster', 'cr-12'],
-      attributes: {
-        cr: 12,
-        hp: 88,
-        ac: 15,
-        alignment: 'Neutral Good',
-        spellSaveDc: 17,
-      },
-      createdAt: now - 86400000 * 8,
-      updatedAt: now - 86400000 * 1,
-    },
-    {
-      id: 'entity-loc-high-sun-sanctuary',
-      type: 'LOCATION',
-      name: 'High Sun Sanctuary',
-      summary: 'A towering limestone bastion and temple fortress perched on a granite bluff above the river basin.',
-      bodyMarkdown: `### Bastion Layout
-1. **Lower Courtyard:** Stables, blacksmith forges, and supply storehouses.
-2. **Keep of the Sun:** Council chamber, armory, and high battlements mounted with ballistas.
-3. **Inner Sanctum:** Ancient solar chapel repurposed as an arcane retreat by Archmage Varis.`,
-      tags: ['location', 'fortress', 'settlement', 'sanctuary'],
-      attributes: {
-        terrain: 'Granite bluff overlooking river basin',
-        defenseRating: 'Tier IV Fortification',
-        garrison: '120 active men-at-arms',
-      },
-      createdAt: now - 86400000 * 7,
-      updatedAt: now - 86400000 * 2,
-    },
-    {
-      id: 'entity-loc-whispering-caverns',
-      type: 'LOCATION',
-      name: 'Whispering Caverns',
-      summary: 'A subterranean labyrinth rich in phosphorescent fungi and cursed subterranean ruins.',
-      bodyMarkdown: `### Environment & Hazards
-The cavern walls echo with ethereal murmurs that induce paranoia in travellers without psychic wards.
-- **Hazards:** Brown mold patches, sheer chasms, and lurking troglodyte ambushers.
-- **Key Discovery:** Hidden entrance to the vault holding the @Lost Relic of Sunpeak.`,
-      tags: ['location', 'dungeon', 'underdark', 'perilous'],
-      attributes: {
-        dangerLevel: 'Deadly (Level 5-7 party)',
-        illumination: 'Dim (Phosphorescent fungal lichen)',
-      },
-      createdAt: now - 86400000 * 6,
-      updatedAt: now - 86400000 * 3,
-    },
-    {
-      id: 'entity-quest-lost-relic',
-      type: 'QUEST',
-      name: 'The Lost Relic of Sunpeak',
-      summary: 'Recover the sacred solar scepter from the subterranean heart of the Whispering Caverns.',
-      bodyMarkdown: `### Quest Objectives
-1. Infiltrate the deep fissures of the @Whispering Caverns.
-2. Defeat or bypass the guardian chimera nesting in the lower throne.
-3. Return the *Scepter of the Sunpeak* to @Commander Valen.
-
-### Bounty & Rewards
-- **2,500 GP** minted coin from the company war chest.
-- Formal letter of alliance with @The Silver Hand Mercenaries.`,
-      tags: ['quest', 'dungeon-crawl', 'relic', 'tier-2'],
-      attributes: {
-        rewardGp: 2500,
-        status: 'Active',
-        recommendedLevel: '5 - 7',
-      },
-      createdAt: now - 86400000 * 5,
-      updatedAt: now - 86400000 * 1,
-    },
-    {
-      id: 'entity-doc-treaty-silver-vale',
-      type: 'DOCUMENT',
-      name: 'Treaty of the Silver Vale',
-      summary: 'Charter parchment ratifying jurisdiction and commercial escort tariffs across the frontier passes.',
-      bodyMarkdown: `### Historical Document
-*"Let it be known to all guilds and sovereign freeholders: The Silver Hand shall ensure open highways between High Sun Sanctuary and the southern trading posts, exacting a tariff no greater than five gold pieces per trade wagon."*
-
-Signed and sealed under the solar crest.`,
-      tags: ['document', 'charter', 'history', 'law'],
-      attributes: {
-        language: 'Common',
-        era: 'Third Age',
-        authenticity: 'Verified Arcane Seal',
-      },
-      createdAt: now - 86400000 * 4,
-      updatedAt: now - 86400000 * 4,
-    },
-  ];
-
-  const relationships: LoreRelationship[] = [
-    {
-      id: 'rel-1',
-      sourceId: 'entity-npc-commander-valen',
-      targetId: 'entity-faction-silver-hand',
-      relationType: 'MEMBER_OF',
-      notes: 'Commander Valen serves as the Grand Marshal of the company.',
-    },
-    {
-      id: 'rel-2',
-      sourceId: 'entity-faction-silver-hand',
-      targetId: 'entity-loc-high-sun-sanctuary',
-      relationType: 'CONTROLS',
-      notes: 'Permanent garrison and command bastion.',
-    },
-    {
-      id: 'rel-3',
-      sourceId: 'entity-npc-archmage-varis',
-      targetId: 'entity-faction-silver-hand',
-      relationType: 'ALLIED_WITH',
-      notes: 'Arcane advisor and siege consultant.',
-    },
-    {
-      id: 'rel-4',
-      sourceId: 'entity-npc-archmage-varis',
-      targetId: 'entity-loc-high-sun-sanctuary',
-      relationType: 'LOCATED_IN',
-      notes: 'Resides in the Solar Observatory atop the keep.',
-    },
-    {
-      id: 'rel-5',
-      sourceId: 'entity-faction-silver-hand',
-      targetId: 'entity-loc-whispering-caverns',
-      relationType: 'ENEMY_OF',
-      notes: 'Raiding parties routinely emerge from the cavern depths to assault patrols.',
-    },
-    {
-      id: 'rel-6',
-      sourceId: 'entity-quest-lost-relic',
-      targetId: 'entity-loc-whispering-caverns',
-      relationType: 'LOCATED_IN',
-      notes: 'The ancient scepter is believed locked in the lower subterranean shrine.',
-    },
-  ];
-
-  return { entities, relationships };
+function isPurgedMockEntity(e: LoreEntity): boolean {
+  if (!e || !e.name) return true;
+  return PURGED_MOCK_NAMES.has(e.name) ||
+    e.id.startsWith('entity-faction-silver-hand') ||
+    e.id.startsWith('entity-npc-commander-valen') ||
+    e.id.startsWith('entity-npc-archmage-varis') ||
+    e.id.startsWith('entity-loc-high-sun-sanctuary') ||
+    e.id.startsWith('entity-loc-whispering-caverns') ||
+    e.id.startsWith('entity-quest-lost-relic') ||
+    e.id.startsWith('entity-doc-treaty-silver-vale');
 }
 
 // ── IndexedDB Engine Helper ──────────────────────────────────────────────────
@@ -341,6 +166,11 @@ class LoreGraphStore {
       }
     } catch { /* ignore parse error */ }
 
+    // Purge any residual mock entities
+    loadedEntities = loadedEntities.filter(e => !isPurgedMockEntity(e));
+    const validIds = new Set(loadedEntities.map(e => e.id));
+    loadedRelationships = loadedRelationships.filter(r => validIds.has(r.sourceId) && validIds.has(r.targetId));
+
     if (loadedEntities.length > 0) {
       this.entities = loadedEntities;
       this.relationships = loadedRelationships;
@@ -351,16 +181,25 @@ class LoreGraphStore {
       this.relationships = [];
       this.activeEntityId = null;
       this.isLoaded = true;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(STORAGE_ENTITIES_KEY);
+        localStorage.removeItem(STORAGE_RELATIONSHIPS_KEY);
+      }
     }
 
-    // 3. Asynchronously hydrate/sync from IndexedDB if available
+    // 2. Asynchronously hydrate/sync from IndexedDB if available and purge legacy mock data
     idb.loadAll().then(idbData => {
       if (idbData && idbData.entities.length > 0) {
-        this.entities = idbData.entities;
-        this.relationships = idbData.relationships;
+        const cleanedEntities = idbData.entities.filter(e => !isPurgedMockEntity(e));
+        const cleanIds = new Set(cleanedEntities.map(e => e.id));
+        const cleanedRel = idbData.relationships.filter(r => cleanIds.has(r.sourceId) && cleanIds.has(r.targetId));
+
+        this.entities = cleanedEntities;
+        this.relationships = cleanedRel;
         if (!this.activeEntityId || !this.entities.some(e => e.id === this.activeEntityId)) {
           this.activeEntityId = this.entities[0]?.id || null;
         }
+        this.persist();
       }
     }).catch(() => {});
   }
@@ -542,17 +381,6 @@ class LoreGraphStore {
     return this.entities
       .filter(e => e.name.toLowerCase().includes(clean))
       .slice(0, 8);
-  }
-
-  /**
-   * Reset to initial generic 5e seed data.
-   */
-  resetToDefaultSeed() {
-    const seed = createInitialSeedData();
-    this.entities = seed.entities;
-    this.relationships = seed.relationships;
-    this.activeEntityId = seed.entities[0].id;
-    this.persist();
   }
 
   /**

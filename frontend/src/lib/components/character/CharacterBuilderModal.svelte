@@ -12,6 +12,11 @@
     STANDARD_5E_CLASSES,
     STANDARD_5E_LANGUAGES
   } from '../../data/languages';
+  import GuidedQuizBuilder from './GuidedQuizBuilder.svelte';
+  import {
+    buildStandardCharacter,
+    CLASS_ARCHETYPES
+  } from '../../services/classQuizEngine';
 
   export interface CreatedCharacter {
     id: string;
@@ -83,11 +88,13 @@
   // COMMON CHARACTER STATE
   // ─────────────────────────────────────────────────────────────────────────────
   let charName = $state('');
+  let charLevel = $state(1);
   let playerName = $state('Player');
   let selectedRace = $state<string>('Human');
   let selectedClass = $state<string>('Fighter');
   let selectedBackground = $state('Soldier');
   let bio = $state('');
+  let proceduralCharacter = $state<CreatedCharacter | null>(null);
 
   const RACES = [
     {
@@ -247,7 +254,7 @@
       wis: rolledPool[4] || 10,
       cha: rolledPool[5] || 8
     };
-    audioEngine.triggerDiceRollSfx(20);
+    audioEngine.triggerSfx('sfx-dice');
   }
 
   function applyStandardArray() {
@@ -389,26 +396,22 @@
   function handleGenerateProcedural() {
     const fName = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
     const lName = EPITHETS[Math.floor(Math.random() * EPITHETS.length)];
-    charName = `${fName} ${lName}`;
+    const defaultName = `${fName} ${lName}`;
+    const nameToUse = charName.trim() || defaultName;
 
-    const rDef = RACES[Math.floor(Math.random() * RACES.length)];
-    selectedRace = rDef.name;
+    const classKeys = Object.keys(CLASS_ARCHETYPES);
+    const chosenClassKey = classKeys[Math.floor(Math.random() * classKeys.length)];
 
-    const cls = CLASSES[Math.floor(Math.random() * CLASSES.length)];
-    selectedClass = cls.name;
-    selectedBackground = BACKGROUNDS[Math.floor(Math.random() * BACKGROUNDS.length)];
-
-    if (cls.prime === 'str') {
-      baseScores = { str: 16, dex: 12, con: 14, int: 10, wis: 12, cha: 8 };
-    } else if (cls.prime === 'dex') {
-      baseScores = { str: 10, dex: 16, con: 14, int: 12, wis: 13, cha: 10 };
-    } else if (cls.prime === 'int') {
-      baseScores = { str: 8, dex: 14, con: 14, int: 16, wis: 12, cha: 10 };
-    } else {
-      baseScores = { str: 12, dex: 12, con: 14, int: 10, wis: 16, cha: 12 };
-    }
-
-    bio = `A stalwart 5e SRD ${selectedRace} ${selectedClass} with the ${selectedBackground} background. Speaks ${rDef.language}.`;
+    proceduralCharacter = buildStandardCharacter(
+      nameToUse,
+      charLevel,
+      chosenClassKey
+    );
+    charName = proceduralCharacter.name;
+    selectedRace = proceduralCharacter.race;
+    selectedClass = proceduralCharacter.class;
+    selectedBackground = proceduralCharacter.background;
+    bio = proceduralCharacter.bio;
     audioEngine.triggerSfx('sfx-dice-crit');
   }
 
@@ -416,6 +419,14 @@
   // FINALIZE & SAVE
   // ─────────────────────────────────────────────────────────────────────────────
   function handleFinalizeCreation() {
+    if (mode === 'procedural' && proceduralCharacter) {
+      if (onCharacterCreated) {
+        onCharacterCreated(proceduralCharacter);
+      }
+      isOpen = false;
+      return;
+    }
+
     const raceDef = RACES.find(r => r.name === selectedRace) || RACES[0];
     const finalScores = raceDef.applyBonus(baseScores);
     const clsDef = CLASSES.find(c => c.name === selectedClass) || CLASSES[0];
@@ -424,7 +435,8 @@
     const dexMod = getMod(finalScores.dex);
     const wisMod = getMod(finalScores.wis);
 
-    const hpMax = clsDef.hitDie + conMod;
+    const avgHitDie = Math.floor(clsDef.hitDie / 2) + 1;
+    const hpMax = clsDef.hitDie + conMod + (charLevel - 1) * Math.max(1, avgHitDie + conMod);
     const ac = 10 + dexMod + (selectedClass === 'Fighter' || selectedClass === 'Paladin' ? 4 : 2);
 
     const newChar: CreatedCharacter = {
@@ -434,7 +446,7 @@
       race: raceDef.name,
       dialect: raceDef.language,
       class: selectedClass,
-      level: 1,
+      level: charLevel,
       background: selectedBackground,
       alignment: 'Neutral Good',
       str: finalScores.str,
@@ -448,18 +460,18 @@
       tempHp: 0,
       ac,
       speed: raceDef.speed,
-      initiativeMod: dexMod,
+      initiativeMod: dexMod, // STRICT 5E DEXTERITY MODIFIER
       passivePerception: 10 + wisMod + 2,
       weaponName: clsDef.weapon,
       armorName: clsDef.armor,
       cp: 50,
       sp: 20,
       ep: 0,
-      gp: 15,
+      gp: 15 + charLevel * 10,
       pp: 0,
       savingThrows: clsDef.saving,
       skills: ['Athletics', 'Perception', 'Insight'],
-      tools: ['Thieves\' Tools'],
+      tools: ["Thieves' Tools"],
       bio: bio || `5e Adventurer. Speaks ${raceDef.language}.`,
       pin: genPin()
     };
@@ -549,8 +561,8 @@
       <div class="flex-1 overflow-y-auto p-5 space-y-6">
 
         <!-- General Identity -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-          <div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          <div class="sm:col-span-2">
             <label for="char-name-input" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Character Name</label>
             <input
               id="char-name-input"
@@ -561,14 +573,16 @@
             />
           </div>
           <div>
-            <label for="player-name-input" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Assigned Player</label>
-            <input
-              id="player-name-input"
-              type="text"
-              bind:value={playerName}
-              placeholder="e.g. Alex"
-              class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
-            />
+            <label for="char-level-select" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Level (1–20)</label>
+            <select
+              id="char-level-select"
+              bind:value={charLevel}
+              class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-100 font-mono focus:outline-none focus:border-indigo-500"
+            >
+              {#each Array.from({ length: 20 }, (_, i) => i + 1) as lvl}
+                <option value={lvl}>Level {lvl}</option>
+              {/each}
+            </select>
           </div>
         </div>
 
@@ -664,60 +678,37 @@
             </div>
           </div>
 
-        <!-- ═════════════════════════════════════════════════════════════════════
-             MODE 2: GUIDED APTITUDE QUIZ
-        ══════════════════════════════════════════════════════════════════════ -->
-        {:else if mode === 'guided_quiz'}
-          <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 space-y-4">
-            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h4 class="text-xs font-bold uppercase tracking-wider text-amber-300">
-                  Moral &amp; Tactical Inquiry (Question {quizStep + 1} of {QUIZ_QUESTIONS.length})
-                </h4>
-                <p class="text-[11px] text-slate-400 mt-0.5">
-                  Answer the dilemma to reveal your character's natural class aptitude.
-                </p>
-              </div>
-              <span class="text-xs font-mono text-slate-500">{Math.round(((quizStep + 1) / QUIZ_QUESTIONS.length) * 100)}%</span>
-            </div>
-
-            <!-- Scenario -->
-            <p class="text-sm text-slate-200 font-medium leading-relaxed bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
-              "{currentQuizQ.scenario}"
-            </p>
-
-            <!-- Choices -->
-            <div class="space-y-2">
-              {#each currentQuizQ.options as opt}
-                <button
-                  type="button"
-                  onclick={() => handleSelectQuizAnswer(currentQuizQ.id, opt.archetype)}
-                  class="w-full text-left p-3 rounded-xl bg-slate-900 hover:bg-slate-800/80 border border-slate-800 hover:border-amber-500/50 transition-all text-xs group"
-                >
-                  <span class="font-bold text-slate-200 group-hover:text-amber-300 block mb-0.5">
-                    {opt.text}
-                  </span>
-                  <span class="text-[10px] text-slate-500 block">
-                    {opt.flavor}
-                  </span>
-                </button>
+          <!-- Background Selection (Pick & Roll mode) -->
+          <div>
+            <label for="char-background-select" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">5e SRD Background</label>
+            <select
+              id="char-background-select"
+              bind:value={selectedBackground}
+              class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
+            >
+              {#each BACKGROUNDS as bg}
+                <option value={bg}>{bg}</option>
               {/each}
-            </div>
-
-            {#if quizResult}
-              <div class="mt-4 p-4 bg-amber-950/40 border border-amber-800/60 rounded-xl space-y-2">
-                <span class="text-xs font-bold text-amber-300 uppercase tracking-wider block">Recommended Archetype: {quizResult.title}</span>
-                <p class="text-xs text-slate-300">{quizResult.summary}</p>
-                <div class="pt-2 flex items-center gap-3 text-xs font-mono text-slate-400">
-                  <span>Class: <b class="text-white">{selectedClass}</b></span>
-                  <span>Race: <b class="text-white">{selectedRace}</b></span>
-                </div>
-              </div>
-            {/if}
+            </select>
           </div>
 
         <!-- ═════════════════════════════════════════════════════════════════════
-             MODE 3: PROCEDURAL GENERATOR
+             MODE 2: GUIDED APTITUDE QUIZ (10-QUESTION TRIAD ENGINE)
+        ══════════════════════════════════════════════════════════════════════ -->
+        {:else if mode === 'guided_quiz'}
+          <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-5">
+            <GuidedQuizBuilder
+              characterName={charName}
+              characterLevel={charLevel}
+              onComplete={(char) => {
+                if (onCharacterCreated) onCharacterCreated(char);
+                isOpen = false;
+              }}
+            />
+          </div>
+
+        <!-- ═════════════════════════════════════════════════════════════════════
+             MODE 3: PROCEDURAL GENERATOR (ONE-CLICK LEVEL 1-20 5E SRD ARCHETYPE)
         ══════════════════════════════════════════════════════════════════════ -->
         {:else if mode === 'procedural'}
           <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-6 text-center space-y-4">
@@ -725,52 +716,52 @@
               ⚡
             </div>
             <div>
-              <h4 class="text-sm font-bold text-slate-100 uppercase tracking-wider">Instant 5e SRD Archetype</h4>
+              <h4 class="text-sm font-bold text-slate-100 uppercase tracking-wider">Instant 5e SRD Archetype (Level {charLevel})</h4>
               <p class="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                Generates a fully balanced 1st-level 5e character with standard array, SRD race, class proficiencies, and starting gear.
+                Procedurally generates a balanced Level {charLevel} 5e character with standard array, SRD race bonuses, class features, functional starting gear, and scaled HP.
               </p>
             </div>
 
             <button
               type="button"
               onclick={handleGenerateProcedural}
-              class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-lg transition-all active:scale-95"
+              class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs font-black rounded-xl shadow-lg transition-all active:scale-95"
             >
-              🎲 Generate 5e Archetype
+              🎲 Roll 5e Archetype
             </button>
 
-            {#if charName}
-              <div class="mt-4 p-4 bg-slate-900 border border-slate-800 rounded-xl text-left space-y-2 text-xs">
+            {#if proceduralCharacter}
+              <div class="mt-4 p-4 bg-slate-900 border border-slate-800 rounded-xl text-left space-y-3 text-xs">
                 <div class="flex items-center justify-between font-bold text-slate-200">
-                  <span>{charName}</span>
-                  <span class="text-emerald-400">{selectedRace} · {selectedClass}</span>
+                  <span class="text-sm text-white">{proceduralCharacter.name}</span>
+                  <span class="text-emerald-400">Level {proceduralCharacter.level} · {proceduralCharacter.race} · {proceduralCharacter.class}</span>
                 </div>
-                <p class="text-slate-400 text-[11px]">{bio}</p>
+                <div class="grid grid-cols-6 gap-2 text-center">
+                  {#each [['STR', proceduralCharacter.str], ['DEX', proceduralCharacter.dex], ['CON', proceduralCharacter.con], ['INT', proceduralCharacter.int], ['WIS', proceduralCharacter.wis], ['CHA', proceduralCharacter.cha]] as [stat, val]}
+                    <div class="bg-slate-950 p-1.5 rounded border border-slate-800">
+                      <span class="text-[9px] text-slate-400 block font-bold">{stat}</span>
+                      <span class="text-sm font-black text-white">{val}</span>
+                    </div>
+                  {/each}
+                </div>
+                <div class="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-800 pt-2 font-mono">
+                  <span>HP: <strong class="text-emerald-300">{proceduralCharacter.hpMax}</strong></span>
+                  <span>AC: <strong class="text-sky-300">{proceduralCharacter.ac}</strong></span>
+                  <span>Init: <strong class="text-amber-300">+{proceduralCharacter.initiativeMod} (DEX)</strong></span>
+                  <span>Speed: <strong class="text-slate-200">{proceduralCharacter.speed} ft</strong></span>
+                </div>
+                <p class="text-slate-400 text-[11px] leading-relaxed">{proceduralCharacter.bio}</p>
               </div>
             {/if}
           </div>
         {/if}
-
-        <!-- Background Selection -->
-        <div>
-          <label for="char-background-select" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">5e SRD Background</label>
-          <select
-            id="char-background-select"
-            bind:value={selectedBackground}
-            class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
-          >
-            {#each BACKGROUNDS as bg}
-              <option value={bg}>{bg}</option>
-            {/each}
-          </select>
-        </div>
 
       </div>
 
       <!-- Modal Footer -->
       <div class="h-16 bg-slate-950 border-t border-slate-800 px-5 flex items-center justify-between shrink-0">
         <div class="text-[11px] text-slate-400 font-mono">
-          <span>{selectedRace}</span> · <span>{selectedClass}</span> · <span class="text-amber-400">15 GP</span>
+          <span>Level {charLevel}</span> · <span>{selectedRace}</span> · <span>{selectedClass}</span>
         </div>
 
         <div class="flex items-center gap-2.5">
@@ -781,13 +772,15 @@
           >
             Cancel
           </button>
-          <button
-            type="button"
-            onclick={handleFinalizeCreation}
-            class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-600/30 active:scale-95"
-          >
-            Create Character Sheet
-          </button>
+          {#if mode !== 'guided_quiz'}
+            <button
+              type="button"
+              onclick={handleFinalizeCreation}
+              class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-600/30 active:scale-95"
+            >
+              Create Character Sheet
+            </button>
+          {/if}
         </div>
       </div>
 

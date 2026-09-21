@@ -1,14 +1,5 @@
 <!-- BastionManagerView.svelte — Keep / Stronghold Zero-State Creation & Municipal Land Charter Workflow -->
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import { audioEngine } from '../../audio/AudioEngine';
-  import {
-    COMMERCIAL_FACILITIES,
-    rollFacilityYield,
-    type CommercialFacilityId,
-    type CommercialYieldResult
-  } from '../../mechanics/strongholdEngine';
-
+<script module lang="ts">
   export type CharterAuthority =
     | 'Capital High Chancellery'
     | 'Highland Regional Council'
@@ -47,6 +38,17 @@
       formula: string;
     }[];
   }
+</script>
+
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { audioEngine } from '../../audio/AudioEngine';
+  import {
+    COMMERCIAL_FACILITIES,
+    rollFacilityYield,
+    type CommercialFacilityId,
+    type CommercialYieldResult
+  } from '../../mechanics/strongholdEngine';
 
   const STORAGE_KEY = 'aleamos_bastion_holding_state';
 

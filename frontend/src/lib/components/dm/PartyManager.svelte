@@ -272,41 +272,41 @@
       <h3 class="text-base font-bold text-slate-100">{editingId ? 'Edit Character' : 'Add Character / NPC'}</h3>
 
       <div class="grid grid-cols-2 gap-3 text-xs">
-        <div class="col-span-2 space-y-1">
-          <label class="font-semibold text-slate-400 uppercase tracking-wider">Character Name</label>
+        <label class="col-span-2 block space-y-1">
+          <span class="font-semibold text-slate-400 uppercase tracking-wider block">Character Name</span>
           <input type="text" bind:value={form.name} class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500" placeholder="e.g. Valen Shadowborn" />
-        </div>
-        <div class="space-y-1">
-          <label class="font-semibold text-slate-400 uppercase tracking-wider">Player Name</label>
+        </label>
+        <label class="block space-y-1">
+          <span class="font-semibold text-slate-400 uppercase tracking-wider block">Player Name</span>
           <input type="text" bind:value={form.playerName} class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500" placeholder="e.g. Alex" />
-        </div>
-        <div class="space-y-1">
-          <label class="font-semibold text-slate-400 uppercase tracking-wider">Class</label>
+        </label>
+        <label class="block space-y-1">
+          <span class="font-semibold text-slate-400 uppercase tracking-wider block">Class</span>
           <select bind:value={form.class} class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500">
             {#each DND_CLASSES as cls}<option value={cls}>{cls}</option>{/each}
           </select>
-        </div>
-        <div class="space-y-1">
-          <label class="font-semibold text-slate-400 uppercase tracking-wider">Level</label>
+        </label>
+        <label class="block space-y-1">
+          <span class="font-semibold text-slate-400 uppercase tracking-wider block">Level</span>
           <input type="number" min="1" max="20" bind:value={form.level} class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500" />
-        </div>
-        <div class="space-y-1">
-          <label class="font-semibold text-slate-400 uppercase tracking-wider">Max HP</label>
+        </label>
+        <label class="block space-y-1">
+          <span class="font-semibold text-slate-400 uppercase tracking-wider block">Max HP</span>
           <input type="number" min="1" bind:value={form.hpMax} class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500" />
-        </div>
-        <div class="space-y-1">
-          <label class="font-semibold text-slate-400 uppercase tracking-wider">AC</label>
+        </label>
+        <label class="block space-y-1">
+          <span class="font-semibold text-slate-400 uppercase tracking-wider block">AC</span>
           <input type="number" min="1" max="30" bind:value={form.ac} class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500" />
-        </div>
-        <div class="space-y-1">
-          <label class="font-semibold text-slate-400 uppercase tracking-wider">Passive Perception</label>
+        </label>
+        <label class="block space-y-1">
+          <span class="font-semibold text-slate-400 uppercase tracking-wider block">Passive Perception</span>
           <input type="number" min="1" max="30" bind:value={form.passivePerception} class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500" />
-        </div>
+        </label>
         <div class="space-y-1">
-          <label class="font-semibold text-slate-400 uppercase tracking-wider">4-Digit PIN</label>
+          <label for="form-pin-input" class="font-semibold text-slate-400 uppercase tracking-wider block">4-Digit PIN</label>
           <div class="flex gap-1.5">
-            <input type="text" maxlength="4" bind:value={form.pin} class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-indigo-500" placeholder="####" />
-            <button onclick={() => form.pin = genPin()} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition-colors">🎲</button>
+            <input id="form-pin-input" type="text" maxlength="4" bind:value={form.pin} class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-indigo-500" placeholder="####" />
+            <button type="button" onclick={() => form.pin = genPin()} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition-colors">🎲</button>
           </div>
         </div>
         <div class="col-span-2 flex items-center gap-2 pt-1">
