@@ -62,9 +62,9 @@
 
   <!-- Global Roll Mode Selector Cards -->
   <div class="space-y-2">
-    <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
       Primary Table Rolling Mode
-    </label>
+    </span>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <!-- Digital Mode Card -->
@@ -112,9 +112,9 @@
   <!-- Granular Mechanical Toggles -->
   <div class="space-y-3 pt-2">
     <div class="flex items-center justify-between">
-      <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+      <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
         Granular Check Automation
-      </label>
+      </span>
       <button
         type="button"
         onclick={() => automationSettings.resetToDefaults()}

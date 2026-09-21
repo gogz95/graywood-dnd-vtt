@@ -253,8 +253,11 @@
     <div
       class="w-full max-w-xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
       role="dialog"
+      aria-modal="true"
+      tabindex="-1"
       aria-label="Omnibar Search"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <!-- Search Input Bar -->
       <div class="p-3 bg-slate-950 border-b border-slate-800 flex items-center gap-3">
@@ -284,6 +287,7 @@
               role="button"
               tabindex="0"
               onclick={() => item.action()}
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.action(); } }}
               onmouseenter={() => selectedIndex = idx}
               class="flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-all {isSel
                 ? 'bg-indigo-600 text-white shadow-md'

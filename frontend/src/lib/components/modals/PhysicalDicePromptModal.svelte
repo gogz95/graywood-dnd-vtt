@@ -49,6 +49,9 @@
     class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150 select-none"
   >
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={activePrompt.title}
       class="w-full max-w-md bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-amber-600/60 rounded-2xl shadow-2xl p-6 space-y-5 text-center"
       tabindex="-1"
       onkeydown={handleKeyDown}

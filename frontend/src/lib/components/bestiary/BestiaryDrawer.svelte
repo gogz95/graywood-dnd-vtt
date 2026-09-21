@@ -165,6 +165,9 @@
             <div class="flex items-center gap-2.5 min-w-0">
               <!-- Drag Handle -->
               <div
+                role="button"
+                tabindex="0"
+                aria-label={`Drag ${monster.name} onto Canvas`}
                 draggable="true"
                 ondragstart={(e) => handleDragStart(e, monster)}
                 class="w-6 h-8 flex items-center justify-center rounded cursor-grab active:cursor-grabbing text-slate-600 hover:text-amber-400 hover:bg-slate-900 transition-colors"
