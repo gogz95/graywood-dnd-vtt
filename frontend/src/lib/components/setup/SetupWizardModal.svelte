@@ -9,6 +9,8 @@
   import { campaignStore } from '../../stores/campaignStore.svelte';
   import { ingestUniversalFile } from '../../importers/universalIngestionEngine';
   import { importUniversalMap } from '../../services/mapImporter';
+  import { seedSrdCompendiumIfEmpty } from '../../services/srdSeedService';
+  import { campaignDirectoryStore } from '../../stores/campaignDirectoryStore.svelte';
 
   let {
     isOpen = $bindable(false),
@@ -27,10 +29,21 @@
   let dmName = $state('Dungeon Master');
   let tablePin = $state('1337');
 
-  // Step 2: Display Mode Preset
-  let displayPreset = $state<'projector' | 'companion' | 'solo'>('projector');
+  // Step 2: Campaign Directory & Scaffolding
+  let selectedDirectory = $state<string | null>(null);
+  let isSelectingFolder = $state(false);
+  const requiredSubdirs = [
+    'Ingest/Source material/',
+    'Ingest/Image/',
+    'Ingest/Audio/',
+    'Ingest/Video/',
+    'maps/',
+    'tokens/',
+    'audio/'
+  ];
 
-  // Step 3: Rules Preset
+  // Step 3: Display Mode & Rules Presets
+  let displayPreset = $state<'projector' | 'companion' | 'solo'>('projector');
   let ruleDexInit = $state(true);
   let ruleGrittyRealism = $state(false);
   let ruleDurability = $state(false);
@@ -46,11 +59,33 @@
     campaignName = campaignStore.campaignName || 'Default Campaign';
     dmName = campaignStore.dmAlias || 'Dungeon Master';
     tablePin = campaignStore.masterPin || '1337';
+    selectedDirectory = campaignDirectoryStore.directoryPath;
 
     if (!campaignStore.hasCompletedWizard) {
       isOpen = true;
     }
   });
+
+  async function handleSelectDirectory(): Promise<void> {
+    isSelectingFolder = true;
+    try {
+      const info = await campaignDirectoryStore.selectDirectory();
+      if (info) {
+        selectedDirectory = info.root_path;
+        if (info.name) campaignName = info.name;
+        if (compendiumDb.campaignFlags) {
+          await compendiumDb.campaignFlags.bulkPut([
+            { key: 'campaignRootDir', value: info.root_path },
+            { key: 'activeCampaignProfile', value: info.name }
+          ]);
+        }
+      }
+    } catch (err) {
+      console.warn('Directory selection failed:', err);
+    } finally {
+      isSelectingFolder = false;
+    }
+  }
 
   async function syncInputsToStore(): Promise<void> {
     campaignStore.campaignName = campaignName.trim() || 'Default Campaign';
@@ -78,9 +113,8 @@
   async function handleSeedSrd(): Promise<void> {
     isSeeding = true;
     try {
-      await compendiumDb.ensureSrdBaseline();
-      const count = await compendiumDb.spells.count();
-      seededCount = count;
+      const res = await seedSrdCompendiumIfEmpty(true);
+      seededCount = res.monstersCount + res.spellsCount + res.itemsCount;
     } catch {
       // ignore
     } finally {
@@ -162,7 +196,7 @@
           <span class="text-xl">🎲</span>
           <div>
             <h2 class="text-sm font-black text-slate-100 uppercase tracking-wider">GRAYWOOD VTT SETUP WIZARD</h2>
-            <p class="text-[11px] text-slate-400">Step {step} of {maxSteps}: {step === 1 ? 'Campaign Identity' : step === 2 ? 'Display Preset' : step === 3 ? 'Rules Preset' : 'Compendium & Ingestion'}</p>
+            <p class="text-[11px] text-slate-400">Step {step} of {maxSteps}: {step === 1 ? 'Campaign Identity' : step === 2 ? 'Campaign Scaffolding' : step === 3 ? 'Display & Rules' : 'Compendium & Ingestion'}</p>
           </div>
         </div>
         <!-- Step Indicators & Dismiss Button -->
@@ -222,62 +256,103 @@
           </div>
         {:else if step === 2}
           <div class="space-y-3">
-            <h3 class="font-bold text-sm text-slate-200">Select Display Architecture</h3>
-            <div class="grid grid-cols-3 gap-3">
-              <button
-                type="button"
-                onclick={() => displayPreset = 'projector'}
-                class="p-3 rounded-xl border text-left transition-all {displayPreset === 'projector' ? 'bg-indigo-950/80 border-indigo-500 text-indigo-200' : 'bg-slate-950 border-slate-800 text-slate-400'}"
-              >
-                <span class="text-2xl block mb-1">🖥️</span>
-                <span class="font-bold block text-xs">TV / Projector</span>
-                <span class="text-[10px] text-slate-500 block mt-1">Dual-screen tabletop display with dedicated player window.</span>
-              </button>
-              <button
-                type="button"
-                onclick={() => displayPreset = 'companion'}
-                class="p-3 rounded-xl border text-left transition-all {displayPreset === 'companion' ? 'bg-indigo-950/80 border-indigo-500 text-indigo-200' : 'bg-slate-950 border-slate-800 text-slate-400'}"
-              >
-                <span class="text-2xl block mb-1">📱</span>
-                <span class="font-bold block text-xs">Hybrid Companion</span>
-                <span class="text-[10px] text-slate-500 block mt-1">Players connect phones/tablets for live sheets and rolls.</span>
-              </button>
-              <button
-                type="button"
-                onclick={() => displayPreset = 'solo'}
-                class="p-3 rounded-xl border text-left transition-all {displayPreset === 'solo' ? 'bg-indigo-950/80 border-indigo-500 text-indigo-200' : 'bg-slate-950 border-slate-800 text-slate-400'}"
-              >
-                <span class="text-2xl block mb-1">🏰</span>
-                <span class="font-bold block text-xs">Solo Prep</span>
-                <span class="text-[10px] text-slate-500 block mt-1">Single-screen DM workstation for campaign world-building.</span>
-              </button>
+            <h3 class="font-bold text-sm text-slate-200">Campaign Directory &amp; Auto-Scaffolding</h3>
+            <p class="text-[11px] text-slate-400">
+              Select or create a root folder on disk for this campaign profile. Graywood VTT automatically scaffolds and verifies all required asset directories.
+            </p>
+
+            <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <div class="truncate flex-1">
+                  <span class="text-[10px] uppercase font-bold text-slate-400 block mb-1">Active Campaign Root Folder</span>
+                  <div class="text-xs font-mono text-indigo-300 bg-slate-900 border border-slate-700/60 rounded px-2.5 py-1.5 truncate">
+                    {selectedDirectory || campaignDirectoryStore.directoryPath || 'No folder selected (Click Browse below)'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onclick={handleSelectDirectory}
+                  disabled={isSelectingFolder}
+                  class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-lg transition-colors flex items-center gap-1.5 self-end shrink-0 shadow"
+                >
+                  <span>{isSelectingFolder ? '⏳' : '📁'}</span>
+                  <span>{isSelectingFolder ? 'Selecting…' : 'Browse Folder…'}</span>
+                </button>
+              </div>
+
+              <div>
+                <span class="text-[10px] uppercase font-bold text-slate-400 block mb-1.5">Required Campaign Subdirectories</span>
+                <div class="grid grid-cols-2 gap-1.5 font-mono text-[10px]">
+                  {#each requiredSubdirs as sub}
+                    <div class="flex items-center gap-1.5 px-2 py-1 bg-slate-900/80 rounded border border-slate-800 text-slate-300">
+                      <span class="text-emerald-400 font-bold">✓</span>
+                      <span class="truncate">{sub}</span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
             </div>
           </div>
         {:else if step === 3}
-          <div class="space-y-3">
-            <h3 class="font-bold text-sm text-slate-200">Table Rules Preset (Strict 5e Baseline)</h3>
-            <div class="space-y-2">
-              <label class="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
-                <div>
-                  <span class="font-bold text-slate-200 block">Standard DEX Initiative</span>
-                  <span class="text-[10px] text-slate-500">Pure 5e SRD Dexterity initiative checks without house rules.</span>
-                </div>
-                <input type="checkbox" bind:checked={ruleDexInit} class="accent-indigo-500 rounded" />
-              </label>
-              <label class="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
-                <div>
-                  <span class="font-bold text-slate-200 block">Gritty Realism Resting</span>
-                  <span class="text-[10px] text-slate-500">Short rest = 8 hours; Long rest = 7 days.</span>
-                </div>
-                <input type="checkbox" bind:checked={ruleGrittyRealism} class="accent-indigo-500 rounded" />
-              </label>
-              <label class="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
-                <div>
-                  <span class="font-bold text-slate-200 block">Equipment Durability (RP &amp; Sunder)</span>
-                  <span class="text-[10px] text-slate-500">Enable Resistance Points and weapon maintenance wear.</span>
-                </div>
-                <input type="checkbox" bind:checked={ruleDurability} class="accent-indigo-500 rounded" />
-              </label>
+          <div class="space-y-4">
+            <div>
+              <h3 class="font-bold text-sm text-slate-200 mb-2">Display Architecture</h3>
+              <div class="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onclick={() => displayPreset = 'projector'}
+                  class="p-2.5 rounded-xl border text-left transition-all {displayPreset === 'projector' ? 'bg-indigo-950/80 border-indigo-500 text-indigo-200' : 'bg-slate-950 border-slate-800 text-slate-400'}"
+                >
+                  <span class="text-xl block mb-0.5">🖥️</span>
+                  <span class="font-bold block text-xs">TV / Projector</span>
+                  <span class="text-[10px] text-slate-500 block mt-0.5">Dual-screen tabletop display.</span>
+                </button>
+                <button
+                  type="button"
+                  onclick={() => displayPreset = 'companion'}
+                  class="p-2.5 rounded-xl border text-left transition-all {displayPreset === 'companion' ? 'bg-indigo-950/80 border-indigo-500 text-indigo-200' : 'bg-slate-950 border-slate-800 text-slate-400'}"
+                >
+                  <span class="text-xl block mb-0.5">📱</span>
+                  <span class="font-bold block text-xs">Companion</span>
+                  <span class="text-[10px] text-slate-500 block mt-0.5">Mobile Wi-Fi character sheets.</span>
+                </button>
+                <button
+                  type="button"
+                  onclick={() => displayPreset = 'solo'}
+                  class="p-2.5 rounded-xl border text-left transition-all {displayPreset === 'solo' ? 'bg-indigo-950/80 border-indigo-500 text-indigo-200' : 'bg-slate-950 border-slate-800 text-slate-400'}"
+                >
+                  <span class="text-xl block mb-0.5">🏰</span>
+                  <span class="font-bold block text-xs">Solo Prep</span>
+                  <span class="text-[10px] text-slate-500 block mt-0.5">Single-screen DM workstation.</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <h3 class="font-bold text-sm text-slate-200">Table Rules Preset (5e SRD)</h3>
+              <div class="space-y-1.5">
+                <label class="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
+                  <div>
+                    <span class="font-bold text-slate-200 block text-xs">Standard DEX Initiative</span>
+                    <span class="text-[10px] text-slate-500">Pure 5e SRD Dexterity initiative checks without house rules.</span>
+                  </div>
+                  <input type="checkbox" bind:checked={ruleDexInit} class="accent-indigo-500 rounded" />
+                </label>
+                <label class="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
+                  <div>
+                    <span class="font-bold text-slate-200 block text-xs">Gritty Realism Resting</span>
+                    <span class="text-[10px] text-slate-500">Short rest = 8 hours; Long rest = 7 days.</span>
+                  </div>
+                  <input type="checkbox" bind:checked={ruleGrittyRealism} class="accent-indigo-500 rounded" />
+                </label>
+                <label class="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
+                  <div>
+                    <span class="font-bold text-slate-200 block text-xs">Equipment Durability (RP &amp; Sunder)</span>
+                    <span class="text-[10px] text-slate-500">Enable Resistance Points and weapon maintenance wear.</span>
+                  </div>
+                  <input type="checkbox" bind:checked={ruleDurability} class="accent-indigo-500 rounded" />
+                </label>
+              </div>
             </div>
           </div>
         {:else if step === 4}

@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
 
 pub const DEFAULT_SERVER_ADDR: &str = "0.0.0.0:8080";
+pub const LAN_ASSET_SERVER_ADDR: &str = "0.0.0.0:5174";
 
 /// Constructs the complete Axum Router with all endpoints, CORS, and WebSocket hub.
 pub fn create_router(state: AppState) -> Router {
@@ -77,6 +78,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/campaign/directory/set",
             post(routes::campaign_dir::set_campaign_directory),
+        )
+        .route(
+            "/api/campaign/assets/browse",
+            get(routes::campaign_dir::list_campaign_assets_route),
         )
         .route(
             "/api/campaign/assets/*path",
@@ -146,13 +151,26 @@ pub fn create_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// Runs the local-first embedded Axum server inside Tauri 2 running on Tokio (default: `0.0.0.0:8080`).
+/// Runs the local-first embedded Axum server inside Tauri 2 running on Tokio (default: `0.0.0.0:8080`, asset server: `0.0.0.0:5174`).
 pub async fn run_server(
     state: AppState,
     bind_addr: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let router = create_router(state);
     let addr: SocketAddr = bind_addr.parse()?;
+
+    // Expose dedicated HTTP LAN static asset server on port 5174
+    if addr.port() != 5174 {
+        let asset_router = router.clone();
+        tokio::spawn(async move {
+            if let Ok(asset_addr) = LAN_ASSET_SERVER_ADDR.parse::<SocketAddr>() {
+                if let Ok(listener_5174) = tokio::net::TcpListener::bind(asset_addr).await {
+                    let _ = axum::serve(listener_5174, asset_router).await;
+                }
+            }
+        });
+    }
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, router).await?;
     Ok(())

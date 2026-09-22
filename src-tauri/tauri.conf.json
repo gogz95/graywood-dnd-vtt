@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Graywood VTT",
-  "version": "0.1.0",
-  "identifier": "com.graywood.vtt",
+  "version": "1.0.0",
+  "identifier": "com.graywood.dnd.vtt",
   "build": {
     "beforeDevCommand": "npm --prefix frontend run dev",
     "devUrl": "http://localhost:5173",
@@ -12,13 +12,15 @@
   "app": {
     "windows": [
       {
-        "title": "Graywood VTT",
+        "title": "Graywood VTT - Tactical Tabletop DM Workstation",
         "width": 1440,
         "height": 900,
         "minWidth": 1024,
         "minHeight": 768,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true,
+        "decorations": true
       }
     ],
     "security": {
@@ -38,7 +40,10 @@
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
-      "timestampUrl": ""
+      "timestampUrl": "",
+      "nsis": {
+        "installMode": "currentUser"
+      }
     }
   }
 }

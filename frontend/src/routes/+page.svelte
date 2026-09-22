@@ -27,6 +27,11 @@
   import MapManagerModal from '../lib/components/map/MapManagerModal.svelte';
   import UnifiedHoldingsView from '../lib/components/downtime/UnifiedHoldingsView.svelte';
   import UniversalIngestModal from '../lib/components/ingest/UniversalIngestModal.svelte';
+  import { ingestPipelineStore } from '../lib/services/ingest/ingestPipelineStore.svelte';
+  import FloatingBestiaryWindow from '../lib/components/bestiary/FloatingBestiaryWindow.svelte';
+  import ImageBrowserDrawer from '../lib/components/assets/ImageBrowserDrawer.svelte';
+  import { assetBrowserStore } from '../lib/stores/assetBrowserStore.svelte';
+  import { seedSrdCompendiumIfEmpty } from '../lib/services/srdSeedService';
 
   // Aleamos Downtime, Logistics & Crafting
   import AlchemyWorkbench from '../lib/components/crafting/AlchemyWorkbench.svelte';
@@ -87,6 +92,7 @@
   onMount(() => {
     stopAutoSaver = initAutoSaver();
     getLanIp().catch(() => {});
+    seedSrdCompendiumIfEmpty().catch(() => {});
 
     const handleSwitchTab = (e: Event) => {
       const detail = (e as CustomEvent<{ tab: DmTab }>).detail;
@@ -163,24 +169,6 @@
 
         <!-- 🗺️ Tactical Mat PixiJS Canvas / Overland World Atlas -->
         <div class="absolute inset-0 {activeTab === 'battlemat' ? '' : 'hidden'}">
-          <!-- DM Map View Mode Switcher -->
-          <div class="absolute top-3 right-4 z-20 flex items-center gap-1 bg-slate-900/90 backdrop-blur-md border border-slate-800 p-1 rounded-xl shadow-xl text-xs">
-            <button
-              type="button"
-              onclick={() => dmMapMode = 'tactical'}
-              class="px-2.5 py-1 rounded-lg font-bold transition-all {dmMapMode === 'tactical' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}"
-            >
-              ⚔️ Tactical Battlemap
-            </button>
-            <button
-              type="button"
-              onclick={() => dmMapMode = 'atlas'}
-              class="px-2.5 py-1 rounded-lg font-bold transition-all {dmMapMode === 'atlas' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}"
-            >
-              🗺️ World Atlas
-            </button>
-          </div>
-
           {#if dmMapMode === 'atlas'}
             <AtlasMapView isDm={true} />
           {:else}
@@ -242,5 +230,14 @@
   <MapManagerModal bind:isOpen={isMapManagerOpen} />
 
   <!-- Universal Multi-Category Asset Ingestion Pipeline Modal -->
-  <UniversalIngestModal bind:isOpen={isIngestModalOpen} />
+  <UniversalIngestModal bind:isOpen={ingestPipelineStore.isModalOpen} />
+
+  <!-- Floating Detachable Bestiary HUD Window -->
+  <FloatingBestiaryWindow onDock={() => (isBestiaryOpen = true)} />
+
+  <!-- Campaign Image Browser Drawer (Maps, Tokens, Props, Handouts) -->
+  <ImageBrowserDrawer
+    bind:isOpen={assetBrowserStore.isOpen}
+    onClose={() => assetBrowserStore.close()}
+  />
 </div>

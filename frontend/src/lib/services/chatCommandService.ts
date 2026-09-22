@@ -2,6 +2,7 @@
 // Chat Command & Dice Parsing Service
 
 import { evaluateLoreCheck, type LoreResolution } from '$lib/systems/loreCheckSystem';
+import { audioEngine } from '$lib/services/audioEngine';
 
 // Safe Tauri invoke helper for browser and Tauri environments
 async function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T | undefined> {
@@ -74,6 +75,7 @@ export async function processChatInput(input: string, sender = 'DM'): Promise<Ch
   }
 
   if (trimmed.startsWith('/r ') || trimmed.startsWith('/roll ')) {
+    audioEngine.playDiceClatter();
     const formula = trimmed.replace(/^\/(?:r|roll)\s+/i, '');
     const roll = parseDiceFormula(formula);
     const msg: ChatMessage = {

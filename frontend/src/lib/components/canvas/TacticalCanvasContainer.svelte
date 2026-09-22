@@ -21,6 +21,7 @@
   import { targetingStore } from '../../stores/targetingStore.svelte';
   import GeneratorDrawer from '../map/GeneratorDrawer.svelte';
   import CanvasDrawingToolbar, { type DrawTool } from '../map/CanvasDrawingToolbar.svelte';
+  import { chatStore } from '../../stores/chatStore.svelte';
   import { importDungeonScrawlFile } from '../../importers/dungeonScrawlImporter';
   import { initDmSyncListener, cleanupDmSyncListener, broadcastBattlematUpdate } from '../../services/battlematSyncBridge';
   import { pushMapToBattlemat } from '../../services/mapDispatchService';
@@ -651,11 +652,38 @@
     e.preventDefault();
     isDroppingMap = false;
 
-    // 0. Intercept MONSTER_TOKEN drop events from Bestiary
+    // 0. Intercept MONSTER_TOKEN and IMAGE_ASSET drop events
     const rawData = e.dataTransfer?.getData('application/json') || e.dataTransfer?.getData('text/plain');
     if (rawData) {
       try {
         const payload = JSON.parse(rawData);
+
+        if (payload && payload.type === 'IMAGE_ASSET') {
+          if (payload.assetType === 'map') {
+            mapImageUrl = payload.url;
+            canvasStore.setBackgroundTexture(payload.url);
+            loadImageToCanvas(payload.url);
+            return;
+          }
+
+          const { wx, wy } = screenToWorld(e.clientX, e.clientY);
+          const { gx, gy } = worldToGrid(wx, wy);
+          const newTok: MapToken = {
+            id: `tok-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+            name: payload.name || 'Token',
+            x: gx,
+            y: gy,
+            color: '#38bdf8',
+            isPlayer: false,
+            hp: 15,
+            maxHp: 15,
+            size: 1,
+            ac: 10,
+          };
+          tokens = [...tokens, newTok];
+          return;
+        }
+
         if (payload && (payload.type === 'MONSTER_TOKEN' || payload.monsterId)) {
           const { wx, wy } = screenToWorld(e.clientX, e.clientY);
           const { gx, gy } = worldToGrid(wx, wy);
@@ -1105,8 +1133,11 @@
         <SceneEnvironmentWidget />
       </div>
 
-      <!-- Floating Vector Drawing, Weather & Macro Hotbar Overlays -->
-      <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex flex-col items-center gap-2">
+      <!-- Floating Vector Drawing, Weather & Macro Hotbar Overlays (dynamically offset from Chat & Dice Drawer) -->
+      <div
+        class="absolute bottom-4 z-30 pointer-events-auto flex flex-col items-center gap-2 transition-all duration-300 max-w-[calc(100%-6rem)]"
+        style={chatStore.isOpen ? 'left: calc(50% - 12rem); transform: translateX(-50%);' : 'left: 50%; transform: translateX(-50%);'}
+      >
         <TacticalHotbar />
         <CanvasDrawingToolbar />
       </div>

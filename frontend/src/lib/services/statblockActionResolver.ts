@@ -2,6 +2,7 @@
 // Monster Statblock Action Resolver: regex parsing and one-click chat execution
 
 import { processChatInput } from '$lib/services/chatCommandService';
+import { audioEngine } from '$lib/services/audioEngine';
 
 export interface ParsedAction {
   name: string;
@@ -26,6 +27,7 @@ export function parseMonsterAction(name: string, desc: string): ParsedAction {
 
 export async function executeMonsterAction(actorName: string, action: ParsedAction) {
   if (action.toHit !== null) {
+    audioEngine.playDiceClatter();
     const d20 = Math.floor(Math.random() * 20) + 1;
     const total = d20 + action.toHit;
     await processChatInput(

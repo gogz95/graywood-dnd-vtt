@@ -4,17 +4,20 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { renderFogMask, type VisionSource } from '$lib/services/fogOfWarService';
+  import { wallStore, type WallSegment } from '$lib/stores/wallStore.svelte';
 
   let {
     width = 4000,
     height = 3000,
     sources = [],
     isGmView = false,
+    walls,
   }: {
     width?: number;
     height?: number;
     sources?: VisionSource[];
     isGmView?: boolean;
+    walls?: WallSegment[];
   } = $props();
 
   let canvasEl = $state<HTMLCanvasElement | null>(null);
@@ -23,15 +26,17 @@
     if (!canvasEl) return;
     const ctx = canvasEl.getContext('2d');
     if (!ctx) return;
-    renderFogMask(ctx, width, height, sources, isGmView);
+    const activeWalls = walls || wallStore.walls;
+    renderFogMask(ctx, width, height, sources, isGmView, activeWalls);
   }
 
   $effect(() => {
-    // Re-render whenever dimensions, sources, or GM view toggle change
+    // Re-render whenever dimensions, sources, walls, or GM view toggle change
     const _w = width;
     const _h = height;
     const _s = sources;
     const _gm = isGmView;
+    const _walls = walls || wallStore.walls;
     updateMask();
   });
 

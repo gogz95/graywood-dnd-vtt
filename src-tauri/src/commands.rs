@@ -249,7 +249,10 @@ pub fn classify_ingest_file(rel_path: &Path, ext: &str, mime: &str) -> String {
     let rel_str = rel_path.to_string_lossy().to_lowercase();
 
     // Check directory topology first
-    if rel_str.contains("source material") || rel_str.contains("sources") || rel_str.contains("source") {
+    if rel_str.contains("source material")
+        || rel_str.contains("sources")
+        || rel_str.contains("source")
+    {
         return "source".to_string();
     }
     if rel_str.contains("image") || rel_str.contains("maps") || rel_str.contains("tokens") {
@@ -264,7 +267,9 @@ pub fn classify_ingest_file(rel_path: &Path, ext: &str, mime: &str) -> String {
 
     // Fall back to extension inspection
     match ext {
-        "md" | "txt" | "json" | "jsonl" | "csv" | "tsv" | "zip" | "ds" | "pdf" => "source".to_string(),
+        "md" | "txt" | "json" | "jsonl" | "csv" | "tsv" | "zip" | "ds" | "pdf" => {
+            "source".to_string()
+        }
         "png" | "jpg" | "jpeg" | "webp" | "dd2vtt" | "uvtt" | "geojson" => "image".to_string(),
         "ogg" | "mp3" | "wav" | "flac" | "m4a" => "audio".to_string(),
         "mp4" | "webm" => "video".to_string(),
@@ -388,4 +393,3 @@ pub async fn scan_ingest_directory(
         entries,
     })
 }
-

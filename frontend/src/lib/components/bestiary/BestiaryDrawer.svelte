@@ -3,6 +3,7 @@
 
 <script lang="ts">
   import { bestiaryStore, encounterStore } from '../../stores/bestiaryStore.svelte';
+  import { floatingWindowsStore } from '../../stores/floatingWindowsStore.svelte';
   import type { CompendiumMonster } from '../../db/compendiumDb';
   import StatblockView from './StatblockView.svelte';
 
@@ -84,14 +85,28 @@
         <span class="text-xl">🐉</span>
         <h2 class="text-sm font-black text-slate-100 uppercase tracking-wider">5e Bestiary Compendium</h2>
       </div>
-      <button
-        type="button"
-        onclick={onClose}
-        class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-100 flex items-center justify-center font-bold text-sm transition-colors"
-        aria-label="Close Bestiary Drawer"
-      >
-        ✕
-      </button>
+      <div class="flex items-center gap-1.5">
+        <button
+          type="button"
+          onclick={() => {
+            isOpen = false;
+            floatingWindowsStore.openWindow('bestiary');
+          }}
+          class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1 transition-colors"
+          title="Detach into floating HUD window over canvas"
+        >
+          <span>↗️</span>
+          <span>Detach HUD</span>
+        </button>
+        <button
+          type="button"
+          onclick={onClose}
+          class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-100 flex items-center justify-center font-bold text-sm transition-colors"
+          aria-label="Close Bestiary Drawer"
+        >
+          ✕
+        </button>
+      </div>
     </div>
 
     <!-- Search & Filter Controls -->

@@ -20,9 +20,22 @@ class IngestPipelineStore {
   queue = $state<IngestQueueItem[]>([]);
   isScanning = $state(false);
   isProcessing = $state(false);
+  isModalOpen = $state(false);
   activeFilter = $state<string>('all');
   errorMessage = $state<string | null>(null);
   lastScanRoot = $state<string | null>(null);
+
+  openModal() {
+    this.isModalOpen = true;
+  }
+
+  closeModal() {
+    this.isModalOpen = false;
+  }
+
+  toggleModal() {
+    this.isModalOpen = !this.isModalOpen;
+  }
 
   // Derived Statistics
   totalCount = $derived(this.queue.length);

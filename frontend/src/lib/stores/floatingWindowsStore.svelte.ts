@@ -1,7 +1,7 @@
 // src/lib/stores/floatingWindowsStore.svelte.ts
 // Global Floating Window Manager with dynamic zIndex, position, size, and minimization
 
-export type WindowId = 'audio' | 'copilot' | 'archivist' | 'sources';
+export type WindowId = 'audio' | 'copilot' | 'archivist' | 'sources' | 'bestiary' | 'assets';
 
 export interface FloatingWindowState {
   id: WindowId;
@@ -62,6 +62,28 @@ class FloatingWindowsManager {
       y: 70,
       width: 860,
       height: 620
+    },
+    bestiary: {
+      id: 'bestiary',
+      title: '5e Bestiary Compendium',
+      isOpen: false,
+      isMinimized: false,
+      zIndex: 104,
+      x: 140,
+      y: 80,
+      width: 520,
+      height: 600
+    },
+    assets: {
+      id: 'assets',
+      title: 'Campaign Asset Browser',
+      isOpen: false,
+      isMinimized: false,
+      zIndex: 105,
+      x: 200,
+      y: 90,
+      width: 560,
+      height: 600
     }
   });
 

@@ -1,0 +1,410 @@
+{
+  "monsters": [
+    {
+      "id": "srd-goblin",
+      "name": "Goblin",
+      "cr": 0.25,
+      "size": "Small",
+      "type": "humanoid (goblinoid)",
+      "alignment": "neutral evil",
+      "ac": 15,
+      "hp": 7,
+      "speed": "30 ft.",
+      "str": 8,
+      "dex": 14,
+      "con": 10,
+      "int": 10,
+      "wis": 8,
+      "cha": 8,
+      "actions": [
+        {
+          "name": "Scimitar",
+          "description": "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 5 (1d6 + 2) slashing damage."
+        },
+        {
+          "name": "Shortbow",
+          "description": "Ranged Weapon Attack: +4 to hit, range 80/320 ft., one target. Hit: 5 (1d6 + 2) piercing damage."
+        }
+      ],
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-skeleton",
+      "name": "Skeleton",
+      "cr": 0.25,
+      "size": "Medium",
+      "type": "undead",
+      "alignment": "lawful evil",
+      "ac": 13,
+      "hp": 13,
+      "speed": "30 ft.",
+      "str": 10,
+      "dex": 14,
+      "con": 15,
+      "int": 6,
+      "wis": 8,
+      "cha": 5,
+      "actions": [
+        {
+          "name": "Shortsword",
+          "description": "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 5 (1d6 + 2) piercing damage."
+        },
+        {
+          "name": "Shortbow",
+          "description": "Ranged Weapon Attack: +4 to hit, range 80/320 ft., one target. Hit: 5 (1d6 + 2) piercing damage."
+        }
+      ],
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-zombie",
+      "name": "Zombie",
+      "cr": 0.25,
+      "size": "Medium",
+      "type": "undead",
+      "alignment": "neutral evil",
+      "ac": 8,
+      "hp": 22,
+      "speed": "20 ft.",
+      "str": 13,
+      "dex": 6,
+      "con": 16,
+      "int": 3,
+      "wis": 6,
+      "cha": 5,
+      "actions": [
+        {
+          "name": "Slam",
+          "description": "Melee Weapon Attack: +3 to hit, reach 5 ft., one target. Hit: 4 (1d6 + 1) bludgeoning damage."
+        }
+      ],
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-kobold",
+      "name": "Kobold",
+      "cr": 0.125,
+      "size": "Small",
+      "type": "humanoid (kobold)",
+      "alignment": "lawful evil",
+      "ac": 12,
+      "hp": 5,
+      "speed": "30 ft.",
+      "str": 7,
+      "dex": 15,
+      "con": 9,
+      "int": 8,
+      "wis": 7,
+      "cha": 8,
+      "actions": [
+        {
+          "name": "Dagger",
+          "description": "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 4 (1d4 + 2) piercing damage."
+        },
+        {
+          "name": "Sling",
+          "description": "Ranged Weapon Attack: +4 to hit, range 30/120 ft., one target. Hit: 4 (1d4 + 2) bludgeoning damage."
+        }
+      ],
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-orc",
+      "name": "Orc",
+      "cr": 0.5,
+      "size": "Medium",
+      "type": "humanoid (orc)",
+      "alignment": "chaotic evil",
+      "ac": 13,
+      "hp": 15,
+      "speed": "30 ft.",
+      "str": 16,
+      "dex": 12,
+      "con": 16,
+      "int": 7,
+      "wis": 11,
+      "cha": 10,
+      "actions": [
+        {
+          "name": "Greataxe",
+          "description": "Melee Weapon Attack: +5 to hit, reach 5 ft., one target. Hit: 9 (1d12 + 3) slashing damage."
+        },
+        {
+          "name": "Javelin",
+          "description": "Melee or Ranged Weapon Attack: +5 to hit, reach 5 ft. or range 30/120 ft., one target. Hit: 6 (1d6 + 3) piercing damage."
+        }
+      ],
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-wolf",
+      "name": "Wolf",
+      "cr": 0.25,
+      "size": "Medium",
+      "type": "beast",
+      "alignment": "unaligned",
+      "ac": 13,
+      "hp": 11,
+      "speed": "40 ft.",
+      "str": 12,
+      "dex": 15,
+      "con": 12,
+      "int": 3,
+      "wis": 12,
+      "cha": 6,
+      "actions": [
+        {
+          "name": "Bite",
+          "description": "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 7 (2d4 + 2) piercing damage. If the target is a creature, it must succeed on a DC 11 Strength saving throw or be knocked prone."
+        }
+      ],
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-ogre",
+      "name": "Ogre",
+      "cr": 2,
+      "size": "Large",
+      "type": "giant",
+      "alignment": "chaotic evil",
+      "ac": 11,
+      "hp": 59,
+      "speed": "40 ft.",
+      "str": 19,
+      "dex": 8,
+      "con": 16,
+      "int": 5,
+      "wis": 7,
+      "cha": 7,
+      "actions": [
+        {
+          "name": "Greatclub",
+          "description": "Melee Weapon Attack: +6 to hit, reach 5 ft., one target. Hit: 13 (2d8 + 4) bludgeoning damage."
+        },
+        {
+          "name": "Javelin",
+          "description": "Melee or Ranged Weapon Attack: +6 to hit, reach 5 ft. or range 30/120 ft., one target. Hit: 11 (2d6 + 4) piercing damage."
+        }
+      ],
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    }
+  ],
+  "spells": [
+    {
+      "id": "srd-fireball",
+      "name": "Fireball",
+      "level": 3,
+      "school": "Evocation",
+      "castingTime": "1 action",
+      "range": "150 feet",
+      "components": "V, S, M (a tiny ball of bat guano and sulfur)",
+      "duration": "Instantaneous",
+      "description": "A bright streak flashes from your pointing finger to a point you choose within range and then blossoms with a low roar into an explosion of flame. Each creature in a 20-foot-radius sphere centered on that point must make a Dexterity saving throw. A target takes 8d6 fire damage on a failed save, or half as much damage on a successful one.",
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-magic-missile",
+      "name": "Magic Missile",
+      "level": 1,
+      "school": "Evocation",
+      "castingTime": "1 action",
+      "range": "120 feet",
+      "components": "V, S",
+      "duration": "Instantaneous",
+      "description": "You create three glowing darts of magical force. Each dart hits a creature of your choice that you can see within range. A dart deals 1d4 + 1 force damage to its target. The darts all strike simultaneously, and you can direct them to hit one creature or several.",
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-cure-wounds",
+      "name": "Cure Wounds",
+      "level": 1,
+      "school": "Evocation",
+      "castingTime": "1 action",
+      "range": "Touch",
+      "components": "V, S",
+      "duration": "Instantaneous",
+      "description": "A creature you touch regains a number of hit points equal to 1d8 + your spellcasting ability modifier. This spell has no effect on undead or constructs.",
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-mage-armor",
+      "name": "Mage Armor",
+      "level": 1,
+      "school": "Abjuration",
+      "castingTime": "1 action",
+      "range": "Touch",
+      "components": "V, S, M (a piece of cured leather)",
+      "duration": "8 hours",
+      "description": "You touch a willing creature who isn't wearing armor, and a protective magical force surrounds it until the spell ends. The target's base AC becomes 13 + its Dexterity modifier. The spell ends if the target dons armor or if you dismiss the spell as an action.",
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-shield",
+      "name": "Shield",
+      "level": 1,
+      "school": "Abjuration",
+      "castingTime": "1 reaction",
+      "range": "Self",
+      "components": "V, S",
+      "duration": "1 round",
+      "description": "An invisible barrier of magical force appears and protects you. Until the start of your next turn, you have a +5 bonus to AC, including against the triggering attack, and you take no damage from magic missile.",
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-light",
+      "name": "Light",
+      "level": 0,
+      "school": "Evocation",
+      "castingTime": "1 action",
+      "range": "Touch",
+      "components": "V, M (a firefly or phosphorescent moss)",
+      "duration": "1 hour",
+      "description": "You touch one object that is no larger than 10 feet in any dimension. Until the spell ends, the object sheds bright light in a 20-foot radius and dim light for an additional 20 feet.",
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    },
+    {
+      "id": "srd-healing-word",
+      "name": "Healing Word",
+      "level": 1,
+      "school": "Evocation",
+      "castingTime": "1 bonus action",
+      "range": "60 feet",
+      "components": "V",
+      "duration": "Instantaneous",
+      "description": "A creature of your choice that you can see within range regains hit points equal to 1d4 + your spellcasting ability modifier. This spell has no effect on undead or constructs.",
+      "sourceBook": "SRD 5.1",
+      "packageId": "srd-5.1-core",
+      "origin": "SRD-5.1"
+    }
+  ],
+  "items": [
+    {
+      "id": "srd-longsword",
+      "name": "Longsword",
+      "type": "Weapon",
+      "rarity": "Common",
+      "description": "Versatile (1d10). A finely forged double-edged blade.",
+      "source": "SRD 5.1",
+      "cost": "15 gp",
+      "weight": 3,
+      "properties": ["Versatile (1d10)"],
+      "damage": "1d8 slashing"
+    },
+    {
+      "id": "srd-shortbow",
+      "name": "Shortbow",
+      "type": "Weapon",
+      "rarity": "Common",
+      "description": "A lightweight recurve bow made of seasoned wood.",
+      "source": "SRD 5.1",
+      "cost": "25 gp",
+      "weight": 2,
+      "properties": ["Ammunition (range 80/320)", "Two-Handed"],
+      "damage": "1d6 piercing"
+    },
+    {
+      "id": "srd-dagger",
+      "name": "Dagger",
+      "type": "Weapon",
+      "rarity": "Common",
+      "description": "Finesse, light, thrown (range 20/60).",
+      "source": "SRD 5.1",
+      "cost": "2 gp",
+      "weight": 1,
+      "properties": ["Finesse", "Light", "Thrown (range 20/60)"],
+      "damage": "1d4 piercing"
+    },
+    {
+      "id": "srd-chain-shirt",
+      "name": "Chain Shirt",
+      "type": "Armor",
+      "rarity": "Common",
+      "description": "Made of interlocking metal rings, a chain shirt is worn between layers of clothing or leather.",
+      "source": "SRD 5.1",
+      "cost": "50 gp",
+      "weight": 20,
+      "properties": ["Medium Armor", "AC 13 + Dex modifier (max 2)"]
+    },
+    {
+      "id": "srd-shield",
+      "name": "Shield",
+      "type": "Armor",
+      "rarity": "Common",
+      "description": "A shield is made from wood or metal and is carried in one hand. Wielding a shield increases Armor Class by 2.",
+      "source": "SRD 5.1",
+      "cost": "10 gp",
+      "weight": 6,
+      "properties": ["+2 AC"]
+    },
+    {
+      "id": "srd-potion-of-healing",
+      "name": "Potion of Healing",
+      "type": "Potion",
+      "rarity": "Common",
+      "description": "A character who drinks the magical red fluid in this vial regains 2d4 + 2 hit points.",
+      "source": "SRD 5.1",
+      "cost": "50 gp",
+      "weight": 0.5,
+      "properties": ["Consumable", "Healing"]
+    },
+    {
+      "id": "srd-backpack",
+      "name": "Backpack",
+      "type": "Adventuring Gear",
+      "rarity": "Common",
+      "description": "Can hold 1 cubic foot or 30 pounds of gear.",
+      "source": "SRD 5.1",
+      "cost": "2 gp",
+      "weight": 5,
+      "properties": ["Container"]
+    },
+    {
+      "id": "srd-hempen-rope",
+      "name": "Rope, Hempen (50 feet)",
+      "type": "Adventuring Gear",
+      "rarity": "Common",
+      "description": "Has 2 hit points and can be burst with a DC 17 Strength check.",
+      "source": "SRD 5.1",
+      "cost": "1 gp",
+      "weight": 10,
+      "properties": ["Gear"]
+    },
+    {
+      "id": "srd-torch",
+      "name": "Torch",
+      "type": "Adventuring Gear",
+      "rarity": "Common",
+      "description": "A torch burns for 1 hour, providing bright light in a 20-foot radius and dim light for an additional 20 feet.",
+      "source": "SRD 5.1",
+      "cost": "1 cp",
+      "weight": 1,
+      "properties": ["Light Source"]
+    }
+  ]
+}

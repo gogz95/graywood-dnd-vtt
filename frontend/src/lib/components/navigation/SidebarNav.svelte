@@ -22,6 +22,9 @@
   import NavAccordionGroup, { type NavGroup, type NavItem } from './NavAccordionGroup.svelte';
   import { uiStore } from '../../stores/uiStore.svelte';
   import { floatingWindowsStore } from '../../stores/floatingWindowsStore.svelte';
+  import { compendiumStore } from '../../stores/compendiumStore.svelte';
+  import { ingestPipelineStore } from '../../services/ingest/ingestPipelineStore.svelte';
+  import { assetBrowserStore } from '../../stores/assetBrowserStore.svelte';
 
   let {
     activeTab = $bindable<DmTab>('party'),
@@ -49,8 +52,8 @@
     journal: false,
   });
 
-  // Hierarchical Navigation Tree
-  const NAV_SECTIONS: NavGroup[] = [
+  // Hierarchical Navigation Tree with dynamic liveQuery counters
+  const navSections: NavGroup[] = $derived([
     {
       id: 'canvas',
       label: 'Tactical Canvas',
@@ -61,6 +64,7 @@
         { id: 'canvas:grid', label: 'Grid Calibration', icon: '📏' },
         { id: 'canvas:fog', label: 'Vision & Fog', icon: '🌫️' },
         { id: 'canvas:layers', label: 'Floor Layers', icon: '🥞' },
+        { id: 'canvas:assets', label: 'Image Browser', icon: '🖼️', badge: assetBrowserStore.assets.length ? `${assetBrowserStore.assets.length}` : undefined },
       ],
     },
     {
@@ -80,7 +84,7 @@
       icon: '🐉',
       defaultChildId: 'bestiary:monsters',
       children: [
-        { id: 'bestiary:monsters', label: 'Monster Manual', icon: '📖', badge: '5e SRD' },
+        { id: 'bestiary:monsters', label: 'Monster Manual', icon: '📖', badge: `${compendiumStore.monsterCount}` },
         { id: 'bestiary:npcs', label: 'Custom NPCs', icon: '👤' },
         { id: 'bestiary:encounters', label: 'Encounter Builder', icon: '⚔️' },
       ],
@@ -91,8 +95,8 @@
       icon: '📚',
       defaultChildId: 'compendium:spells',
       children: [
-        { id: 'compendium:spells', label: 'Spells', icon: '✨' },
-        { id: 'compendium:items', label: 'Equipment & Items', icon: '🛡️' },
+        { id: 'compendium:spells', label: 'Spells', icon: '✨', badge: `${compendiumStore.spellCount}` },
+        { id: 'compendium:items', label: 'Equipment & Items', icon: '🛡️', badge: `${compendiumStore.itemCount}` },
         { id: 'compendium:rules', label: 'Sourcebook Rules', icon: '📜' },
         { id: 'compendium:unlocks', label: 'Unlocks', icon: '🔓' },
         { id: 'compendium:ingest', label: 'Asset Ingest Pipeline', icon: '📥', badge: 'Crawler' },
@@ -121,7 +125,7 @@
         { id: 'journal:calendar', label: 'Calendar & History', icon: '📅' },
       ],
     },
-  ];
+  ]);
 
   // Auto-sync active item and open accordion group based on activeView & activeTab
   $effect(() => {
@@ -233,6 +237,10 @@
         }
         break;
 
+      case 'canvas:assets':
+        assetBrowserStore.open();
+        break;
+
       case 'atlas:realm':
         uiStore.setActiveView('atlas');
         dmMapMode = 'atlas';
@@ -287,6 +295,7 @@
         break;
 
       case 'compendium:ingest':
+        ingestPipelineStore.openModal();
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('vtt:open-ingest-modal'));
         }
@@ -377,7 +386,7 @@
        ACCORDION NAVIGATION LIST
   ══════════════════════════════════════════════════════════════════════════ -->
   <nav class="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1 scrollbar-thin">
-    {#each NAV_SECTIONS as group (group.id)}
+    {#each navSections as group (group.id)}
       <NavAccordionGroup
         {group}
         isOpen={openBranches[group.id] ?? false}

@@ -7,7 +7,9 @@ import {
   type CompendiumSpell,
   type CompendiumSubclass,
   type CompendiumMonster,
-  type CompendiumFacility
+  type CompendiumFacility,
+  type CompendiumItem,
+  type CompendiumJournal
 } from '../db/compendiumDb';
 import type { IngestedTable } from '../types/compendium';
 import { extractAndStoreCompendiumSource, type ExtractionResult } from '../importers/pdfRuleExtractor';
@@ -20,6 +22,7 @@ export interface PackageSummary {
   subclassCount: number;
   monsterCount: number;
   facilityCount: number;
+  itemCount: number;
 }
 
 class CompendiumStore {
@@ -28,9 +31,17 @@ class CompendiumStore {
   subclasses = $state<CompendiumSubclass[]>([]);
   monsters = $state<CompendiumMonster[]>([]);
   facilities = $state<CompendiumFacility[]>([]);
+  items = $state<CompendiumItem[]>([]);
+  journal = $state<CompendiumJournal[]>([]);
   tables = $state<IngestedTable[]>([]);
   packages = $state<PackageSummary[]>([]);
   isLoading = $state(true);
+
+  // Reactive counters bound directly to live state
+  monsterCount = $derived(this.monsters.length);
+  spellCount = $derived(this.spells.length);
+  itemCount = $derived(this.items.length);
+  journalCount = $derived(this.journal.length);
 
   private subs: Subscription[] = [];
 
@@ -70,12 +81,27 @@ class CompendiumStore {
       next: (val) => {
         this.facilities = val;
         this.updatePackageSummaries();
-        this.isLoading = false;
       },
       error: (err) => console.warn('Compendium facilities liveQuery error:', err)
     });
 
-    this.subs = [spellsSub, subSub, monsterSub, facilitySub];
+    const itemsSub = liveQuery(() => compendiumDb.items.toArray()).subscribe({
+      next: (val) => {
+        this.items = val;
+        this.updatePackageSummaries();
+      },
+      error: (err) => console.warn('Compendium items liveQuery error:', err)
+    });
+
+    const journalSub = liveQuery(() => compendiumDb.journal.toArray()).subscribe({
+      next: (val) => {
+        this.journal = val;
+        this.isLoading = false;
+      },
+      error: (err) => console.warn('Compendium journal liveQuery error:', err)
+    });
+
+    this.subs = [spellsSub, subSub, monsterSub, facilitySub, itemsSub, journalSub];
   }
 
   async refreshFromDb(): Promise<void> {
@@ -157,10 +183,27 @@ class CompendiumStore {
           spellCount: 0,
           subclassCount: 0,
           monsterCount: 0,
-          facilityCount: 0
+          facilityCount: 0,
+          itemCount: 0
         });
       }
       pkgMap.get(f.packageId)!.facilityCount++;
+    }
+
+    for (const item of this.items) {
+      if (!pkgMap.has(item.packageId)) {
+        pkgMap.set(item.packageId, {
+          packageId: item.packageId,
+          sourceBook: item.sourceBook,
+          origin: item.origin,
+          spellCount: 0,
+          subclassCount: 0,
+          monsterCount: 0,
+          facilityCount: 0,
+          itemCount: 0
+        });
+      }
+      pkgMap.get(item.packageId)!.itemCount++;
     }
 
     this.packages = Array.from(pkgMap.values()).sort((a, b) => {

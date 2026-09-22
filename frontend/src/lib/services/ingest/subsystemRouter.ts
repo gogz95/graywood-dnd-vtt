@@ -9,6 +9,7 @@ import { notifyMonstersUpdated } from '../ingestPipeline';
 import { mapLayers } from '../../stores/mapLayerStore.svelte';
 import { parseDungeonScrawl } from '../../canvas/parsers/dungeonScrawlParser';
 import { parseWatabouGeoJson } from '../../canvas/parsers/watabouParser';
+import { sniffAndClassify, ingestClassifiedContent } from './contentClassifier';
 import type { UVTTFormat } from '../importers/universalVttImporter';
 import type { TacticalBattlemap, MapWall } from '../../types/maps';
 import type { IngestQueueItem } from './ingestTypes';
@@ -159,9 +160,24 @@ async function routeSourceMaterial(
     return { success: true, summary: `Extracted & parsed ${extractedCount} files from archive` };
   }
 
-  if (ext === 'json' || ext === 'jsonl') {
-    onProgress?.(50, 'Parsing JSON compendium data...');
+  if (ext === 'json' || ext === 'jsonl' || ext === 'md' || ext === 'txt') {
+    onProgress?.(45, 'Sniffing schema and normalizing content...');
     const text = await getItemText(item);
+    const packageId = item.name.replace(/\.[^/.]+$/, '');
+    const sniffResult = await sniffAndClassify(text, item.name);
+
+    if (sniffResult.confidence >= 0.7 && sniffResult.extractedRecords) {
+      const committed = await ingestClassifiedContent(sniffResult, packageId);
+      if (committed.committedCount > 0) {
+        await notifyMonstersUpdated();
+        return {
+          success: true,
+          summary: `Auto-classified ${sniffResult.format}: committed ${committed.committedCount} records to ${committed.destination}`,
+        };
+      }
+    }
+
+    onProgress?.(60, 'Parsing standard 5e structure...');
     try {
       const data = JSON.parse(text);
       let count = 0;

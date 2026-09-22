@@ -52,9 +52,9 @@ pub fn sanitize_rel_path(rel_path: &str) -> Result<PathBuf, ServerError> {
     Ok(path.to_path_buf())
 }
 
-/// Scaffolds standard subfolders (maps, audio, compendiums, tokens) inside a given directory.
+/// Scaffolds standard subfolders (maps, audio, compendiums, tokens, Ingest) inside a given directory.
 pub fn scaffold_campaign_directory(root: &Path) -> Result<CampaignDirInfo, ServerError> {
-    let subfolder_names = ["maps", "audio", "compendiums", "tokens"];
+    let subfolder_names = ["maps", "audio", "compendiums", "tokens", "Ingest"];
     let mut subfolders = Vec::new();
 
     for name in &subfolder_names {
@@ -76,6 +76,18 @@ pub fn scaffold_campaign_directory(root: &Path) -> Result<CampaignDirInfo, Serve
             path: sub_path.to_string_lossy().to_string(),
             file_count,
         });
+    }
+
+    // Auto-scaffold Ingest subdirectories: Source material, Image, Audio, Video
+    let ingest_subfolders = [
+        "Ingest/Source material",
+        "Ingest/Image",
+        "Ingest/Audio",
+        "Ingest/Video",
+    ];
+    for sub in &ingest_subfolders {
+        let sub_path = root.join(sub);
+        let _ = std::fs::create_dir_all(&sub_path);
     }
 
     let dir_name = root
@@ -164,27 +176,32 @@ pub async fn serve_campaign_asset(
 
     let target_path = root.join(&safe_rel);
 
-    // Canonical verification to prevent symlink traversal
-    if let (Ok(canonical_root), Ok(canonical_target)) =
-        (root.canonicalize(), target_path.canonicalize())
-    {
-        if !canonical_target.starts_with(&canonical_root) {
-            return Err(ServerError::Unauthorized("Path traversal denied".to_string()));
-        }
-    } else if !target_path.exists() {
-        return Err(ServerError::NotFound(format!("Asset not found: {}", rel_path)));
+    // Canonical verification to prevent symlink and relative path traversal
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|e| ServerError::Internal(format!("Failed to resolve campaign root: {}", e)))?;
+    let canonical_target = target_path
+        .canonicalize()
+        .map_err(|_| ServerError::NotFound(format!("Asset not found: {}", rel_path)))?;
+
+    if !canonical_target.starts_with(&canonical_root) {
+        return Err(ServerError::Unauthorized(
+            "Path traversal denied".to_string(),
+        ));
     }
 
-    let file_bytes = std::fs::read(&target_path)
+    let file_bytes = std::fs::read(&canonical_target)
         .map_err(|e| ServerError::NotFound(format!("Failed to read asset: {}", e)))?;
 
-    let mime = mime_guess::from_path(&target_path)
+    let mime = mime_guess::from_path(&canonical_target)
         .first_or_octet_stream()
         .to_string();
 
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(Body::from(file_bytes))
         .unwrap())
 }
@@ -194,10 +211,10 @@ pub async fn save_campaign_asset(
     State(state): State<AppState>,
     Json(payload): Json<SaveAssetRequest>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let allowed_subfolders = ["maps", "audio", "compendiums", "tokens"];
+    let allowed_subfolders = ["maps", "audio", "compendiums", "tokens", "Ingest"];
     if !allowed_subfolders.contains(&payload.subfolder.as_str()) {
         return Err(ServerError::BadRequest(format!(
-            "Invalid subfolder '{}'. Must be one of: maps, audio, compendiums, tokens",
+            "Invalid subfolder '{}'. Must be one of: maps, audio, compendiums, tokens, Ingest",
             payload.subfolder
         )));
     }
@@ -231,7 +248,10 @@ pub async fn save_campaign_asset(
     std::fs::write(&file_path, &raw_bytes)
         .map_err(|e| ServerError::Internal(format!("Failed to write file: {}", e)))?;
 
-    let public_url = format!("/api/campaign/assets/{}/{}", payload.subfolder, payload.filename);
+    let public_url = format!(
+        "/api/campaign/assets/{}/{}",
+        payload.subfolder, payload.filename
+    );
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -264,3 +284,122 @@ pub async fn scan_ingest_directory_route(
         .map_err(ServerError::Internal)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CampaignAssetEntry {
+    pub id: String,
+    pub name: String,
+    pub filename: String,
+    pub relative_path: String,
+    pub url: String,
+    pub category: String, // "map" | "token" | "prop" | "handout"
+    pub size_bytes: u64,
+    pub extension: String,
+}
+
+/// Scan campaign root for raster image assets across maps/, tokens/, and Ingest/Image/.
+pub async fn list_campaign_assets(root: &Path) -> Vec<CampaignAssetEntry> {
+    let subdirs = ["maps", "tokens", "Ingest/Image", "Ingest/image"];
+    let valid_extensions = ["png", "jpg", "jpeg", "webp", "gif", "avif", "bmp", "svg"];
+    let mut entries = Vec::new();
+
+    for subdir in &subdirs {
+        let dir_path = root.join(subdir);
+        if !dir_path.exists() {
+            continue;
+        }
+
+        let mut dirs_to_visit = vec![dir_path];
+        while let Some(current_dir) = dirs_to_visit.pop() {
+            let mut read_dir = match tokio::fs::read_dir(&current_dir).await {
+                Ok(rd) => rd,
+                Err(_) => continue,
+            };
+
+            while let Ok(Some(entry)) = read_dir.next_entry().await {
+                let path = entry.path();
+                let file_name = entry.file_name().to_string_lossy().to_string();
+
+                if file_name.starts_with('.') {
+                    continue;
+                }
+
+                let file_type = match entry.file_type().await {
+                    Ok(ft) => ft,
+                    Err(_) => continue,
+                };
+
+                if file_type.is_dir() {
+                    dirs_to_visit.push(path);
+                } else if file_type.is_file() {
+                    let ext = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+
+                    if !valid_extensions.contains(&ext.as_str()) {
+                        continue;
+                    }
+
+                    let rel_path = path
+                        .strip_prefix(root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+
+                    let size_bytes = entry.metadata().await.map(|m| m.len()).unwrap_or(0);
+
+                    // Categorize asset
+                    let lower_rel = rel_path.to_lowercase();
+                    let lower_name = file_name.to_lowercase();
+                    let category = if lower_rel.starts_with("maps") || lower_name.contains("map") {
+                        "map"
+                    } else if lower_name.contains("prop") {
+                        "prop"
+                    } else if lower_name.contains("handout") {
+                        "handout"
+                    } else if lower_rel.starts_with("tokens") || lower_name.contains("token") {
+                        "token"
+                    } else {
+                        "token"
+                    };
+
+                    let base_stem = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(&file_name)
+                        .replace(['_', '-'], " ");
+
+                    let url = format!("/api/campaign/assets/{}", rel_path);
+
+                    entries.push(CampaignAssetEntry {
+                        id: format!("asset-{}", rel_path.replace(['/', '\\', '.'], "-")),
+                        name: base_stem,
+                        filename: file_name,
+                        relative_path: rel_path,
+                        url,
+                        category: category.to_string(),
+                        size_bytes,
+                        extension: ext,
+                    });
+                }
+            }
+        }
+    }
+
+    entries
+}
+
+/// GET /api/campaign/assets/browse - List indexed raster images from campaign folders.
+pub async fn list_campaign_assets_route(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<CampaignAssetEntry>>, ServerError> {
+    let guard = state.campaign_dir.read().await;
+    let root = match *guard {
+        Some(ref dir) => dir.clone(),
+        None => return Ok(Json(Vec::new())),
+    };
+
+    let assets = list_campaign_assets(&root).await;
+    Ok(Json(assets))
+}

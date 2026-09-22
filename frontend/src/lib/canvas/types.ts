@@ -9,6 +9,13 @@ export interface Token {
   textureUrl?: string;
   name?: string;
   tint?: number;
+  sizeInCells?: number;
+  hp?: number;
+  maxHp?: number;
+  ac?: number;
+  color?: string;
+  isPlayer?: boolean;
+  monsterCompendiumId?: string;
 }
 
 export interface Wall {

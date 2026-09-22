@@ -105,6 +105,35 @@ class AudioEngine {
       }
     }
   }
+
+  async playDiceClatter() {
+    try {
+      const { audioEngine: coreAudio } = await import('$lib/audio/AudioEngine');
+      await coreAudio.triggerSfx('sfx-dice');
+    } catch {
+      const el = new Audio('/audio/dice.wav');
+      el.volume = this.volumes.sfx * this.volumes.master;
+      el.play().catch(() => {});
+    }
+  }
+
+  stopAll(broadcast = true) {
+    for (const [bus, el] of this.audioElements.entries()) {
+      el.pause();
+      el.currentTime = 0;
+    }
+
+    if (broadcast) {
+      try {
+        invoke('broadcast_vtt_event', {
+          event: 'audio:stop',
+          payload: { bus: 'all' }
+        });
+      } catch (err) {
+        console.warn('LAN audio stop broadcast unavailable:', err);
+      }
+    }
+  }
 }
 
 export const audioEngine = new AudioEngine();

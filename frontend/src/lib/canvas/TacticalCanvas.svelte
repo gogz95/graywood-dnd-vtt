@@ -10,6 +10,12 @@
   } from './vision';
   import { spawnCombatantToken } from '../ipc/tauriBridge';
   import { dispatchSoundEvent } from '../audio/soundboardBridge';
+  import { tacticalViewport } from '../services/canvas/tacticalViewportService.svelte';
+  import TacticalOverlayViewport from '../components/map/TacticalOverlayViewport.svelte';
+  import TokenCanvasLayer from '../components/map/TokenCanvasLayer.svelte';
+  import FogCanvasLayer from '../components/map/FogCanvasLayer.svelte';
+  import MeasurementRulerLayer from '../components/map/MeasurementRulerLayer.svelte';
+  import { pixiLifecycle } from '../services/pixiLifecycle';
 
   let {
     tokens = $bindable([] as Token[]),
@@ -73,9 +79,25 @@
 
     setupScene();
     renderAll();
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('vtt:purge-vram', handlePurgeVram);
+    }
   });
 
+  function handlePurgeVram() {
+    if (stageRoot) {
+      pixiLifecycle.purgeFloorContainer(stageRoot, true);
+      pixiLifecycle.purgeUnusedTextures();
+      drawDungeonBackground();
+      renderAll();
+    }
+  }
+
   onDestroy(() => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('vtt:purge-vram', handlePurgeVram);
+    }
     if (statusBannerTimer) clearTimeout(statusBannerTimer);
     if (pixiApp) {
       pixiApp.destroy(true, { children: true, texture: true });
@@ -368,46 +390,116 @@
     }
   }
 
+  function parseCreatureSizeCells(sizeStr?: string): number {
+    if (!sizeStr) return 1;
+    const s = sizeStr.toLowerCase();
+    if (s.includes('large')) return 2;
+    if (s.includes('huge')) return 3;
+    if (s.includes('gargantuan')) return 4;
+    return 1;
+  }
+
   async function handleDrop(e: DragEvent) {
     e.preventDefault();
     if (!canvasContainer || !e.dataTransfer) return;
 
-    const rawJson = e.dataTransfer.getData('application/json');
+    const rawJson = e.dataTransfer.getData('application/json') || e.dataTransfer.getData('text/plain');
     if (!rawJson) return;
 
     try {
-      const monster = JSON.parse(rawJson);
+      const payload = JSON.parse(rawJson);
       const rect = canvasContainer.getBoundingClientRect();
-      const dropX = Math.round(e.clientX - rect.left);
-      const dropY = Math.round(e.clientY - rect.top);
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
+      const worldPos = tacticalViewport.screenToWorld(screenX, screenY);
+      const cellX = Math.floor(worldPos.x / gridSize);
+      const cellY = Math.floor(worldPos.y / gridSize);
+
+      // 1. Image Asset Drop (Maps or Tokens)
+      if (payload.type === 'IMAGE_ASSET') {
+        if (payload.assetType === 'map') {
+          showBanner(`Background Map Floor Loaded: ${payload.name || payload.filename}`);
+          dispatchSoundEvent('door_open');
+          return;
+        }
+
+        const snappedX = Math.round((cellX + 0.5) * gridSize);
+        const snappedY = Math.round((cellY + 0.5) * gridSize);
+        const newToken: Token = {
+          id: `token-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: payload.name || 'Token',
+          x: snappedX,
+          y: snappedY,
+          radius: gridSize / 2,
+          sizeInCells: 1,
+          hp: 15,
+          maxHp: 15,
+          ac: 10,
+          isPlayer: false,
+          textureUrl: payload.url,
+          tint: 0x38bdf8,
+          sightRadius: 280,
+          darkvisionRadius: 180,
+          isOrbSealed: false,
+        };
+        tokens = [...tokens, newToken];
+        renderAll();
+        showBanner(`Placed ${newToken.name} token at (${snappedX}, ${snappedY})`);
+        return;
+      }
+
+      // 2. Bestiary Monster Token Drop
+      const monster = payload;
+      const sizeCells = parseCreatureSizeCells(monster.size);
+      const dropX = Math.round((cellX + sizeCells / 2) * gridSize);
+      const dropY = Math.round((cellY + sizeCells / 2) * gridSize);
+      const monsterId = monster.monsterId || monster.id || 'creature-compendium';
+      const monsterName = monster.name || 'Creature';
+      const monsterAc = monster.ac || 10;
+      const monsterHp = monster.hp || monster.hp_max || 20;
 
       // Trigger IPC / REST token spawn call
-      const res = await spawnCombatantToken({
-        encounter_id: 'encounter-1',
-        monster_compendium_id: monster.id,
-        custom_name: monster.name,
-        canvas_x: dropX,
-        canvas_y: dropY,
-      });
+      let spawnedTokenId = `token-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      try {
+        const res = await spawnCombatantToken({
+          encounter_id: 'encounter-1',
+          monster_compendium_id: monsterId,
+          custom_name: monsterName,
+          canvas_x: dropX,
+          canvas_y: dropY,
+        });
+        if (res?.token_id) {
+          spawnedTokenId = res.token_id;
+        }
+      } catch (err) {
+        console.warn('Backend encounter spawn fell back to local instantiation:', err);
+      }
 
       // Add to local canvas tokens
       const newToken: Token = {
-        id: res.token_id,
-        name: monster.name,
+        id: spawnedTokenId,
+        name: monsterName,
         x: dropX,
         y: dropY,
-        radius: 22,
+        radius: (sizeCells * gridSize) / 2,
+        sizeInCells: sizeCells,
+        hp: monsterHp,
+        maxHp: monsterHp,
+        ac: monsterAc,
+        isPlayer: false,
+        monsterCompendiumId: monsterId,
         sightRadius: 280,
         darkvisionRadius: 180,
         isOrbSealed: false,
         tint: 0xef4444,
+        color: '#ef4444',
       };
 
       tokens = [...tokens, newToken];
       renderAll();
 
       dispatchSoundEvent('fireball');
-      showBanner(`Spawned ${monster.name} at (${dropX}, ${dropY}) [AC ${monster.ac} | HP ${monster.hp_max}]`);
+      showBanner(`Spawned ${monsterName} at (${dropX}, ${dropY}) [AC ${monsterAc} | HP ${monsterHp}]`);
 
       if (onDropMonster) {
         onDropMonster(monster, dropX, dropY);
@@ -424,12 +516,58 @@
     renderVision();
   }
 
+  // Synchronize PixiJS root container with tactical camera transform
+  $effect(() => {
+    if (stageRoot) {
+      stageRoot.position.set(tacticalViewport.panX, tacticalViewport.panY);
+      stageRoot.scale.set(tacticalViewport.zoom, tacticalViewport.zoom);
+    }
+  });
+
   // Reactive updates when tokens or walls props change
   $effect(() => {
     if (pixiApp && stageRoot) {
       renderAll();
     }
   });
+
+  // Camera Pan & Zoom Interactions
+  let isPanningMat = false;
+  let lastPanPos = { x: 0, y: 0 };
+
+  function handleWheel(e: WheelEvent) {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.12 : 0.88;
+    const rect = canvasContainer?.getBoundingClientRect();
+    const sx = e.clientX - (rect?.left || 0);
+    const sy = e.clientY - (rect?.top || 0);
+    tacticalViewport.zoomAt(factor, sx, sy);
+  }
+
+  function handlePointerDownMat(e: PointerEvent) {
+    // Pan with middle click, right click, or when holding space/alt
+    if (e.button === 1 || e.button === 2 || e.altKey || e.shiftKey) {
+      e.preventDefault();
+      isPanningMat = true;
+      lastPanPos = { x: e.clientX, y: e.clientY };
+      canvasContainer?.setPointerCapture?.(e.pointerId);
+    }
+  }
+
+  function handlePointerMoveMat(e: PointerEvent) {
+    if (isPanningMat) {
+      const dx = e.clientX - lastPanPos.x;
+      const dy = e.clientY - lastPanPos.y;
+      tacticalViewport.panBy(dx, dy);
+      lastPanPos = { x: e.clientX, y: e.clientY };
+    }
+  }
+
+  function handlePointerUpMat(e: PointerEvent) {
+    if (isPanningMat) {
+      isPanningMat = false;
+    }
+  }
 </script>
 
 <div class="relative w-full overflow-hidden bg-dark-950 rounded-2xl border border-dark-700/80 shadow-2xl flex flex-col items-center">
@@ -440,6 +578,8 @@
       <span>Tactical Battle Mat (PixiJS v8 Engine)</span>
     </div>
     <div class="flex items-center gap-3 text-slate-400 font-mono text-[11px]">
+      <span>Zoom: {Math.round(tacticalViewport.zoom * 100)}%</span>
+      <span>&bull;</span>
       <span>Walls: {walls.length}</span>
       <span>&bull;</span>
       <span>Tokens: {tokens.length}</span>
@@ -460,11 +600,50 @@
     bind:this={canvasContainer}
     ondragover={handleDragOver}
     ondrop={handleDrop}
-    class="overflow-auto max-w-full touch-none select-none cursor-crosshair relative"
+    onwheel={handleWheel}
+    onpointerdown={handlePointerDownMat}
+    onpointermove={handlePointerMoveMat}
+    onpointerup={handlePointerUpMat}
+    class="overflow-hidden max-w-full touch-none select-none cursor-crosshair relative"
     style="width: {mapWidth}px; height: {mapHeight}px;"
     role="region"
     aria-label="Tactical battle mat canvas"
-  ></div>
+  >
+    <!-- Overarching World-to-Screen Transform Wrapper -->
+    <TacticalOverlayViewport width={mapWidth} height={mapHeight}>
+      <FogCanvasLayer
+        width={mapWidth}
+        height={mapHeight}
+        isGmView={true}
+        walls={walls.map(w => ({
+          id: `w-${w.p1[0]}-${w.p1[1]}`,
+          x1: w.p1[0],
+          y1: w.p1[1],
+          x2: w.p2[0],
+          y2: w.p2[1],
+          blocksVision: w.blocksVision,
+          blocksMovement: w.blocksMovement,
+          isDoor: w.isDoor,
+          isOpen: w.isOpen
+        }))}
+        sources={tokens.map(t => ({
+          x: t.x,
+          y: t.y,
+          brightRadiusPx: Math.max(0, (t.sightRadius || 280) * 0.5),
+          dimRadiusPx: t.sightRadius || 280
+        }))}
+      />
+      <TokenCanvasLayer
+        {tokens}
+        {gridSize}
+      />
+      <MeasurementRulerLayer
+        width={mapWidth}
+        height={mapHeight}
+        {gridSize}
+      />
+    </TacticalOverlayViewport>
+  </div>
 
   <!-- Instruction Footer -->
   <div class="w-full bg-dark-900/90 px-4 py-2 border-t border-dark-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">

@@ -1,6 +1,8 @@
 <!-- CanvasDrawingToolbar.svelte — Tactical Canvas Vector Drawing & Fog of War Tools -->
 <script lang="ts">
   import { canvasStore } from '../../../stores/canvasStore.svelte';
+  import { ingestPipelineStore } from '../../services/ingest/ingestPipelineStore.svelte';
+  import { assetBrowserStore } from '../../stores/assetBrowserStore.svelte';
   import type { WallSegment } from '../../canvas/parsers/dungeonScrawlParser';
 
   export type DrawTool =
@@ -168,6 +170,30 @@
     title="Clear All Wall Vectors ({canvasStore.walls.length} active)"
   >
     🗑️
+  </button>
+
+  <div class="h-4 w-[1px] bg-slate-800 mx-0.5"></div>
+
+  <!-- Ingest Pipeline Launcher -->
+  <button
+    type="button"
+    onclick={() => ingestPipelineStore.openModal()}
+    class="px-2 py-1 rounded-lg font-bold transition-all flex items-center gap-1 bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-700/60 text-indigo-300 text-[11px] shadow-sm hover:text-white"
+    title="Open Universal Ingestion Pipeline"
+  >
+    <span>📥</span>
+    <span class="hidden sm:inline">Ingest</span>
+  </button>
+
+  <!-- Campaign Asset Browser Launcher -->
+  <button
+    type="button"
+    onclick={() => assetBrowserStore.toggle()}
+    class="px-2 py-1 rounded-lg font-bold transition-all flex items-center gap-1 bg-amber-950/80 hover:bg-amber-900 border border-amber-700/60 text-amber-300 text-[11px] shadow-sm hover:text-white"
+    title="Open Campaign Image Browser (Maps, Tokens, Props)"
+  >
+    <span>🖼️</span>
+    <span class="hidden sm:inline">Assets</span>
   </button>
 
   {#if activeTool === 'wall_polygon' && polyPoints.length > 0}

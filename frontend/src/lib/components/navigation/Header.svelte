@@ -196,19 +196,6 @@
       {/if}
     </div>
 
-    <!-- Audio / Ambient Mixer Toggle Button (Part 1.3) -->
-    <button
-      type="button"
-      onclick={toggleAudioMixer}
-      class="p-1.5 rounded-lg border text-sm transition-colors {floatingWindowsStore.windows.audio.isOpen || uiStore.isSoundboardOpen
-        ? 'bg-indigo-700 text-white border-indigo-600'
-        : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800'}"
-      title="Audio Studio & Ambient Soundboard Mixer"
-      aria-label="Audio Mixer"
-    >
-      🎵
-    </button>
-
     <!-- Player Join Portal Button -->
     <button
       type="button"
@@ -220,36 +207,17 @@
       <span class="hidden md:inline">Portal</span>
     </button>
 
-    <!-- Quick Drawers: Combat HUD & Dice Tray -->
-    <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
-      <button
-        type="button"
-        onclick={onToggleCombat}
-        class="px-2 py-1 rounded text-[10px] font-bold text-slate-400 hover:text-slate-200 transition-colors"
-        title="Combat Tracker & Initiative Strip"
-      >
-        ⚔️
-      </button>
-
-      <button
-        type="button"
-        onclick={() => chatStore.toggle()}
-        class="px-2 py-1 rounded text-[10px] font-bold transition-colors {chatStore.isOpen ? 'bg-amber-500 text-slate-950 font-black' : 'text-amber-400 hover:text-amber-300'}"
-        title="Session Chat & Universal Dice Log"
-      >
-        🎲
-      </button>
-    </div>
-
-    <!-- Settings Gear Button (Part 1.4) -->
+    <!-- Universal Dice Tray & Session Chat Toggle -->
     <button
       type="button"
-      onclick={onOpenSettings}
-      class="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800 rounded-lg transition-colors text-sm"
-      title="Settings & Campaign Persistence"
-      aria-label="Settings"
+      onclick={() => chatStore.toggle()}
+      class="px-2.5 py-1 rounded-lg text-xs font-bold transition-colors border {chatStore.isOpen
+        ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow'
+        : 'bg-slate-950 hover:bg-slate-800 text-amber-400 border-slate-800'}"
+      title="Session Chat & Universal Dice Log"
     >
-      ⚙️
+      <span>🎲</span>
+      <span class="hidden md:inline ml-1">Dice</span>
     </button>
   </div>
 </header>

@@ -718,6 +718,22 @@ export class AudioEngine {
       this.triggerSfx(sfx.id);
     }
   }
+
+  playDiceClatter(): void {
+    this.triggerSfx('sfx-dice');
+  }
+
+  stopAll(): void {
+    if (this.activeAmbienceSource) {
+      try {
+        this.activeAmbienceSource.stop();
+        this.activeAmbienceSource.disconnect();
+      } catch {}
+      this.activeAmbienceSource = null;
+      this.activeAmbienceGainNode = null;
+      this.activeAmbienceTrackId = null;
+    }
+  }
 }
 
 // Singleton export

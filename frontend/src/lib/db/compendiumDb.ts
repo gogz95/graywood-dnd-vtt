@@ -77,6 +77,33 @@ export interface CompendiumMedia {
   category?: string;
 }
 
+export interface CompendiumItem {
+  id: string;
+  name: string;
+  type: string;
+  rarity: string;
+  damage?: string;
+  armorClass?: number;
+  properties?: string[];
+  description: string;
+  weight?: number;
+  cost?: string;
+  sourceBook: string;
+  packageId: string;
+  origin: 'SRD-5.1' | 'USER_IMPORT';
+}
+
+export interface CompendiumJournal {
+  id: string;
+  title: string;
+  category: string;
+  content: string;
+  tags?: string[];
+  sourceBook: string;
+  packageId: string;
+  createdAt: number;
+}
+
 // ── Pure 5e SRD 5.1 Seed Records ─────────────────────────────────────────────
 
 const SRD_SPELLS: CompendiumSpell[] = [
@@ -533,6 +560,8 @@ export class CompendiumDatabase extends Dexie {
   media!: Table<CompendiumMedia, string>;
   ingestedTables!: Table<IngestedTable, number>;
   campaignFlags!: Table<CampaignFlag, string>;
+  items!: Table<CompendiumItem, string>;
+  journal!: Table<CompendiumJournal, string>;
 
   constructor() {
     super('vtt_compendium_database');
@@ -553,6 +582,11 @@ export class CompendiumDatabase extends Dexie {
       campaignFlags: 'key'
     });
 
+    this.version(4).stores({
+      items: 'id, name, type, rarity, sourceBook, packageId, origin',
+      journal: 'id, title, category, sourceBook, packageId, createdAt'
+    });
+
     this.on('populate', () => {
       this.spells.bulkAdd(SRD_SPELLS);
       this.subclasses.bulkAdd(SRD_SUBCLASSES);
@@ -569,19 +603,34 @@ export class CompendiumDatabase extends Dexie {
     deletedSubclasses: number;
     deletedMonsters: number;
     deletedFacilities: number;
+    deletedItems: number;
+    deletedJournal: number;
   }> {
     if (packageId === 'srd-5.1') {
       throw new Error('Cannot purge protected core SRD 5.1 baseline records.');
     }
 
-    return await this.transaction('rw', [this.spells, this.subclasses, this.monsters, this.facilities], async () => {
-      const deletedSpells = await this.spells.where('packageId').equals(packageId).delete();
-      const deletedSubclasses = await this.subclasses.where('packageId').equals(packageId).delete();
-      const deletedMonsters = await this.monsters.where('packageId').equals(packageId).delete();
-      const deletedFacilities = await this.facilities.where('packageId').equals(packageId).delete();
+    return await this.transaction(
+      'rw',
+      [this.spells, this.subclasses, this.monsters, this.facilities, this.items, this.journal],
+      async () => {
+        const deletedSpells = await this.spells.where('packageId').equals(packageId).delete();
+        const deletedSubclasses = await this.subclasses.where('packageId').equals(packageId).delete();
+        const deletedMonsters = await this.monsters.where('packageId').equals(packageId).delete();
+        const deletedFacilities = await this.facilities.where('packageId').equals(packageId).delete();
+        const deletedItems = await this.items.where('packageId').equals(packageId).delete();
+        const deletedJournal = await this.journal.where('packageId').equals(packageId).delete();
 
-      return { deletedSpells, deletedSubclasses, deletedMonsters, deletedFacilities };
-    });
+        return {
+          deletedSpells,
+          deletedSubclasses,
+          deletedMonsters,
+          deletedFacilities,
+          deletedItems,
+          deletedJournal
+        };
+      }
+    );
   }
 
   /**

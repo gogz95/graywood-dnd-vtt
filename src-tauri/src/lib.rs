@@ -12,5 +12,33 @@ pub use commands::{
 pub use db::{configure_and_migrate, init_database, init_in_memory_db};
 pub use migrations::{export_campaign_archive, run_versioned_migrations};
 pub use models::*;
-pub use server::{create_router, run_server, AppState, ServerError, WsEvent, DEFAULT_SERVER_ADDR};
+pub use server::{
+    create_router, run_server, AppState, ServerError, WsEvent, DEFAULT_SERVER_ADDR,
+    LAN_ASSET_SERVER_ADDR,
+};
 pub use systems::*;
+
+use tauri::Manager;
+
+/// Initializes and configures the single-instance plugin for Tauri 2.
+/// When a secondary launch occurs, it brings the primary window to the foreground
+/// and prevents TCP port 5174 / 8080 binding collisions.
+pub fn init_single_instance<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        let window = app
+            .get_webview_window("main")
+            .or_else(|| app.webview_windows().values().next().cloned());
+        if let Some(w) = window {
+            let _ = w.show();
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+        }
+    })
+}
+
+/// Applies single-instance plugin to a Tauri builder.
+pub fn configure_single_instance<R: tauri::Runtime>(
+    builder: tauri::Builder<R>,
+) -> tauri::Builder<R> {
+    builder.plugin(init_single_instance())
+}
