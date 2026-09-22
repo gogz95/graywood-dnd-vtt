@@ -6,7 +6,7 @@
 
   // ── Props ────────────────────────────────────────────────────────────────
   let {
-    selectedDirectory = $bindable<string | null>(null),
+    selectedDirectory = $bindable(),
     onDirectoryConfirmed,
   }: {
     selectedDirectory?: string | null;

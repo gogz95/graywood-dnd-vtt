@@ -60,7 +60,7 @@
     campaignName = campaignStore.campaignName || 'Default Campaign';
     dmName = campaignStore.dmAlias || 'Dungeon Master';
     tablePin = campaignStore.masterPin || '1337';
-    selectedDirectory = campaignDirectoryStore.directoryPath;
+    selectedDirectory = campaignDirectoryStore.directoryPath ?? null;
 
     if (!campaignStore.hasCompletedWizard) {
       isOpen = true;
