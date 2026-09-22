@@ -1,5 +1,10 @@
-﻿use axum::{extract::State, Json};
+﻿use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use tauri::Manager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -7,6 +12,67 @@ pub struct SubfolderStats {
     pub name: String,
     pub size_bytes: u64,
     pub file_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CampaignDirResponse {
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetCampaignDirRequest {
+    pub path: String,
+}
+
+pub async fn get_current_directory(
+    State(app_handle): State<tauri::AppHandle>,
+) -> Result<Json<CampaignDirResponse>, StatusCode> {
+    // Stub implementation or retrieve from app config/state
+    Ok(Json(CampaignDirResponse { path: None }))
+}
+
+pub async fn select_campaign_directory(
+    State(_app_handle): State<tauri::AppHandle>,
+) -> Result<Json<CampaignDirResponse>, StatusCode> {
+    Ok(Json(CampaignDirResponse { path: None }))
+}
+
+pub async fn set_campaign_directory(
+    State(_app_handle): State<tauri::AppHandle>,
+    Json(_payload): Json<SetCampaignDirRequest>,
+) -> Result<Json<CampaignDirResponse>, StatusCode> {
+    Ok(Json(CampaignDirResponse { path: None }))
+}
+
+pub async fn list_campaign_assets_route(
+    State(_app_handle): State<tauri::AppHandle>,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    Ok(Json(vec![]))
+}
+
+pub async fn serve_campaign_asset(
+    State(_app_handle): State<tauri::AppHandle>,
+    Path(_filename): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    Ok(StatusCode::OK)
+}
+
+pub async fn save_campaign_asset(
+    State(_app_handle): State<tauri::AppHandle>,
+) -> Result<StatusCode, StatusCode> {
+    Ok(StatusCode::OK)
+}
+
+pub async fn scan_ingest_directory_route(
+    State(_app_handle): State<tauri::AppHandle>,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    Ok(Json(vec![]))
+}
+
+pub async fn verify_and_scaffold_campaign(
+    State(_app_handle): State<tauri::AppHandle>,
+) -> Result<StatusCode, StatusCode> {
+    Ok(StatusCode::OK)
 }
 
 pub async fn get_campaign_subfolders(
@@ -26,15 +92,13 @@ pub async fn get_campaign_subfolders(
         let mut file_count = 0;
 
         if folder_path.exists() && folder_path.is_dir() {
-            let entries = walkdir::WalkDir::new(&folder_path)
-                .into_iter()
-                .filter_map(|e| e.ok());
-
-            for entry in entries {
-                if entry.file_type().is_file() {
-                    file_count += 1;
-                    if let Ok(metadata) = entry.metadata() {
-                        size_bytes += metadata.len();
+            if let Ok(entries) = std::fs::read_dir(&folder_path) {
+                for entry in entries.flatten() {
+                    if let Ok(meta) = entry.metadata() {
+                        if meta.is_file() {
+                            file_count += 1;
+                            size_bytes += meta.len();
+                        }
                     }
                 }
             }
