@@ -4,8 +4,8 @@
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use tauri::Manager;
+
+use crate::server::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubfolderStats {
@@ -25,63 +25,64 @@ pub struct SetCampaignDirRequest {
 }
 
 pub async fn get_current_directory(
-    State(app_handle): State<tauri::AppHandle>,
+    State(_state): State<AppState>,
 ) -> Result<Json<CampaignDirResponse>, StatusCode> {
-    // Stub implementation or retrieve from app config/state
     Ok(Json(CampaignDirResponse { path: None }))
 }
 
 pub async fn select_campaign_directory(
-    State(_app_handle): State<tauri::AppHandle>,
+    State(_state): State<AppState>,
 ) -> Result<Json<CampaignDirResponse>, StatusCode> {
     Ok(Json(CampaignDirResponse { path: None }))
 }
 
 pub async fn set_campaign_directory(
-    State(_app_handle): State<tauri::AppHandle>,
+    State(_state): State<AppState>,
     Json(_payload): Json<SetCampaignDirRequest>,
 ) -> Result<Json<CampaignDirResponse>, StatusCode> {
     Ok(Json(CampaignDirResponse { path: None }))
 }
 
 pub async fn list_campaign_assets_route(
-    State(_app_handle): State<tauri::AppHandle>,
+    State(_state): State<AppState>,
 ) -> Result<Json<Vec<String>>, StatusCode> {
     Ok(Json(vec![]))
 }
 
 pub async fn serve_campaign_asset(
-    State(_app_handle): State<tauri::AppHandle>,
+    State(_state): State<AppState>,
     Path(_filename): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
     Ok(StatusCode::OK)
 }
 
 pub async fn save_campaign_asset(
-    State(_app_handle): State<tauri::AppHandle>,
+    State(_state): State<AppState>,
 ) -> Result<StatusCode, StatusCode> {
     Ok(StatusCode::OK)
 }
 
 pub async fn scan_ingest_directory_route(
-    State(_app_handle): State<tauri::AppHandle>,
+    State(_state): State<AppState>,
 ) -> Result<Json<Vec<String>>, StatusCode> {
     Ok(Json(vec![]))
 }
 
 pub async fn verify_and_scaffold_campaign(
-    State(_app_handle): State<tauri::AppHandle>,
+    State(_state): State<AppState>,
 ) -> Result<StatusCode, StatusCode> {
     Ok(StatusCode::OK)
 }
 
 pub async fn get_campaign_subfolders(
-    State(app_handle): State<tauri::AppHandle>,
+    State(state): State<AppState>,
 ) -> Result<Json<Vec<SubfolderStats>>, String> {
-    let app_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let app_dir = state
+        .campaign_dir
+        .read()
+        .await
+        .clone()
+        .unwrap_or_else(|| state.assets_dir.clone());
 
     let mut stats = Vec::new();
     let subfolders = vec!["maps", "audio", "tokens", "portraits", "data"];

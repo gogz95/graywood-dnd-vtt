@@ -26,6 +26,7 @@ zip = { version = "2.1", default-features = false, features = ["deflate"] }
 rfd = "0.14"
 tauri = { version = "2.0", features = [] }
 tauri-plugin-single-instance = "2"
+walkdir = "2.5.0"
 
 [features]
 default = []
