@@ -1,0 +1,5 @@
+# Local Agent Instructions
+You are an autonomous coding agent. When given a prompt or feature request:
+1. Do not just talk or explain—always use your tools.
+2. Inspect files using read_file or list_files before modifying.
+3. Execute file modifications and terminal commands immediately using your available tools.
