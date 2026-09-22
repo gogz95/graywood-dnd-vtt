@@ -1,4 +1,4 @@
-﻿use axum::{
+use axum::{
     extract::{Path, State},
     http::StatusCode,
     Json,
@@ -56,9 +56,7 @@ pub async fn serve_campaign_asset(
     Ok(StatusCode::OK)
 }
 
-pub async fn save_campaign_asset(
-    State(_state): State<AppState>,
-) -> Result<StatusCode, StatusCode> {
+pub async fn save_campaign_asset(State(_state): State<AppState>) -> Result<StatusCode, StatusCode> {
     Ok(StatusCode::OK)
 }
 
