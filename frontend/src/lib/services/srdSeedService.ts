@@ -37,7 +37,7 @@ export async function seedSrdCompendiumIfEmpty(force = false): Promise<SrdSeedRe
     // Populate missing tables transactionally
     await compendiumDb.transaction(
       'rw',
-      [compendiumDb.monsters, compendiumDb.spells, compendiumDb.items, compendiumDb.packages],
+      [compendiumDb.monsters, compendiumDb.spells, compendiumDb.items, compendiumDb.campaignFlags],
       async () => {
         if (currentMonsters === 0 || force) {
           await compendiumDb.monsters.bulkPut(srdSeedData.monsters as unknown as CompendiumMonster[]);
@@ -49,15 +49,18 @@ export async function seedSrdCompendiumIfEmpty(force = false): Promise<SrdSeedRe
           await compendiumDb.items.bulkPut(srdSeedData.items as unknown as CompendiumItem[]);
         }
 
-        await compendiumDb.packages.put({
-          id: 'srd-5.1-core',
-          name: 'System Reference Document 5.1 (Core)',
-          version: '5.1.0',
-          sourceBook: 'SRD 5.1',
-          importedAt: new Date().toISOString(),
-          monsterCount: srdSeedData.monsters.length,
-          spellCount: srdSeedData.spells.length,
-          classCount: 0,
+        await compendiumDb.campaignFlags.put({
+          key: 'package:srd-5.1-core',
+          value: {
+            id: 'srd-5.1-core',
+            name: 'System Reference Document 5.1 (Core)',
+            version: '5.1.0',
+            sourceBook: 'SRD 5.1',
+            importedAt: new Date().toISOString(),
+            monsterCount: srdSeedData.monsters.length,
+            spellCount: srdSeedData.spells.length,
+            classCount: 0,
+          }
         });
       }
     );

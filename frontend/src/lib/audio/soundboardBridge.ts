@@ -9,7 +9,8 @@ export type SoundEventType =
   | 'coin_clink'
   | 'potion'
   | 'item_broken'
-  | 'turn_bell';
+  | 'turn_bell'
+  | 'door_open';
 
 export class SoundboardBridge {
   private ctx: AudioContext | null = null;
@@ -273,6 +274,21 @@ export class SoundboardBridge {
 
         osc.start(now);
         osc.stop(now + 1.0);
+        break;
+      }
+
+      case 'door_open': {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(220, now);
+        osc.frequency.linearRampToValueAtTime(330, now + 0.25);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+        osc.connect(gain);
+        gain.connect(dest);
+        osc.start(now);
+        osc.stop(now + 0.38);
         break;
       }
     }

@@ -138,7 +138,8 @@ class CompendiumStore {
           spellCount: 0,
           subclassCount: 0,
           monsterCount: 0,
-          facilityCount: 0
+          facilityCount: 0,
+          itemCount: 0
         });
       }
       pkgMap.get(s.packageId)!.spellCount++;
@@ -153,7 +154,8 @@ class CompendiumStore {
           spellCount: 0,
           subclassCount: 0,
           monsterCount: 0,
-          facilityCount: 0
+          facilityCount: 0,
+          itemCount: 0
         });
       }
       pkgMap.get(sub.packageId)!.subclassCount++;
@@ -168,7 +170,8 @@ class CompendiumStore {
           spellCount: 0,
           subclassCount: 0,
           monsterCount: 0,
-          facilityCount: 0
+          facilityCount: 0,
+          itemCount: 0
         });
       }
       pkgMap.get(m.packageId)!.monsterCount++;

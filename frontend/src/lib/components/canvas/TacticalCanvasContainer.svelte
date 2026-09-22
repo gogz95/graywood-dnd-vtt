@@ -660,9 +660,11 @@
 
         if (payload && payload.type === 'IMAGE_ASSET') {
           if (payload.assetType === 'map') {
-            mapImageUrl = payload.url;
-            canvasStore.setBackgroundTexture(payload.url);
-            loadImageToCanvas(payload.url);
+            loadMapFromUrl(payload.url);
+            if (payload.name) {
+              mapImageUrl = payload.name;
+              mapImageInput = payload.name;
+            }
             return;
           }
 
