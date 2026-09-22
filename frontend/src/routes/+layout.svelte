@@ -26,7 +26,7 @@
   // ── View state ─────────────────────────────────────────────────────────────
   type ViewMode = 'SETUP' | 'DM_DASHBOARD' | 'PLAYER_LOGIN' | 'PLAYER_SHEET';
 
-  let currentView = $state<ViewMode>('SETUP');
+  let currentView = $state<ViewMode>({ get() { const done = localStorage.getItem('vtt_setup_complete'); return done ? 'DM_DASHBOARD' : 'SETUP'; } });
   let activeTab   = $state<DmTab>('encounter');
 
   // ── Campaign setup ─────────────────────────────────────────────────────────
