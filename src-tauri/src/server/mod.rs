@@ -86,6 +86,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/campaign/assets/save",
             post(routes::campaign_dir::save_campaign_asset),
         )
+        .route(
+            "/api/campaign/ingest/scan",
+            post(routes::campaign_dir::scan_ingest_directory_route),
+        )
         // 5. DM Encounter Tracker & Monster Spawning Endpoints
         .route("/api/encounter/active", get(routes::encounter::get_active))
         .route(

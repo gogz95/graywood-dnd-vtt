@@ -23,15 +23,7 @@
 
   let isCastMenuOpen = $state(false);
 
-  // Standardized 6 Core Workspace Views (Part 2)
-  const PRIMARY_VIEWS: Array<{ id: ActiveWorkspaceView; label: string; icon: string; title: string }> = [
-    { id: 'canvas',     label: 'Tactical Canvas',   icon: '⚔️', title: 'Tactical Battlemap & Token Grid' },
-    { id: 'atlas',      label: 'World Atlas',       icon: '🗺️', title: 'Overland World Atlas Vector Map' },
-    { id: 'bestiary',   label: 'Bestiary',          icon: '🐉', title: 'Full-Page 5e SRD Bestiary & Monster Management' },
-    { id: 'compendium', label: 'Compendium',        icon: '📚', title: 'Rules, Spells, Items & Sourcebooks' },
-    { id: 'party',      label: 'Party & Roster',    icon: '👥', title: 'Active Party Stats, HP, Conditions & Loot' },
-    { id: 'journal',    label: 'Journal & Handouts', icon: '📜', title: 'Handouts, Notes & Lore Chronicle' },
-  ];
+
 
   function setCastSource(source: 'battlemap' | 'atlas' | 'blackout') {
     projectorStore.setCastingSource(source);
@@ -80,24 +72,26 @@
   </div>
 
   <!-- ═════════════════════════════════════════════════════════════════════════
-       CENTER: STANDARDIZED 6 PRIMARY WORKSPACE TABS (Part 2)
+       CENTER: ACTIVE WORKSPACE CONTEXT BADGE (Top Tabs moved to SidebarNav)
   ══════════════════════════════════════════════════════════════════════════ -->
-  <nav class="flex items-center gap-1 bg-slate-950 border border-slate-800/80 rounded-xl p-0.5 shadow-inner">
-    {#each PRIMARY_VIEWS as view}
-      {@const isActive = uiStore.activeView === view.id}
-      <button
-        type="button"
-        onclick={() => uiStore.setActiveView(view.id)}
-        class="px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 {isActive
-          ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'}"
-        title={view.title}
-      >
-        <span>{view.icon}</span>
-        <span class="hidden lg:inline">{view.label}</span>
-      </button>
-    {/each}
-  </nav>
+  <div class="hidden md:flex items-center gap-2 px-3 py-1 bg-slate-950/60 border border-slate-800/80 rounded-xl text-xs">
+    <span class="text-slate-500 font-medium">Workspace:</span>
+    <span class="font-bold text-slate-200 capitalize flex items-center gap-1.5">
+      {#if uiStore.activeView === 'canvas'}
+        <span>⚔️</span> Tactical Canvas
+      {:else if uiStore.activeView === 'atlas'}
+        <span>🗺️</span> World Atlas
+      {:else if uiStore.activeView === 'bestiary'}
+        <span>🐉</span> Bestiary
+      {:else if uiStore.activeView === 'compendium'}
+        <span>📚</span> Compendium
+      {:else if uiStore.activeView === 'party'}
+        <span>👥</span> Party & Roster
+      {:else if uiStore.activeView === 'journal'}
+        <span>📜</span> Journal & Lore
+      {/if}
+    </span>
+  </div>
 
   <!-- ═════════════════════════════════════════════════════════════════════════
        RIGHT: UTILITY TRAY & MODAL CONTROLS (Part 1)

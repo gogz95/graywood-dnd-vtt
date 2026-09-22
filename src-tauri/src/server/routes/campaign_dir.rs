@@ -239,3 +239,28 @@ pub async fn save_campaign_asset(
         "url": public_url
     })))
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ScanIngestRequest {
+    pub path: Option<String>,
+}
+
+/// POST /api/campaign/ingest/scan - Scan Ingest directory or selected folder asynchronously
+pub async fn scan_ingest_directory_route(
+    State(state): State<AppState>,
+    payload: Option<Json<ScanIngestRequest>>,
+) -> Result<Json<crate::commands::IngestScanResult>, ServerError> {
+    let target = match payload.and_then(|p| p.0.path) {
+        Some(p) if !p.trim().is_empty() => Some(p),
+        _ => {
+            let guard = state.campaign_dir.read().await;
+            guard.as_ref().map(|d| d.to_string_lossy().to_string())
+        }
+    };
+
+    crate::commands::scan_ingest_directory(target)
+        .await
+        .map(Json)
+        .map_err(ServerError::Internal)
+}
+

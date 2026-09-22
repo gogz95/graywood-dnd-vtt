@@ -4,7 +4,7 @@
   // and Global Header with Scannable QR Code Player Join Portal.
 
   import { onMount, onDestroy } from 'svelte';
-  import Sidebar, { type DmTab } from '../lib/components/navigation/Sidebar.svelte';
+  import SidebarNav, { type DmTab } from '../lib/components/navigation/SidebarNav.svelte';
 
   // Subsystem Views
   import PartyRosterView from '../lib/components/party/PartyRosterView.svelte';
@@ -26,6 +26,7 @@
   import FullBestiaryView from '../lib/components/bestiary/FullBestiaryView.svelte';
   import MapManagerModal from '../lib/components/map/MapManagerModal.svelte';
   import UnifiedHoldingsView from '../lib/components/downtime/UnifiedHoldingsView.svelte';
+  import UniversalIngestModal from '../lib/components/ingest/UniversalIngestModal.svelte';
 
   // Aleamos Downtime, Logistics & Crafting
   import AlchemyWorkbench from '../lib/components/crafting/AlchemyWorkbench.svelte';
@@ -60,6 +61,7 @@
   let isPlayerPortalOpen = $state(false);
   let isBestiaryOpen = $state(false);
   let isMapManagerOpen = $state(false);
+  let isIngestModalOpen = $state(false);
 
   $effect(() => {
     if (uiStore.activeView === 'canvas') {
@@ -96,8 +98,13 @@
       floatingWindowsStore.open('audio');
     };
 
+    const handleOpenIngest = () => {
+      isIngestModalOpen = true;
+    };
+
     window.addEventListener('vtt:switch-tab', handleSwitchTab);
     window.addEventListener('vtt:toggle-audio', handleToggleAudio);
+    window.addEventListener('vtt:open-ingest-modal', handleOpenIngest);
 
     dropCleanup = registerGlobalDropZone((asset) => {
       if (asset.category === 'audio') floatingWindowsStore.open('audio');
@@ -108,6 +115,7 @@
       dropCleanup?.();
       window.removeEventListener('vtt:switch-tab', handleSwitchTab);
       window.removeEventListener('vtt:toggle-audio', handleToggleAudio);
+      window.removeEventListener('vtt:open-ingest-modal', handleOpenIngest);
     };
   });
 </script>
@@ -129,8 +137,8 @@
   ══════════════════════════════════════════════════════════════════════════ -->
   <div class="flex-1 flex min-h-0 overflow-hidden relative">
 
-    <!-- Left Sidebar (Strict 8 Icons) -->
-    <Sidebar bind:activeTab />
+    <!-- Collapsible Multi-Level Sidebar Accordion Navigation -->
+    <SidebarNav bind:activeTab bind:dmMapMode />
 
     <!-- Central Stage Viewport Switcher -->
     <main class="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col relative bg-slate-950">
@@ -232,4 +240,7 @@
 
   <!-- Universal Map Manager Modal -->
   <MapManagerModal bind:isOpen={isMapManagerOpen} />
+
+  <!-- Universal Multi-Category Asset Ingestion Pipeline Modal -->
+  <UniversalIngestModal bind:isOpen={isIngestModalOpen} />
 </div>

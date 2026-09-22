@@ -13,7 +13,7 @@
   import LoreWikiView from '../lib/components/lore/LoreWikiView.svelte';
   import HandoutStudioView from '../lib/components/handouts/HandoutStudioView.svelte';
   import PlayerHandoutModal from '../lib/components/handouts/PlayerHandoutModal.svelte';
-  import Sidebar, { type DmTab } from '../lib/components/navigation/Sidebar.svelte';
+  import SidebarNav, { type DmTab } from '../lib/components/navigation/SidebarNav.svelte';
   import SoundboardDrawer   from '../lib/components/audio/SoundboardDrawer.svelte';
   import QuickReferenceDrawer from '../lib/components/dm/QuickReferenceDrawer.svelte';
   import SettingsModal      from '../lib/components/settings/SettingsModal.svelte';
@@ -280,10 +280,9 @@
         </div>
       </div>
 
-    <!-- ─── DM DASHBOARD ──────────────────────────────────────────────────── -->
     {:else if currentView === 'DM_DASHBOARD'}
-      <!-- Vertical sidebar nav dock -->
-      <Sidebar bind:activeTab />
+      <!-- Unified Collapsible Sidebar Navigation -->
+      <SidebarNav bind:activeTab />
 
       <!-- Tab panel -->
       <main class="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col">

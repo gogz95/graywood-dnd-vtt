@@ -224,3 +224,168 @@ pub fn get_lan_ip_cmd() -> String {
         Err(_) => "127.0.0.1".to_string(),
     }
 }
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct IngestScanEntry {
+    pub name: String,
+    pub relative_path: String,
+    pub full_path: String,
+    pub category: String, // "source" | "image" | "audio" | "video"
+    pub extension: String,
+    pub size_bytes: u64,
+    pub mime_type: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct IngestScanResult {
+    pub root_path: String,
+    pub total_files: usize,
+    pub total_bytes: u64,
+    pub entries: Vec<IngestScanEntry>,
+}
+
+/// Categorizes a file path using folder topology or extension/MIME inspection.
+pub fn classify_ingest_file(rel_path: &Path, ext: &str, mime: &str) -> String {
+    let rel_str = rel_path.to_string_lossy().to_lowercase();
+
+    // Check directory topology first
+    if rel_str.contains("source material") || rel_str.contains("sources") || rel_str.contains("source") {
+        return "source".to_string();
+    }
+    if rel_str.contains("image") || rel_str.contains("maps") || rel_str.contains("tokens") {
+        return "image".to_string();
+    }
+    if rel_str.contains("audio") || rel_str.contains("sounds") || rel_str.contains("music") {
+        return "audio".to_string();
+    }
+    if rel_str.contains("video") || rel_str.contains("videos") {
+        return "video".to_string();
+    }
+
+    // Fall back to extension inspection
+    match ext {
+        "md" | "txt" | "json" | "jsonl" | "csv" | "tsv" | "zip" | "ds" | "pdf" => "source".to_string(),
+        "png" | "jpg" | "jpeg" | "webp" | "dd2vtt" | "uvtt" | "geojson" => "image".to_string(),
+        "ogg" | "mp3" | "wav" | "flac" | "m4a" => "audio".to_string(),
+        "mp4" | "webm" => "video".to_string(),
+        _ => {
+            if mime.starts_with("video/") {
+                "video".to_string()
+            } else if mime.starts_with("audio/") {
+                "audio".to_string()
+            } else if mime.starts_with("image/") {
+                "image".to_string()
+            } else {
+                "source".to_string()
+            }
+        }
+    }
+}
+
+/// Recursively scans an Ingest directory or selected folder without blocking the UI thread.
+pub async fn scan_ingest_directory(
+    target_path: Option<String>,
+) -> Result<IngestScanResult, String> {
+    let folder_path = match target_path {
+        Some(ref p) if !p.trim().is_empty() => PathBuf::from(p.trim()),
+        _ => {
+            let handle = rfd::AsyncFileDialog::new()
+                .set_title("Select Folder to Ingest (or Ingest/ Root)")
+                .pick_folder()
+                .await;
+            match handle {
+                Some(h) => h.path().to_path_buf(),
+                None => {
+                    return Ok(IngestScanResult {
+                        root_path: String::new(),
+                        total_files: 0,
+                        total_bytes: 0,
+                        entries: Vec::new(),
+                    });
+                }
+            }
+        }
+    };
+
+    if !folder_path.exists() {
+        return Err(format!("Directory does not exist: {:?}", folder_path));
+    }
+
+    // If folder contains an 'Ingest' or 'ingest' child directory, prioritize that
+    let scan_root = if folder_path.join("Ingest").is_dir() {
+        folder_path.join("Ingest")
+    } else if folder_path.join("ingest").is_dir() {
+        folder_path.join("ingest")
+    } else {
+        folder_path.clone()
+    };
+
+    let mut entries = Vec::new();
+    let mut total_bytes: u64 = 0;
+    let mut dirs_to_visit = vec![scan_root.clone()];
+
+    while let Some(dir) = dirs_to_visit.pop() {
+        let read_dir = match tokio::fs::read_dir(&dir).await {
+            Ok(rd) => rd,
+            Err(e) => return Err(format!("Failed to read directory {:?}: {}", dir, e)),
+        };
+
+        let mut stream = read_dir;
+        while let Ok(Some(entry)) = stream.next_entry().await {
+            let path = entry.path();
+            let file_name = entry.file_name().to_string_lossy().to_string();
+
+            if file_name.starts_with('.') {
+                continue;
+            }
+
+            let file_type = match entry.file_type().await {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+
+            if file_type.is_dir() {
+                dirs_to_visit.push(path);
+            } else if file_type.is_file() {
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+
+                let metadata = entry.metadata().await.ok();
+                let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
+                let mime = mime_guess::from_path(&path)
+                    .first_or_octet_stream()
+                    .to_string();
+
+                let rel_path = path
+                    .strip_prefix(&scan_root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+
+                let category = classify_ingest_file(Path::new(&rel_path), &ext, &mime);
+
+                total_bytes += size_bytes;
+                entries.push(IngestScanEntry {
+                    name: file_name,
+                    relative_path: rel_path,
+                    full_path: path.to_string_lossy().to_string(),
+                    category,
+                    extension: ext,
+                    size_bytes,
+                    mime_type: mime,
+                });
+            }
+        }
+    }
+
+    Ok(IngestScanResult {
+        root_path: scan_root.to_string_lossy().to_string(),
+        total_files: entries.len(),
+        total_bytes,
+        entries,
+    })
+}
+
