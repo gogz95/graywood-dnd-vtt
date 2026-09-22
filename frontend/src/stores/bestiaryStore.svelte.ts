@@ -1,17 +1,20 @@
-// ... existing code ...
+import { invoke } from '@tauri-apps/api/core';
+class BestiaryStore {
+    availableSources = $state<string[]>([]);
+    isLoading = $state(false);
+    error = $state<string | null>(null);
 
-export const bestiaryStore = defineStore('bestiaryStore', {
-    state: () => ({
-        // ... existing state ...
-        availableSources: $state<string[]>([]),
-    }),
-    actions: {
-        // ... existing actions ...
-        async fetchSources() {
-            const sources = await api.getBestiarySources();
-            this.availableSources = sources;
-        },
-    },
-});
+    async fetchSources() {
+        this.isLoading = true;
+        this.error = null;
+        try {
+            this.availableSources = await invoke<string[]>('get_bestiary_sources');
+        } catch (e) {
+            this.error = String(e);
+        } finally {
+            this.isLoading = false;
+        }
+    }
+}
 
-// ... existing code ...
+export const bestiaryStore = new BestiaryStore();
