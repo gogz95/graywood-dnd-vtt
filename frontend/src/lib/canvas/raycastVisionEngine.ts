@@ -43,11 +43,16 @@ export function wallsToLineSegments(walls: (MapWall | any)[]): LineSegment[] {
       let blocksVision = true;
       let blocksMovement = true;
 
+      // Resolve door open state from both string-type and state-field patterns
+      const isOpenDoor =
+        w.type === 'door_open' ||
+        (w.isDoor && (w.isOpen || w.state === 'open' || w.state === 'OPEN'));
+
       if (w.type === 'window') {
-        blocksVision = false; // Windows pass vision rays, block movement
+        blocksVision = false;  // Windows pass vision rays, block movement
         blocksMovement = true;
-      } else if (w.type === 'door_open') {
-        blocksVision = false; // Open doors pass both
+      } else if (isOpenDoor) {
+        blocksVision = false;  // Open doors pass both rays and movement
         blocksMovement = false;
       } else if (w.type === 'door_closed' || w.type === 'wall') {
         blocksVision = true;
@@ -253,6 +258,10 @@ export function renderLightEmitter(
 
   ctx.save();
 
+  // Use destination-out so the light punch punches a transparent hole in the
+  // fog alpha mask (reveals fog) rather than painting opaque colour over the token.
+  ctx.globalCompositeOperation = 'destination-out';
+
   // 1. Clip strictly to the raycast line-of-sight polygon
   ctx.beginPath();
   ctx.moveTo(polygon[0].x, polygon[0].y);
@@ -267,22 +276,22 @@ export function renderLightEmitter(
   const brightRadiusPx = ((emitter.brightRadiusFt || 0) / 5) * gridSize;
 
   if (emitter.isDarkvision) {
-    // 5e Darkvision: Dim light within radius treated as bright; darkness treated as dim light (grayscale)
+    // 5e Darkvision: dim-light-equivalent partial reveal — alpha 0.65 at centre fading to 0
     const dvGrad = ctx.createRadialGradient(origin.x, origin.y, 0, origin.x, origin.y, totalRadiusPx);
-    dvGrad.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
-    dvGrad.addColorStop(0.7, 'rgba(200, 200, 210, 0.2)');
-    dvGrad.addColorStop(1, 'rgba(100, 100, 110, 0)');
+    dvGrad.addColorStop(0, 'rgba(0, 0, 0, 0.65)');
+    dvGrad.addColorStop(0.7, 'rgba(0, 0, 0, 0.4)');
+    dvGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
     ctx.fillStyle = dvGrad;
     ctx.fillRect(origin.x - totalRadiusPx, origin.y - totalRadiusPx, totalRadiusPx * 2, totalRadiusPx * 2);
   } else {
-    // Standard 5e Point Light (Bright core transitioning through Dim boundary to Darkness)
+    // Standard 5e Point Light — full alpha erase in bright zone, soft dim boundary
     const radGrad = ctx.createRadialGradient(origin.x, origin.y, 0, origin.x, origin.y, totalRadiusPx);
     const brightRatio = totalRadiusPx > 0 ? Math.min(0.9, brightRadiusPx / totalRadiusPx) : 0.5;
 
-    const baseColor = emitter.color || 'rgba(245, 158, 11, 0.45)';
-    radGrad.addColorStop(0, baseColor);
-    radGrad.addColorStop(brightRatio, baseColor);
+    // Alpha channel drives the erase depth: 1.0 = fully punched, 0.0 = fog stays
+    radGrad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+    radGrad.addColorStop(brightRatio, 'rgba(0, 0, 0, 1)');
     radGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
     ctx.fillStyle = radGrad;
@@ -290,4 +299,61 @@ export function renderLightEmitter(
   }
 
   ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Fog Animation Uniform Ticker
+// ---------------------------------------------------------------------------
+
+/** Monotonic elapsed time accumulator (seconds) for fog shader time uniforms. */
+let _fogElapsedSeconds = 0;
+
+/**
+ * Call once per animation frame when fog animation is enabled.
+ * Accumulates elapsed time and writes it into the fog canvas as a uniform
+ * by varying a low-opacity turbulence overlay keyed on `time`.
+ *
+ * `deltaMs`  — milliseconds since last frame (from `requestAnimationFrame` delta).
+ * `fogCtx`   — the 2D context of the fog mask canvas.
+ * `mapW/H`   — current raster map dimensions.
+ */
+export function tickFogAnimation(
+  fogCtx: CanvasRenderingContext2D,
+  mapW: number,
+  mapH: number,
+  deltaMs: number
+): void {
+  _fogElapsedSeconds += deltaMs / 1000;
+  const t = _fogElapsedSeconds;
+
+  // Animate a subtle scrolling vignette that drifts the fog edge.
+  // Uses two overlapping radial gradients offset by sin/cos of time.
+  const cx = mapW / 2;
+  const cy = mapH / 2;
+  const drift = 40;
+  const ox = Math.sin(t * 0.3) * drift;
+  const oy = Math.cos(t * 0.23) * drift;
+
+  fogCtx.save();
+  // source-over with very low alpha — only modulates the fog edge texture,
+  // does not re-cover revealed areas (composite respects existing alpha).
+  fogCtx.globalCompositeOperation = 'source-over';
+  fogCtx.globalAlpha = 0.018 + 0.008 * Math.sin(t * 0.7);
+
+  const grad = fogCtx.createRadialGradient(
+    cx + ox, cy + oy, 0,
+    cx + ox, cy + oy, Math.max(mapW, mapH) * 0.75
+  );
+  grad.addColorStop(0, 'rgba(10, 14, 30, 0)');
+  grad.addColorStop(0.6, 'rgba(10, 14, 30, 0.4)');
+  grad.addColorStop(1, 'rgba(2, 6, 23, 0.9)');
+
+  fogCtx.fillStyle = grad;
+  fogCtx.fillRect(0, 0, mapW, mapH);
+  fogCtx.restore();
+}
+
+/** Resets the fog animation clock (call on new map load). */
+export function resetFogAnimationClock(): void {
+  _fogElapsedSeconds = 0;
 }

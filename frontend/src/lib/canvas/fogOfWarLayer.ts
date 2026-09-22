@@ -29,6 +29,27 @@ export class FogOfWarLayer {
     this.initBroadcast();
   }
 
+  // ── Raster-Image-Agnostic Initialisation ──────────────────────────────────
+  /**
+   * (Re-)initialises the fog mask RenderTexture for an active raster map.
+   * Call whenever a new map image is loaded — sized to the image's pixel
+   * dimensions — before any reveal/shroud operations.
+   *
+   * Composite-mode contract:
+   *   - Reveal (erase fog):  globalCompositeOperation = 'destination-out'
+   *   - Shroud  (add fog):   globalCompositeOperation = 'source-over', fillStyle = '#000'
+   */
+  initForMap(mapWidthPx: number, mapHeightPx: number, startConcealed = true): void {
+    this.width = mapWidthPx;
+    this.height = mapHeightPx;
+    this.operations = [];
+    this.initCanvas();
+    this.resetFog(startConcealed, false);
+  }
+
+  get mapWidth(): number { return this.width; }
+  get mapHeight(): number { return this.height; }
+
   private initCanvas() {
     if (typeof document === 'undefined') return;
     this.maskCanvas = document.createElement('canvas');

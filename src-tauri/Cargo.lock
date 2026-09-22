@@ -30,29 +30,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aleamos-desktop"
-version = "0.1.0"
-dependencies = [
- "axum",
- "futures-util",
- "hex",
- "hmac",
- "mime_guess",
- "rfd",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-plugin-single-instance",
- "thiserror 1.0.69",
- "tokio",
- "tower 0.4.13",
- "tower-http 0.5.2",
- "zip",
-]
-
-[[package]]
 name = "alloc-no-stdlib"
 version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1587,6 +1564,29 @@ dependencies = [
  "glib-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "graywood-vtt"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "hex",
+ "hmac",
+ "mime_guess",
+ "rfd",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-plugin-single-instance",
+ "thiserror 1.0.69",
+ "tokio",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
+ "zip",
 ]
 
 [[package]]

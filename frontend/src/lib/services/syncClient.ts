@@ -41,8 +41,8 @@ class SyncClient {
       const actualPort =
         port ||
         (window.location.port === '5173'
-          ? 8080
-          : parseInt(window.location.port, 10) || 8080);
+          ? 5174
+          : parseInt(window.location.port, 10) || 5174);
       const targetHost = hostname || window.location.hostname || 'localhost';
       const url = `${protocol}//${targetHost}:${actualPort}/ws`;
 

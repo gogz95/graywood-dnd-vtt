@@ -10,6 +10,154 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+// ---------------------------------------------------------------------------
+// Scaffold Report types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubdirStatus {
+    pub path: String,
+    pub existed: bool,
+    pub created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriagedFile {
+    pub filename: String,
+    pub destination: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScaffoldReport {
+    pub root_path: String,
+    pub subdirs: Vec<SubdirStatus>,
+    pub triaged: Vec<TriagedFile>,
+    pub triage_errors: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyScaffoldRequest {
+    pub root_path: String,
+}
+
+/// POST /api/campaign/directory/verify-scaffold
+/// Ensures all required subdirectories exist (creating any missing ones) and
+/// moves loose files sitting directly in root_path into the appropriate subdir.
+pub async fn verify_and_scaffold_campaign(
+    Json(payload): Json<VerifyScaffoldRequest>,
+) -> Result<Json<ScaffoldReport>, ServerError> {
+    let root = PathBuf::from(&payload.root_path);
+    if !root.exists() {
+        return Err(ServerError::BadRequest(format!(
+            "Root path does not exist: {}",
+            payload.root_path
+        )));
+    }
+
+    let required_subdirs = [
+        "Ingest/Source material",
+        "Ingest/Image",
+        "Ingest/Audio",
+        "Ingest/Video",
+        "maps",
+        "tokens",
+        "audio",
+    ];
+
+    let mut subdirs: Vec<SubdirStatus> = Vec::new();
+    for rel in &required_subdirs {
+        let full = root.join(rel);
+        let existed = full.exists();
+        let created = if !existed {
+            std::fs::create_dir_all(&full)
+                .map(|_| true)
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        subdirs.push(SubdirStatus {
+            path: rel.to_string(),
+            existed,
+            created,
+        });
+    }
+
+    // Triage loose files directly in root_path (non-recursive, files only)
+    let mut triaged: Vec<TriagedFile> = Vec::new();
+    let mut triage_errors: Vec<String> = Vec::new();
+
+    let read_dir = std::fs::read_dir(&root)
+        .map_err(|e| ServerError::Internal(format!("Failed to read root dir: {}", e)))?;
+
+    for entry_res in read_dir {
+        let entry = match entry_res {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let dest_rel: Option<&str> = match ext.as_str() {
+            "pdf" | "md" | "txt" | "docx" => Some("Ingest/Source material"),
+            "png" | "jpg" | "jpeg" | "webp" | "svg" => Some("Ingest/Image"),
+            "mp3" | "wav" | "ogg" | "flac" => Some("Ingest/Audio"),
+            "mp4" | "webm" => Some("Ingest/Video"),
+            _ => None,
+        };
+
+        if let Some(dest_rel) = dest_rel {
+            let filename = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let dest_dir = root.join(dest_rel);
+            let dest_path = dest_dir.join(&filename);
+
+            match std::fs::rename(&path, &dest_path) {
+                Ok(()) => triaged.push(TriagedFile {
+                    filename,
+                    destination: dest_rel.to_string(),
+                }),
+                Err(e) => {
+                    // rename may fail across volumes – fall back to copy + delete
+                    match std::fs::copy(&path, &dest_path) {
+                        Ok(_) => {
+                            let _ = std::fs::remove_file(&path);
+                            triaged.push(TriagedFile {
+                                filename,
+                                destination: dest_rel.to_string(),
+                            });
+                        }
+                        Err(ce) => {
+                            triage_errors.push(format!(
+                                "Failed to move '{}': rename={}, copy={}",
+                                path.display(),
+                                e,
+                                ce
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Json(ScaffoldReport {
+        root_path: root.to_string_lossy().to_string(),
+        subdirs,
+        triaged,
+        triage_errors,
+    }))
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubfolderStats {
     pub name: String,
@@ -197,13 +345,13 @@ pub async fn serve_campaign_asset(
         .first_or_octet_stream()
         .to_string();
 
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime)
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(Body::from(file_bytes))
-        .unwrap())
+        .map_err(|e| ServerError::Internal(format!("Failed to build response: {}", e)))
 }
 
 /// POST /api/campaign/assets/save - Save an uploaded asset to a specific campaign subfolder safely.

@@ -11,6 +11,7 @@
   import { importUniversalMap } from '../../services/mapImporter';
   import { seedSrdCompendiumIfEmpty } from '../../services/srdSeedService';
   import { campaignDirectoryStore } from '../../stores/campaignDirectoryStore.svelte';
+  import Step2Scaffolding from './Step2Scaffolding.svelte';
 
   let {
     isOpen = $bindable(false),
@@ -255,44 +256,18 @@
             </div>
           </div>
         {:else if step === 2}
-          <div class="space-y-3">
-            <h3 class="font-bold text-sm text-slate-200">Campaign Directory &amp; Auto-Scaffolding</h3>
-            <p class="text-[11px] text-slate-400">
-              Select or create a root folder on disk for this campaign profile. Graywood VTT automatically scaffolds and verifies all required asset directories.
-            </p>
-
-            <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-              <div class="flex items-center justify-between gap-3">
-                <div class="truncate flex-1">
-                  <span class="text-[10px] uppercase font-bold text-slate-400 block mb-1">Active Campaign Root Folder</span>
-                  <div class="text-xs font-mono text-indigo-300 bg-slate-900 border border-slate-700/60 rounded px-2.5 py-1.5 truncate">
-                    {selectedDirectory || campaignDirectoryStore.directoryPath || 'No folder selected (Click Browse below)'}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onclick={handleSelectDirectory}
-                  disabled={isSelectingFolder}
-                  class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-lg transition-colors flex items-center gap-1.5 self-end shrink-0 shadow"
-                >
-                  <span>{isSelectingFolder ? '⏳' : '📁'}</span>
-                  <span>{isSelectingFolder ? 'Selecting…' : 'Browse Folder…'}</span>
-                </button>
-              </div>
-
-              <div>
-                <span class="text-[10px] uppercase font-bold text-slate-400 block mb-1.5">Required Campaign Subdirectories</span>
-                <div class="grid grid-cols-2 gap-1.5 font-mono text-[10px]">
-                  {#each requiredSubdirs as sub}
-                    <div class="flex items-center gap-1.5 px-2 py-1 bg-slate-900/80 rounded border border-slate-800 text-slate-300">
-                      <span class="text-emerald-400 font-bold">✓</span>
-                      <span class="truncate">{sub}</span>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            </div>
-          </div>
+          <Step2Scaffolding
+            bind:selectedDirectory
+            onDirectoryConfirmed={(path) => {
+              selectedDirectory = path;
+              if (!campaignName || campaignName === 'Default Campaign') {
+                // derive a friendly name from the folder basename
+                const parts = path.replace(/\\/g, '/').split('/');
+                const base = parts.filter(Boolean).at(-1);
+                if (base) campaignName = base;
+              }
+            }}
+          />
         {:else if step === 3}
           <div class="space-y-4">
             <div>

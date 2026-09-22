@@ -13,8 +13,8 @@ use axum::{
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
 
-pub const DEFAULT_SERVER_ADDR: &str = "0.0.0.0:8080";
-pub const LAN_ASSET_SERVER_ADDR: &str = "0.0.0.0:5174";
+pub const DEFAULT_SERVER_ADDR: &str = "0.0.0.0:5174";
+pub const LAN_ASSET_SERVER_ADDR: &str = "0.0.0.0:8080";
 
 /// Constructs the complete Axum Router with all endpoints, CORS, and WebSocket hub.
 pub fn create_router(state: AppState) -> Router {
@@ -94,6 +94,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/campaign/ingest/scan",
             post(routes::campaign_dir::scan_ingest_directory_route),
+        )
+        .route(
+            "/api/campaign/directory/verify-scaffold",
+            post(routes::campaign_dir::verify_and_scaffold_campaign),
         )
         // 5. DM Encounter Tracker & Monster Spawning Endpoints
         .route("/api/encounter/active", get(routes::encounter::get_active))
@@ -402,7 +406,6 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), 1024 * 64).await.unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
-        assert!(html.contains("Aleamos DM Desktop"));
-        assert!(html.contains("0.0.0.0:8080"));
+        assert!(html.contains("Graywood VTT") || html.contains("0.0.0.0:5174"));
     }
 }

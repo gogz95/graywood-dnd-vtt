@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import {
     rosterStore,
+    rosterLoadedStore,
     claimCharacter,
     isClaimingStore,
     claimErrorStore,
@@ -69,21 +70,31 @@
     <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 mb-3 shadow-lg shadow-amber-500/5">
       <Icons name="shield" size={28} />
     </div>
-    <h1 class="text-3xl font-black text-slate-100 tracking-tight">5e Tactical Workstation</h1>
+    <h1 class="text-3xl font-black text-slate-100 tracking-tight">Graywood VTT</h1>
     <p class="text-slate-400 text-sm mt-1 max-w-md mx-auto">
       Select your hero card from the roster and enter your secret 4-digit PIN to claim and synchronize your character sheet.
     </p>
   </div>
 
   <!-- Roster Grid -->
-  {#if $rosterStore.length === 0}
+  {#if !$rosterLoadedStore}
+    <!-- Still fetching -->
     <div class="bg-dark-900 border border-dark-700/60 rounded-2xl p-8 text-center text-slate-400">
       <p class="animate-pulse">Loading active campaign roster...</p>
+    </div>
+  {:else if $rosterStore.length === 0}
+    <!-- Fetched but empty -->
+    <div class="bg-dark-900 border border-dark-700/60 rounded-2xl p-8 text-center space-y-3">
+      <p class="text-2xl">🧙</p>
+      <p class="text-slate-200 font-semibold text-sm">No characters found in active campaign roster.</p>
+      <p class="text-slate-500 text-xs leading-relaxed max-w-xs mx-auto">
+        Create a player card in the DM Workstation, then have the DM share your 4-digit PIN.
+      </p>
       <button
         onclick={fetchRoster}
-        class="mt-4 px-4 py-2 bg-dark-800 hover:bg-dark-700 text-slate-200 text-xs font-semibold rounded-lg border border-dark-600 inline-flex items-center gap-2"
+        class="mt-2 px-4 py-2 bg-dark-800 hover:bg-dark-700 text-slate-200 text-xs font-semibold rounded-lg border border-dark-600 inline-flex items-center gap-2"
       >
-        <Icons name="refresh" size={14} /> Retry Query
+        <Icons name="refresh" size={14} /> Retry
       </button>
     </div>
   {:else}

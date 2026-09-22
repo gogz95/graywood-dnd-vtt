@@ -12,8 +12,8 @@ const FALLBACK_PWA_INDEX_HTML: &str = r##"<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#1a1b26">
-  <meta name="description" content="Aleamos DM Desktop & Companion Player Client">
-  <title>Aleamos DM Desktop</title>
+  <meta name="description" content="Graywood VTT &amp; Companion Player Client">
+  <title>Graywood VTT</title>
   <style>
     :root {
       --bg: #0f111a;
@@ -69,8 +69,8 @@ const FALLBACK_PWA_INDEX_HTML: &str = r##"<!DOCTYPE html>
 </head>
 <body>
   <div class="container">
-    <h1>Aleamos DM Desktop</h1>
-    <p>Local-First VTT Server is operational at <code>0.0.0.0:8080</code>.</p>
+    <h1>Graywood VTT</h1>
+    <p>Local-First VTT Server is operational at <code>0.0.0.0:5174</code>.</p>
     <p>WebSocket sync hub and compendium API endpoints are active.</p>
     <div class="badge">Axum 0.7 &bull; Tauri 2 &bull; Tokio</div>
   </div>

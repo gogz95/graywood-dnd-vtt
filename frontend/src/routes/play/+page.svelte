@@ -322,12 +322,14 @@
     const cachedPin = typeof localStorage !== 'undefined' ? localStorage.getItem('vtt_active_pin') : null;
 
     if (pinParam !== null) {
-      if (pinParam.trim().length === 4) {
-        enteredPin = pinParam.trim();
-        attemptPinLogin(pinParam.trim());
-      } else {
-        triggerAuthFailure('Wrong PIN');
+      const pinStr = String(pinParam).trim();
+      // Only auto-authenticate if the URL param is a valid 4-digit numeric PIN
+      // — silently ignore malformed params to avoid spurious "Wrong PIN" shakes
+      if (/^\d{4}$/.test(pinStr)) {
+        enteredPin = pinStr;
+        attemptPinLogin(pinStr);
       }
+      // else: malformed ?pin= — fall through to manual keypad, no error shown
     } else if (cachedPin && cachedPin.length === 4) {
       enteredPin = cachedPin;
       attemptPinLogin(cachedPin);

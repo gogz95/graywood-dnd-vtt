@@ -22,7 +22,7 @@ use tauri::Manager;
 
 /// Initializes and configures the single-instance plugin for Tauri 2.
 /// When a secondary launch occurs, it brings the primary window to the foreground
-/// and prevents TCP port 5174 / 8080 binding collisions.
+/// and prevents TCP port 5174 binding collisions.
 pub fn init_single_instance<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri_plugin_single_instance::init(|app, _args, _cwd| {
         let window = app

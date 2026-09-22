@@ -1,11 +1,11 @@
 [package]
-name = "aleamos-desktop"
+name = "graywood-vtt"
 version = "0.1.0"
-description = "Aleamos DM Desktop backend"
+description = "Graywood VTT DM Desktop backend"
 edition = "2021"
 
 [lib]
-name = "aleamos_desktop_lib"
+name = "graywood_vtt_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]

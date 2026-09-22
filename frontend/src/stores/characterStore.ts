@@ -9,6 +9,7 @@ import type {
 } from '../types/character';
 
 export const rosterStore = writable<PublicRosterEntry[]>([]);
+export const rosterLoadedStore = writable<boolean>(false);
 export const characterStore = writable<Character | null>(null);
 export const inventoryStore = writable<InventoryItem[]>([]);
 export const currencyStore = writable<CurrencyPouch>({
@@ -127,6 +128,7 @@ function createDefaultInventory(characterId: string): InventoryItem[] {
 }
 
 export async function fetchRoster(): Promise<void> {
+  rosterLoadedStore.set(false);
   try {
     const res = await fetch('/api/characters/roster');
     if (!res.ok) {
@@ -135,9 +137,15 @@ export async function fetchRoster(): Promise<void> {
     const data = await res.json();
     if (data.success && Array.isArray(data.characters)) {
       rosterStore.set(data.characters);
+    } else {
+      // Ensure empty roster is represented, not perpetual loading
+      rosterStore.set([]);
     }
   } catch (err) {
     console.error('Error fetching roster:', err);
+    rosterStore.set([]);
+  } finally {
+    rosterLoadedStore.set(true);
   }
 }
 

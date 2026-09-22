@@ -69,6 +69,6 @@ pub async fn get_network_info() -> Json<NetworkInfoResponse> {
 
     Json(NetworkInfoResponse {
         ip: local_ip,
-        port: 8080,
+        port: 5174,
     })
 }
