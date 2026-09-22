@@ -1,41 +1,44 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Aleamos DM Workstation",
-  "version": "1.0.0",
-  "identifier": "com.aleamos.workstation",
+  "productName": "Graywood VTT",
+  "version": "0.1.0",
+  "identifier": "com.graywood.vtt",
   "build": {
     "beforeDevCommand": "npm --prefix frontend run dev",
+    "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "npm --prefix frontend run build",
-    "frontendDist": "../frontend/dist",
-    "devUrl": "http://localhost:5173"
+    "frontendDist": "../frontend/dist"
   },
   "app": {
     "windows": [
       {
-        "title": "Aleamos DM Workstation",
+        "title": "Graywood VTT",
         "width": 1440,
         "height": 900,
-        "minWidth": 960,
-        "minHeight": 640,
+        "minWidth": 1024,
+        "minHeight": 768,
         "resizable": true,
-        "fullscreen": false,
-        "decorations": true,
-        "transparent": false
+        "fullscreen": false
       }
     ],
     "security": {
-      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:8080 ws://localhost:8080 http://127.0.0.1:8080 ws://127.0.0.1:8080 blob: data:"
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' asset: https://asset.localhost http://localhost:8080 ws://localhost:8080 http://127.0.0.1:8080 ws://127.0.0.1:8080 blob: data:; img-src 'self' asset: https://asset.localhost blob: data:; media-src 'self' asset: https://asset.localhost blob: data:; connect-src 'self' ws: http: asset:;"
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
   }
 }

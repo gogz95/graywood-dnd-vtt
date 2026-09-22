@@ -68,6 +68,7 @@ pub struct AppState {
     pub ws_sender: broadcast::Sender<WsEvent>,
     pub token_secret: Vec<u8>,
     pub assets_dir: PathBuf,
+    pub campaign_dir: Arc<tokio::sync::RwLock<Option<PathBuf>>>,
 }
 
 impl AppState {
@@ -81,6 +82,7 @@ impl AppState {
             ws_sender,
             token_secret,
             assets_dir,
+            campaign_dir: Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 

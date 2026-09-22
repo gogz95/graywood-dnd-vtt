@@ -1,0 +1,8 @@
+{
+  "identifier": "default",
+  "description": "Default capability for Graywood VTT main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}

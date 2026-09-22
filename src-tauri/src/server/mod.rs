@@ -65,6 +65,27 @@ pub fn create_router(state: AppState) -> Router {
             "/api/system/network-info",
             get(routes::campaign::get_network_info),
         )
+        // 4b. Campaign Directory Storage & Unified Asset Pipeline
+        .route(
+            "/api/campaign/directory/current",
+            get(routes::campaign_dir::get_current_directory),
+        )
+        .route(
+            "/api/campaign/directory/select",
+            post(routes::campaign_dir::select_campaign_directory),
+        )
+        .route(
+            "/api/campaign/directory/set",
+            post(routes::campaign_dir::set_campaign_directory),
+        )
+        .route(
+            "/api/campaign/assets/*path",
+            get(routes::campaign_dir::serve_campaign_asset),
+        )
+        .route(
+            "/api/campaign/assets/save",
+            post(routes::campaign_dir::save_campaign_asset),
+        )
         // 5. DM Encounter Tracker & Monster Spawning Endpoints
         .route("/api/encounter/active", get(routes::encounter::get_active))
         .route(
