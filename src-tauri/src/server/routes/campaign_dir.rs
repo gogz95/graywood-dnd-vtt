@@ -361,7 +361,7 @@ pub async fn list_campaign_assets(root: &Path) -> Vec<CampaignAssetEntry> {
                     } else if lower_rel.starts_with("tokens") || lower_name.contains("token") {
                         "token"
                     } else {
-                        "token"
+                        "image"
                     };
 
                     let base_stem = path
