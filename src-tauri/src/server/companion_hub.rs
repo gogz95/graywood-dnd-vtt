@@ -210,9 +210,7 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
             let stmt = conn
                 .prepare("SELECT 1 FROM characters WHERE pin = ?1 LIMIT 1")
                 .ok();
-            stmt.map_or(false, |mut s| {
-                s.exists(rusqlite::params![pin]).unwrap_or(false)
-            })
+            stmt.is_some_and(|mut s| s.exists(rusqlite::params![pin]).unwrap_or(false))
         } else {
             false
         }
@@ -440,7 +438,7 @@ pub fn roll_dice_expression(expr: &str) -> (i32, String) {
 fn evaluate_term(term: &str, is_negative: bool, total: &mut i32, parts: &mut Vec<String>) {
     let sign = if is_negative { -1 } else { 1 };
     if let Some((count_str, sides_str)) = term.split_once('d') {
-        let count: i32 = count_str.parse().unwrap_or(1).max(1).min(100);
+        let count: i32 = count_str.parse().unwrap_or(1).clamp(1, 100);
         let sides: i32 = sides_str.parse().unwrap_or(20).max(1);
 
         let mut rolls = Vec::new();

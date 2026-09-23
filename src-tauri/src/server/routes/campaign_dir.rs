@@ -316,10 +316,8 @@ pub async fn verify_and_scaffold_campaign(
         let p = root.join(rel);
         let existed = p.exists();
         let mut created = false;
-        if !existed {
-            if std::fs::create_dir_all(&p).is_ok() {
-                created = true;
-            }
+        if !existed && std::fs::create_dir_all(&p).is_ok() {
+            created = true;
         }
         subdirs.push(SubdirStatus {
             path: rel.to_string(),
