@@ -34,10 +34,7 @@ pub enum CompanionClientMsg {
     },
 
     #[serde(rename = "UpdateHp", alias = "update_hp", alias = "UPDATE_HP")]
-    UpdateHp {
-        entity_id: String,
-        delta: i32,
-    },
+    UpdateHp { entity_id: String, delta: i32 },
 
     #[serde(rename = "RollDice", alias = "roll_dice", alias = "ROLL_DICE")]
     RollDice {
@@ -59,14 +56,10 @@ pub enum CompanionServerMsg {
     },
 
     #[serde(rename = "AuthError")]
-    AuthError {
-        reason: String,
-    },
+    AuthError { reason: String },
 
     #[serde(rename = "CombatantSync")]
-    CombatantSync {
-        combatants: Vec<CombatantSummary>,
-    },
+    CombatantSync { combatants: Vec<CombatantSummary> },
 
     #[serde(rename = "DiceResult")]
     DiceResult {
@@ -147,10 +140,7 @@ impl CompanionHub {
 // ── 3. WebSocket Handshake & 5-Second Quarantine Handler ─────────────────────
 
 /// Upgrades incoming HTTP connection to WebSocket at `/ws/companion`.
-pub async fn companion_ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> Response {
+pub async fn companion_ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     ws.on_upgrade(|socket| handle_companion_socket(socket, state))
 }
 
@@ -201,7 +191,8 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
         Err(_) => {
             // Quarantine timeout expired (no Auth within 5 seconds)
             let err_frame = CompanionServerMsg::AuthError {
-                reason: "Quarantine timeout: Table PIN was not supplied within 5 seconds".to_string(),
+                reason: "Quarantine timeout: Table PIN was not supplied within 5 seconds"
+                    .to_string(),
             };
             if let Ok(json) = serde_json::to_string(&err_frame) {
                 let _ = sender.send(Message::Text(json)).await;
@@ -216,8 +207,12 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
     let is_pin_valid = pin == active_pin || pin == "1337" || {
         // Also check if PIN matches any individual character PIN in SQLite
         if let Ok(conn) = state.db.try_lock() {
-            let stmt = conn.prepare("SELECT 1 FROM characters WHERE pin = ?1 LIMIT 1").ok();
-            stmt.map_or(false, |mut s| s.exists(rusqlite::params![pin]).unwrap_or(false))
+            let stmt = conn
+                .prepare("SELECT 1 FROM characters WHERE pin = ?1 LIMIT 1")
+                .ok();
+            stmt.map_or(false, |mut s| {
+                s.exists(rusqlite::params![pin]).unwrap_or(false)
+            })
         } else {
             false
         }
@@ -259,7 +254,12 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
     };
     if let Ok(json) = serde_json::to_string(&success_frame) {
         if sender.send(Message::Text(json)).await.is_err() {
-            state.companion_hub.sessions.write().await.remove(&session_id);
+            state
+                .companion_hub
+                .sessions
+                .write()
+                .await
+                .remove(&session_id);
             return;
         }
     }
@@ -344,15 +344,18 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
     };
 
     // Clean up session on disconnect
-    state.companion_hub.sessions.write().await.remove(&session_id_clone);
+    state
+        .companion_hub
+        .sessions
+        .write()
+        .await
+        .remove(&session_id_clone);
 }
 
 // ── 4. Lightweight LAN Discovery & Configuration Endpoints ──────────────────
 
 /// GET /api/companion/status
-pub async fn get_companion_status(
-    State(state): State<AppState>,
-) -> Json<CompanionStatusResponse> {
+pub async fn get_companion_status(State(state): State<AppState>) -> Json<CompanionStatusResponse> {
     let campaign_name = state.companion_hub.campaign_name.read().await.clone();
     let active_sessions = state.companion_hub.active_session_count().await;
 

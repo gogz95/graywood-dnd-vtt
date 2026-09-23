@@ -304,6 +304,24 @@
               {/each}
             </div>
           {/if}
+
+          <!-- Legendary Actions -->
+          {#if (m.legendaryActions && m.legendaryActions.length > 0) || (m.legendary_actions && m.legendary_actions.length > 0)}
+            <div class="space-y-2 pt-1">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-amber-400 border-b border-amber-900/40 pb-1">
+                Legendary Actions
+              </h3>
+              <p class="text-[11px] text-slate-400 italic">
+                The {m.name} can take 3 legendary actions, choosing from the options below.
+              </p>
+              {#each (m.legendaryActions || m.legendary_actions || []) as legAction}
+                <div class="text-xs text-slate-300 leading-relaxed">
+                  <strong class="font-bold text-amber-200 italic">{legAction.name}.</strong>
+                  <span class="ml-1">{legAction.description}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
         </div>
 
       <!-- ═════════════════════════════════════════════════════════════════════

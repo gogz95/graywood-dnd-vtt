@@ -163,10 +163,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/companion/config",
             post(companion_hub::set_companion_config),
         )
-        .route(
-            "/ws/companion",
-            get(companion_hub::companion_ws_handler),
-        )
+        .route("/ws/companion", get(companion_hub::companion_ws_handler))
         // Catch-all fallback for client-side routing
         .fallback(routes::assets::serve_index)
         .layer(cors)

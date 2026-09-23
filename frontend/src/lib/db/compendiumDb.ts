@@ -58,6 +58,8 @@ export interface CompendiumMonster {
   languages?: string;
   traits?: Array<{ name: string; description: string }>;
   actions: Array<{ name: string; description: string }>;
+  legendary_actions?: Array<{ name: string; description: string }>;
+  legendaryActions?: Array<{ name: string; description: string }>;
   sourceBook: string;
   packageId: string;
   origin: 'SRD-5.1' | 'USER_IMPORT';

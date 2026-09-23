@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [svelte()],
   resolve: {
     alias: {
-      $lib: path.resolve(__dirname, './src/lib'),
+      $lib: path.resolve(import.meta.dirname, './src/lib'),
     },
   },
   build: {
@@ -16,12 +16,18 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules/pixi.js')) {
-            return 'vendor-pixi';
+          if (id.includes('srdCompendiumSeed.json')) {
+            return 'compendium-data';
           }
-        }
-      }
-    }
+          if (id.includes('pdfjs-dist')) {
+            return 'pdf-engine';
+          }
+          if (id.includes('pixi.js')) {
+            return 'pixi-vendor';
+          }
+        },
+      },
+    },
   },
   server: {
     host: '0.0.0.0',

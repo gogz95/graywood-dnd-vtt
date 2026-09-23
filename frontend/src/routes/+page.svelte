@@ -31,7 +31,6 @@
   import FloatingBestiaryWindow from '../lib/components/bestiary/FloatingBestiaryWindow.svelte';
   import ImageBrowserDrawer from '../lib/components/assets/ImageBrowserDrawer.svelte';
   import { assetBrowserStore } from '../lib/stores/assetBrowserStore.svelte';
-  import { seedSrdCompendiumIfEmpty } from '../lib/services/srdSeedService';
   import CompendiumBrowser from '../lib/components/compendium/CompendiumBrowser.svelte';
   import DropzoneImporter from '../lib/components/ingest/DropzoneImporter.svelte';
   import { campaignDirectoryStore } from '../lib/stores/campaignDirectoryStore.svelte';
@@ -112,7 +111,9 @@
   onMount(() => {
     stopAutoSaver = initAutoSaver();
     getLanIp().catch(() => {});
-    seedSrdCompendiumIfEmpty().catch(() => {});
+    import('../lib/services/srdSeedService')
+      .then((m) => m.seedSrdCompendiumIfEmpty())
+      .catch(() => {});
 
     const handleSwitchTab = (e: Event) => {
       const detail = (e as CustomEvent<{ tab: DmTab }>).detail;

@@ -53,7 +53,9 @@ pub async fn set_campaign_directory(
     let p = std::path::PathBuf::from(&payload.path);
     if p.exists() && p.is_dir() {
         *state.campaign_dir.write().await = Some(p);
-        Ok(Json(CampaignDirResponse { path: Some(payload.path) }))
+        Ok(Json(CampaignDirResponse {
+            path: Some(payload.path),
+        }))
     } else {
         Err(StatusCode::NOT_FOUND)
     }
@@ -141,27 +143,43 @@ pub struct SaveAssetResponse {
 }
 
 fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
-    const B64_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const B64_CHARS: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut table = [255u8; 256];
     for (i, &c) in B64_CHARS.iter().enumerate() {
         table[c as usize] = i as u8;
     }
-    let clean: Vec<u8> = input.bytes().filter(|&b| b != b'=' && !b.is_ascii_whitespace()).collect();
+    let clean: Vec<u8> = input
+        .bytes()
+        .filter(|&b| b != b'=' && !b.is_ascii_whitespace())
+        .collect();
     let mut output = Vec::with_capacity(clean.len() * 3 / 4);
     let mut i = 0;
     while i < clean.len() {
         let b0 = table[clean[i] as usize];
-        if b0 == 255 { return Err("Invalid character".into()); }
-        let b1 = if i + 1 < clean.len() { table[clean[i + 1] as usize] } else { 0 };
-        if b1 == 255 { return Err("Invalid character".into()); }
+        if b0 == 255 {
+            return Err("Invalid character".into());
+        }
+        let b1 = if i + 1 < clean.len() {
+            table[clean[i + 1] as usize]
+        } else {
+            0
+        };
+        if b1 == 255 {
+            return Err("Invalid character".into());
+        }
         output.push((b0 << 2) | (b1 >> 4));
         if i + 2 < clean.len() {
             let b2 = table[clean[i + 2] as usize];
-            if b2 == 255 { return Err("Invalid character".into()); }
+            if b2 == 255 {
+                return Err("Invalid character".into());
+            }
             output.push(((b1 & 0x0F) << 4) | (b2 >> 2));
             if i + 3 < clean.len() {
                 let b3 = table[clean[i + 3] as usize];
-                if b3 == 255 { return Err("Invalid character".into()); }
+                if b3 == 255 {
+                    return Err("Invalid character".into());
+                }
                 output.push(((b2 & 0x03) << 6) | b3);
             }
         }
@@ -211,7 +229,10 @@ pub async fn save_campaign_asset(
         }));
     }
 
-    let url = format!("/api/campaign/assets/{}/{}", payload.subfolder, payload.filename);
+    let url = format!(
+        "/api/campaign/assets/{}/{}",
+        payload.subfolder, payload.filename
+    );
     Ok(Json(SaveAssetResponse {
         success: true,
         url: Some(url),
