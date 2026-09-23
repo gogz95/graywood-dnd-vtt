@@ -69,6 +69,7 @@ pub struct AppState {
     pub token_secret: Vec<u8>,
     pub assets_dir: PathBuf,
     pub campaign_dir: Arc<tokio::sync::RwLock<Option<PathBuf>>>,
+    pub companion_hub: Arc<crate::server::companion_hub::CompanionHub>,
 }
 
 impl AppState {
@@ -83,6 +84,10 @@ impl AppState {
             token_secret,
             assets_dir,
             campaign_dir: Arc::new(tokio::sync::RwLock::new(None)),
+            companion_hub: Arc::new(crate::server::companion_hub::CompanionHub::new(
+                "1337",
+                "Graywood Campaign",
+            )),
         }
     }
 

@@ -30,6 +30,44 @@ describe('Phase 3: Dynamic Compendium Database & Local Extraction Engine', () =>
     const monsters = await compendiumDb.monsters.where('origin').equals('SRD-5.1').toArray();
     expect(monsters.length).toBeGreaterThan(0);
     expect(monsters.some(m => m.name === 'Goblin')).toBe(true);
+
+    const items = await compendiumDb.items.toArray();
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.some(it => it.name === 'Longsword')).toBe(true);
+  });
+
+  it('verifies idempotent seeding without creating duplicate records', async () => {
+    await ensureSrdBaseline();
+    const initialSpells = await compendiumDb.spells.count();
+    const initialMonsters = await compendiumDb.monsters.count();
+    const initialItems = await compendiumDb.items.count();
+
+    // Call baseline again
+    await ensureSrdBaseline();
+
+    expect(await compendiumDb.spells.count()).toBe(initialSpells);
+    expect(await compendiumDb.monsters.count()).toBe(initialMonsters);
+    expect(await compendiumDb.items.count()).toBe(initialItems);
+  });
+
+  it('verifies indexing performance across name, level, CR, school, and item type', async () => {
+    await ensureSrdBaseline();
+
+    const t0 = performance.now();
+    const fireball = await compendiumDb.spells.where('name').equals('Fireball').first();
+    const lvl1Spells = await compendiumDb.spells.where('level').equals(1).toArray();
+    const evocationSpells = await compendiumDb.spells.where('school').equals('Evocation').toArray();
+    const cr025Monsters = await compendiumDb.monsters.where('cr').equals(0.25).toArray();
+    const weapons = await compendiumDb.items.where('type').equals('Weapon').toArray();
+    const t1 = performance.now();
+
+    expect(fireball).toBeDefined();
+    expect(fireball?.level).toBe(3);
+    expect(lvl1Spells.length).toBeGreaterThan(0);
+    expect(evocationSpells.length).toBeGreaterThan(0);
+    expect(cr025Monsters.length).toBeGreaterThan(0);
+    expect(weapons.length).toBeGreaterThan(0);
+    expect(t1 - t0).toBeLessThan(100); // <100ms querying across indexes
   });
 
   it('unloader function purgePackage purges only user-imported records without affecting SRD baseline', async () => {

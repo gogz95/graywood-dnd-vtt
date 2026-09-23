@@ -1,12 +1,60 @@
 // src/lib/importers/universalIngestionEngine.ts
-// Universal Multi-Format Ingestion Engine for .md, .txt, .json, .csv, .tsv, .zip, .ds, .dd2vtt, and .pdf
-// Stores parsed documents and extracted chunks directly into sourceDb (IndexedDB).
+// Universal Multi-Format Ingestion Engine for .dd2vtt, .uvtt, .pdf, .md, .txt, .geojson, raster maps & media.
+// Parses tactical geometry, tokens, 5e statblocks, lore chunks, and routes assets to campaign storage.
 
 import JSZip from 'jszip';
 import { writable } from 'svelte/store';
 import { sourceDb, type SourceDocument, type SourceChunk } from '../db/sourceStore';
 import { compendiumDb } from '../db/compendiumDb';
-import { sniffMagicFormat, cleanTwoColumnTextStream } from '../workers/ingestionWorker';
+import { mapsDb } from '../db/mapsDb';
+import { parseDeterministic } from '../services/dualEngineIngest';
+import { notifyMonstersUpdated } from '../services/ingestPipeline';
+import { saveCampaignAsset, base64ToBlob } from '../services/assetStorageService';
+import type { TacticalBattlemap, WorldAtlasMap, MapWall } from '../types/maps';
+
+// ── Strict TypeScript Interfaces for UVTT / dd2vtt Payloads ──────────────────
+
+export interface UVTTPoint {
+  x: number;
+  y: number;
+}
+
+export interface UVTTResolution {
+  map_origin?: UVTTPoint;
+  map_size?: UVTTPoint;
+  pixels_per_grid?: number;
+}
+
+export interface UVTTPortal {
+  position: UVTTPoint;
+  bounds: UVTTPoint[];
+  rotation?: number;
+  closed?: boolean;
+  freestanding?: boolean;
+}
+
+export interface UVTTLight {
+  position: UVTTPoint;
+  range: number;
+  intensity: number;
+  color: string;
+  shadows?: boolean;
+}
+
+export interface UVTTPayload {
+  format: number | string;
+  resolution: UVTTResolution;
+  line_of_sight?: UVTTPoint[][];
+  portals?: UVTTPortal[];
+  lights?: UVTTLight[];
+  image?: string; // Base64 encoded PNG or WebP
+  environment?: {
+    baked_lighting?: boolean;
+    ambient_light?: string;
+  };
+}
+
+// ── Ingestion Result & Report Interfaces ──────────────────────────────────────
 
 export interface IngestionProgressState {
   isActive: boolean;
@@ -29,13 +77,105 @@ export interface IngestionFileResult {
   sizeBytes: number;
   categories: string[];
   success: boolean;
+  assetUrl?: string;
   error?: string;
+  metadata?: Record<string, any>;
 }
 
-export interface IngestionBatchResult {
+export interface UniversalIngestionReport {
   totalFiles: number;
-  totalChunks: number;
-  results: IngestionFileResult[];
+  mapsExtracted: number;
+  tokensExtracted: number;
+  loreChunksCreated: number;
+  statblocksExtracted: number;
+  successful: string[];
+  failed: string[];
+  fileResults: IngestionFileResult[];
+}
+
+// ── Dispatcher: ingestFiles & ingestUniversalFile ─────────────────────────────
+
+/**
+ * Extensible parser dispatcher accepting single File or array of Files.
+ * Routes based on extension to specialized parsers and returns an ingestion report.
+ */
+export async function ingestFiles(
+  files: File | File[] | Blob | Blob[],
+  names?: string | string[]
+): Promise<UniversalIngestionReport> {
+  const fileList = Array.isArray(files) ? files : [files];
+  const nameList = names
+    ? (Array.isArray(names) ? names : [names])
+    : fileList.map((f, i) => (f instanceof File ? f.name : `file_${i + 1}`));
+
+  const report: UniversalIngestionReport = {
+    totalFiles: fileList.length,
+    mapsExtracted: 0,
+    tokensExtracted: 0,
+    loreChunksCreated: 0,
+    statblocksExtracted: 0,
+    successful: [],
+    failed: [],
+    fileResults: [],
+  };
+
+  for (let i = 0; i < fileList.length; i++) {
+    const file = fileList[i];
+    const fileName = nameList[i] || (file instanceof File ? file.name : `asset_${i + 1}`);
+
+    const percent = Math.round(((i + 1) / fileList.length) * 100);
+    ingestionProgressStore.set({
+      isActive: true,
+      fileName,
+      progressPercent: percent,
+      currentStep: `Ingesting ${fileName} (${i + 1}/${fileList.length})…`,
+    });
+
+    try {
+      const results = await ingestUniversalFile(file, fileName);
+      for (const res of results) {
+        report.fileResults.push(res);
+        if (res.success) {
+          if (!report.successful.includes(res.fileName)) {
+            report.successful.push(res.fileName);
+          }
+          report.loreChunksCreated += res.chunksCount;
+
+          if (['UVTT', 'DD2VTT', 'DS', 'GEOJSON', 'MAP'].includes(res.format.toUpperCase())) {
+            report.mapsExtracted++;
+          } else if (res.categories.includes('Token')) {
+            report.tokensExtracted++;
+          }
+
+          if (res.metadata?.statblocksCount) {
+            report.statblocksExtracted += res.metadata.statblocksCount;
+          }
+        } else {
+          report.failed.push(`${res.fileName}: ${res.error || 'Unknown error'}`);
+        }
+      }
+    } catch (err: any) {
+      report.failed.push(`${fileName}: ${err?.message || 'Ingestion failed'}`);
+      report.fileResults.push({
+        fileName,
+        format: getExtension(fileName).toUpperCase() || 'UNKNOWN',
+        chunksCount: 0,
+        sizeBytes: file.size || 0,
+        categories: [],
+        success: false,
+        error: err?.message || 'Dispatcher failure',
+      });
+    }
+  }
+
+  ingestionProgressStore.set({
+    isActive: false,
+    fileName: '',
+    progressPercent: 100,
+    currentStep: 'Batch ingestion complete',
+  });
+
+  return report;
 }
 
 /**
@@ -63,6 +203,27 @@ export async function ingestUniversalFile(
         results.push(...zipResults);
         break;
       }
+      case 'dd2vtt':
+      case 'uvtt': {
+        const uvttResult = await processUvttMapFile(file, fileName, ext);
+        results.push(uvttResult);
+        break;
+      }
+      case 'geojson': {
+        const geoResult = await processGeoJsonMap(file, fileName);
+        results.push(geoResult);
+        break;
+      }
+      case 'ds': {
+        const dsResult = await processDungeonScrawlFile(file, fileName);
+        results.push(dsResult);
+        break;
+      }
+      case 'pdf': {
+        const pdfResult = await processPdfFile(file, fileName);
+        results.push(pdfResult);
+        break;
+      }
       case 'png':
       case 'jpg':
       case 'jpeg':
@@ -71,16 +232,13 @@ export async function ingestUniversalFile(
         results.push(imgResult);
         break;
       }
-      case 'pdf': {
-        const pdfResult = await processPdfFile(file, fileName);
-        results.push(pdfResult);
-        break;
-      }
-      case 'ds':
-      case 'dd2vtt':
-      case 'uvtt': {
-        const dsResult = await processMapDataFile(file, fileName, ext);
-        results.push(dsResult);
+      case 'mp3':
+      case 'wav':
+      case 'ogg':
+      case 'flac':
+      case 'm4a': {
+        const audioResult = await processAudioMedia(file, fileName, ext);
+        results.push(audioResult);
         break;
       }
       case 'csv':
@@ -111,7 +269,7 @@ export async function ingestUniversalFile(
       sizeBytes: file.size || 0,
       categories: [],
       success: false,
-      error: err?.message || 'Ingestion failure'
+      error: err?.message || 'Ingestion failure',
     });
   } finally {
     ingestionProgressStore.set({
@@ -125,19 +283,347 @@ export async function ingestUniversalFile(
   return results;
 }
 
-// ── 1. Markdown & Plaintext Chunking (~500 words per chunk) ──────────────────
+// ── 1. UVTT / dd2vtt Map Parser (.dd2vtt, .uvtt) ─────────────────────────────
+
+async function processUvttMapFile(
+  file: File | Blob,
+  fileName: string,
+  ext: string
+): Promise<IngestionFileResult> {
+  const text = await file.text();
+  const baseName = fileName.replace(/\.[^/.]+$/, '');
+  const docId = `map-doc-${generateId()}`;
+  const now = Date.now();
+
+  let payload: UVTTPayload;
+  try {
+    payload = JSON.parse(text);
+  } catch (err: any) {
+    return {
+      fileName,
+      format: ext.toUpperCase(),
+      chunksCount: 0,
+      sizeBytes: file.size || text.length,
+      categories: ['Map', 'UVTT'],
+      success: false,
+      error: `Failed to parse map JSON: ${err?.message || 'Invalid syntax'}`,
+    };
+  }
+
+  const gridPitch = payload.resolution?.pixels_per_grid || 70;
+  const offsetX = payload.resolution?.map_origin?.x || 0;
+  const offsetY = payload.resolution?.map_origin?.y || 0;
+  const mapSize = payload.resolution?.map_size || { x: 20, y: 20 };
+
+  // 1. Line-of-sight wall segments
+  const walls: MapWall[] = [];
+  const los = payload.line_of_sight || [];
+  for (let i = 0; i < los.length; i++) {
+    const poly = los[i];
+    if (Array.isArray(poly)) {
+      for (let j = 0; j < poly.length - 1; j++) {
+        const p1 = poly[j];
+        const p2 = poly[j + 1];
+        walls.push({
+          id: `uvtt-wall-${now}-${i}-${j}`,
+          p1: { x: p1.x * gridPitch, y: p1.y * gridPitch },
+          p2: { x: p2.x * gridPitch, y: p2.y * gridPitch },
+          type: 'wall',
+        });
+      }
+    }
+  }
+
+  // 2. Portals / Doors
+  const portals = payload.portals || [];
+  for (let i = 0; i < portals.length; i++) {
+    const port = portals[i];
+    if (port.bounds && port.bounds.length >= 2) {
+      walls.push({
+        id: `uvtt-door-${now}-${i}`,
+        p1: { x: port.bounds[0].x * gridPitch, y: port.bounds[0].y * gridPitch },
+        p2: { x: port.bounds[1].x * gridPitch, y: port.bounds[1].y * gridPitch },
+        type: port.closed ? 'door_closed' : 'door_open',
+      });
+    }
+  }
+
+  // 3. Ambient lights
+  const lights = payload.lights || [];
+
+  // 4. Extract and persist map image to campaign `maps/`
+  let imageBlob: Blob | undefined;
+  let savedImageUrl: string | undefined;
+
+  if (payload.image) {
+    try {
+      imageBlob = base64ToBlob(payload.image, 'image/png');
+      const saveImgRes = await saveCampaignAsset('maps', `${baseName}.png`, imageBlob);
+      if (saveImgRes.success) {
+        savedImageUrl = saveImgRes.url;
+      }
+    } catch {
+      // Non-blocking image conversion fallback
+    }
+  }
+
+  // 5. Persist JSON sidecar to campaign `maps/`
+  const sidecarData = {
+    format: payload.format,
+    resolution: payload.resolution,
+    line_of_sight: payload.line_of_sight,
+    portals: payload.portals,
+    lights: payload.lights,
+  };
+  await saveCampaignAsset('maps', `${baseName}.uvtt.json`, JSON.stringify(sidecarData, null, 2));
+
+  // 6. Store in Dexie mapsDb
+  const tacticalMap: TacticalBattlemap = {
+    id: `map-${generateId()}`,
+    name: baseName,
+    type: 'tactical',
+    createdAt: now,
+    updatedAt: now,
+    grid: {
+      type: 'square',
+      sizePx: gridPitch,
+      offsetX: offsetX * gridPitch,
+      offsetY: offsetY * gridPitch,
+      opacity: 0.35,
+      color: '#6366f1',
+    },
+    lighting: {
+      ambientDarkness: 0,
+      tintColor: '#ffffff',
+    },
+    fogOfWar: {
+      revealedPolygons: [],
+      concealedPolygons: [],
+    },
+    walls,
+    tokens: [],
+    textureBlob: imageBlob,
+  };
+  await mapsDb.tacticalMaps.put(tacticalMap);
+
+  // 7. Store summary chunk in sourceDb
+  const summaryText = `### Tactical Map: ${baseName}
+- **Format:** ${ext.toUpperCase()}
+- **Grid Resolution:** ${gridPitch} px per cell
+- **Offset:** (${offsetX}, ${offsetY})
+- **Dimensions:** ${mapSize.x} x ${mapSize.y} cells
+- **Line of Sight Walls:** ${walls.filter((w) => w.type === 'wall').length}
+- **Portals & Doors:** ${portals.length}
+- **Ambient Light Emitters:** ${lights.length}`;
+
+  const chunk: SourceChunk = {
+    id: `chunk-${docId}-0`,
+    docId,
+    docName: fileName,
+    chunkIndex: 0,
+    sectionHeader: 'Tactical Map Overview',
+    text: summaryText,
+  };
+
+  const doc: SourceDocument = {
+    id: docId,
+    name: fileName,
+    type: 'json',
+    sizeBytes: file.size || text.length,
+    dateAdded: now,
+    isEnabled: true,
+    rawContent: text,
+  };
+
+  await sourceDb.documents.put(doc);
+  await sourceDb.chunks.bulkPut([chunk]);
+
+  return {
+    fileName,
+    format: ext.toUpperCase(),
+    chunksCount: 1,
+    sizeBytes: file.size || text.length,
+    categories: ['Map', 'Tactical Geometry', 'Line of Sight'],
+    success: true,
+    assetUrl: savedImageUrl,
+    metadata: {
+      gridPitch,
+      wallsCount: walls.length,
+      lightsCount: lights.length,
+      portalsCount: portals.length,
+    },
+  };
+}
+
+// ── 2. Vector Geographic Map Parser (.geojson) ──────────────────────────────
+
+async function processGeoJsonMap(file: File | Blob, fileName: string): Promise<IngestionFileResult> {
+  const text = await file.text();
+  const baseName = fileName.replace(/\.[^/.]+$/, '');
+  const docId = `atlas-doc-${generateId()}`;
+  const now = Date.now();
+
+  let geoData: any;
+  try {
+    geoData = JSON.parse(text);
+  } catch (err: any) {
+    return {
+      fileName,
+      format: 'GEOJSON',
+      chunksCount: 0,
+      sizeBytes: file.size || text.length,
+      categories: ['Map', 'GeoJSON'],
+      success: false,
+      error: `Failed to parse GeoJSON: ${err?.message || 'Invalid JSON syntax'}`,
+    };
+  }
+
+  const features = Array.isArray(geoData.features) ? geoData.features : [];
+  const featureTypes = new Set<string>();
+  for (const f of features) {
+    if (f.geometry?.type) featureTypes.add(f.geometry.type);
+  }
+
+  // Persist GeoJSON to `maps/`
+  await saveCampaignAsset('maps', `${baseName}.geojson`, text);
+
+  // Store in mapsDb.atlasMaps
+  const atlasRecord: WorldAtlasMap = {
+    id: `atlas-${generateId()}`,
+    name: baseName,
+    type: 'atlas',
+    createdAt: now,
+    updatedAt: now,
+    scale: {
+      unitsPerPixel: 1,
+      unitName: 'miles',
+    },
+    poiPins: [],
+  };
+  await mapsDb.atlasMaps.put(atlasRecord);
+
+  // Store documentation chunks in sourceDb
+  const summaryText = `### Geographic Atlas Map: ${baseName}
+- **Format:** GeoJSON Vector Atlas
+- **Total Features:** ${features.length}
+- **Geometry Types:** ${Array.from(featureTypes).join(', ') || 'Polygon, MultiPolygon'}
+- **Source:** Regional vector geographic boundary data.`;
+
+  const chunk: SourceChunk = {
+    id: `chunk-${docId}-0`,
+    docId,
+    docName: fileName,
+    chunkIndex: 0,
+    sectionHeader: 'Regional Geography',
+    text: summaryText,
+  };
+
+  const doc: SourceDocument = {
+    id: docId,
+    name: fileName,
+    type: 'json',
+    sizeBytes: file.size || text.length,
+    dateAdded: now,
+    isEnabled: true,
+    rawContent: text,
+  };
+
+  await sourceDb.documents.put(doc);
+  await sourceDb.chunks.bulkPut([chunk]);
+
+  return {
+    fileName,
+    format: 'GEOJSON',
+    chunksCount: 1,
+    sizeBytes: file.size || text.length,
+    categories: ['Map', 'World Atlas', 'Geography'],
+    success: true,
+    metadata: {
+      featureCount: features.length,
+    },
+  };
+}
+
+// ── 3. Dungeon Scrawl Parser (.ds) ──────────────────────────────────────────
+
+async function processDungeonScrawlFile(file: File | Blob, fileName: string): Promise<IngestionFileResult> {
+  const text = await file.text();
+  const baseName = fileName.replace(/\.[^/.]+$/, '');
+  const docId = `ds-doc-${generateId()}`;
+  const now = Date.now();
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err: any) {
+    return {
+      fileName,
+      format: 'DS',
+      chunksCount: 0,
+      sizeBytes: file.size || text.length,
+      categories: ['Map', 'Dungeon Scrawl'],
+      success: false,
+      error: `Failed to parse Dungeon Scrawl JSON: ${err?.message || 'Invalid syntax'}`,
+    };
+  }
+
+  const wallsCount = parsed.walls?.length || 0;
+  const doorsCount = parsed.doors?.length || 0;
+  const gridSize = parsed.gridSize || 60;
+
+  // Persist sidecar to `maps/`
+  await saveCampaignAsset('maps', `${baseName}.ds.json`, text);
+
+  const doc: SourceDocument = {
+    id: docId,
+    name: fileName,
+    type: 'json',
+    sizeBytes: file.size || text.length,
+    dateAdded: now,
+    isEnabled: true,
+    rawContent: text,
+  };
+
+  const chunk: SourceChunk = {
+    id: `chunk-${docId}-0`,
+    docId,
+    docName: fileName,
+    chunkIndex: 0,
+    sectionHeader: 'Dungeon Scrawl Map',
+    text: `Dungeon Scrawl Map: ${baseName}. Grid: ${gridSize}px, Walls: ${wallsCount}, Doors: ${doorsCount}.`,
+  };
+
+  await sourceDb.documents.put(doc);
+  await sourceDb.chunks.bulkPut([chunk]);
+
+  return {
+    fileName,
+    format: 'DS',
+    chunksCount: 1,
+    sizeBytes: file.size || text.length,
+    categories: ['Map', 'Dungeon Scrawl'],
+    success: true,
+    metadata: { wallsCount, doorsCount, gridSize },
+  };
+}
+
+// ── 4. Markdown & Plaintext Chunking & 5e Statblock Ingestion ────────────────
 
 async function processTextOrMarkdown(file: File | Blob, fileName: string): Promise<IngestionFileResult> {
   if (fileName.toLowerCase().endsWith('.pdf') || (file.type && file.type === 'application/pdf')) {
     return processPdfFile(file, fileName);
   }
+
   const text = await file.text();
   const docId = `doc-${generateId()}`;
   const now = Date.now();
   const ext = getExtension(fileName).toLowerCase();
 
-  // Extract Categories from headers and YAML/meta tags
-  const categories: string[] = [];
+  // Save raw note into `Ingest/Source material/`
+  await saveCampaignAsset('Ingest/Source material', fileName, file);
+
+  // 1. Extract Categories from headers
+  const categories: string[] = ['Lore', ext.toUpperCase()];
   const lines = text.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
@@ -149,6 +635,7 @@ async function processTextOrMarkdown(file: File | Blob, fileName: string): Promi
     }
   }
 
+  // 2. Chunk text by sections (~500 words per chunk)
   const chunks: SourceChunk[] = [];
   const sections = splitIntoSectionsByHeaders(text);
 
@@ -195,279 +682,48 @@ async function processTextOrMarkdown(file: File | Blob, fileName: string): Promi
     await sourceDb.chunks.bulkPut(chunks);
   }
 
-  return {
-    fileName,
-    format: ext.toUpperCase(),
-    chunksCount: chunks.length,
-    sizeBytes: doc.sizeBytes,
-    categories,
-    success: true,
-  };
-}
-
-// ── 2. JSON & JSONL Processing ───────────────────────────────────────────────
-
-async function processJsonData(file: File | Blob, fileName: string, ext: string): Promise<IngestionFileResult> {
-  const text = await file.text();
-  const docId = `doc-${generateId()}`;
-  const now = Date.now();
-  const chunks: SourceChunk[] = [];
-  const categories: string[] = [];
-
-  let records: any[] = [];
-  if (ext === 'jsonl') {
-    const lines = text.split('\n').filter(l => l.trim().length > 0);
-    for (const line of lines) {
-      try {
-        records.push(JSON.parse(line));
-      } catch { /* skip malformed line */ }
-    }
-  } else {
-    try {
-      const parsed = JSON.parse(text);
-      if (Array.isArray(parsed)) {
-        records = parsed;
-      } else if (parsed && typeof parsed === 'object') {
-        // If object has collections (e.g. { monsters: [...], items: [...] })
-        const keys = Object.keys(parsed);
-        categories.push(...keys.slice(0, 10));
-        let foundArray = false;
-        for (const k of keys) {
-          if (Array.isArray(parsed[k])) {
-            for (const item of parsed[k]) {
-              records.push({ _collection: k, ...item });
-            }
-            foundArray = true;
-          }
-        }
-        if (!foundArray) {
-          records = [parsed];
-        }
-      }
-    } catch (e: any) {
-      throw new Error(`JSON parse error: ${e.message}`);
-    }
-  }
-
-  let chunkIdx = 0;
-  for (const rec of records) {
-    const title = rec.name || rec.title || rec.id || `Record #${chunkIdx + 1}`;
-    const header = rec._collection ? `[${rec._collection}] ${title}` : title;
-    const body = formatJsonRecordAsMarkdown(rec);
-
-    chunks.push({
-      id: `chunk-${docId}-${chunkIdx}`,
-      docId,
-      docName: fileName,
-      chunkIndex: chunkIdx,
-      sectionHeader: header,
-      text: body,
-    });
-    chunkIdx++;
-  }
-
-  const doc: SourceDocument = {
-    id: docId,
-    name: fileName,
-    type: 'json',
-    sizeBytes: file.size || text.length,
-    dateAdded: now,
-    isEnabled: true,
-    rawContent: text,
-  };
-
-  await sourceDb.documents.put(doc);
-  if (chunks.length > 0) {
-    await sourceDb.chunks.bulkPut(chunks);
-  }
-
-  return {
-    fileName,
-    format: ext.toUpperCase(),
-    chunksCount: chunks.length,
-    sizeBytes: doc.sizeBytes,
-    categories,
-    success: true,
-  };
-}
-
-// ── 3. CSV & TSV Delimited Matrix to Markdown Tables ─────────────────────────
-
-async function processDelimitedTable(file: File | Blob, fileName: string, ext: string): Promise<IngestionFileResult> {
-  const text = await file.text();
-  const docId = `doc-${generateId()}`;
-  const now = Date.now();
-  const delimiter = ext === 'tsv' ? '\t' : ',';
-
-  const rows = parseDelimitedRows(text, delimiter);
-  if (rows.length === 0) {
-    throw new Error('Table file contains no parseable rows.');
-  }
-
-  const headers = rows[0];
-  const markdownTableRows: string[] = [];
-  markdownTableRows.push(`| ${headers.join(' | ')} |`);
-  markdownTableRows.push(`| ${headers.map(() => '---').join(' | ')} |`);
-
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r];
-    markdownTableRows.push(`| ${row.join(' | ')} |`);
-  }
-
-  const fullMarkdown = markdownTableRows.join('\n');
-  const chunks: SourceChunk[] = [];
-  const subBlocks = chunkTextBlockByWords(fullMarkdown, 400);
-
-  let chunkIdx = 0;
-  for (const block of subBlocks) {
-    chunks.push({
-      id: `chunk-${docId}-${chunkIdx}`,
-      docId,
-      docName: fileName,
-      chunkIndex: chunkIdx,
-      sectionHeader: `${fileName} (Rows ${chunkIdx * 15 + 1}-${Math.min(rows.length, (chunkIdx + 1) * 15)})`,
-      text: block,
-    });
-    chunkIdx++;
-  }
-
-  const doc: SourceDocument = {
-    id: docId,
-    name: fileName,
-    type: 'txt',
-    sizeBytes: file.size || text.length,
-    dateAdded: now,
-    isEnabled: true,
-    rawContent: text,
-  };
-
-  await sourceDb.documents.put(doc);
-  if (chunks.length > 0) {
-    await sourceDb.chunks.bulkPut(chunks);
-  }
-
-  return {
-    fileName,
-    format: ext.toUpperCase(),
-    chunksCount: chunks.length,
-    sizeBytes: doc.sizeBytes,
-    categories: headers.slice(0, 8),
-    success: true,
-  };
-}
-
-// ── 4. ZIP Archive Recursive Ingestion ───────────────────────────────────────
-
-async function processZipArchive(file: File | Blob, fileName: string): Promise<IngestionFileResult[]> {
-  const zip = new JSZip();
-  const loadedZip = await zip.loadAsync(file);
-  const results: IngestionFileResult[] = [];
-
-  for (const [relativePath, zipEntry] of Object.entries(loadedZip.files)) {
-    if (zipEntry.dir) continue;
-    // Skip hidden files/directories (e.g. .DS_Store, __MACOSX)
-    if (relativePath.includes('__MACOSX') || relativePath.startsWith('.')) continue;
-
-    const subName = relativePath.split('/').pop() || relativePath;
-    const subExt = getExtension(subName).toLowerCase();
-
-    if (matchesAllowedExtension(subExt)) {
-      const blob = await zipEntry.async('blob');
-      const subResults = await ingestUniversalFile(blob, `${fileName}/${relativePath}`);
-      results.push(...subResults);
-    }
-  }
-
-  return results;
-}
-
-// ── 5. Dungeon Scrawl & Universal VTT (.ds, .dd2vtt, .uvtt) ──────────────────
-
-async function processMapDataFile(file: File | Blob, fileName: string, ext: string): Promise<IngestionFileResult> {
-  const text = await file.text();
-  const docId = `doc-${generateId()}`;
-  const now = Date.now();
-  const chunks: SourceChunk[] = [];
-  const categories = ['Map', 'Tactical Geometry', 'Line of Sight'];
-
+  // 3. Extract 5e Statblocks (monsters, spells, tables)
+  let statblocksCount = 0;
   try {
-    const parsed = JSON.parse(text);
-    let wallCount = 0;
-    let doorCount = 0;
-    let resolution = 60;
-
-    if (parsed.line_of_sight) wallCount = parsed.line_of_sight.length;
-    if (parsed.portals) doorCount = parsed.portals.length;
-    if (parsed.resolution?.pixels_per_grid) resolution = parsed.resolution.pixels_per_grid;
-
-    // In Dungeon Scrawl format
-    if (parsed.walls) wallCount = parsed.walls.length;
-    if (parsed.doors) doorCount = parsed.doors.length;
-
-    const summaryText = `### Tactical Map Specification: ${fileName}
-- **Format:** ${ext.toUpperCase()}
-- **Grid Resolution:** ${resolution} px per grid cell
-- **Wall Segments (LOS):** ${wallCount}
-- **Doors & Portals:** ${doorCount}
-- **Map Dimensions:** ${parsed.resolution?.map_size?.x || 'N/A'} x ${parsed.resolution?.map_size?.y || 'N/A'} cells
-
-This map dossier provides Line of Sight geometric collision and tactical encounter navigation.`;
-
-    chunks.push({
-      id: `chunk-${docId}-0`,
-      docId,
-      docName: fileName,
-      chunkIndex: 0,
-      sectionHeader: 'Tactical Map Overview',
-      text: summaryText,
-    });
+    const parsedEntities = parseDeterministic(text, fileName);
+    if (parsedEntities.monsters.length > 0) {
+      await compendiumDb.monsters.bulkPut(parsedEntities.monsters);
+      statblocksCount += parsedEntities.monsters.length;
+      await notifyMonstersUpdated();
+    }
+    if (parsedEntities.spells.length > 0) {
+      await compendiumDb.spells.bulkPut(parsedEntities.spells);
+      statblocksCount += parsedEntities.spells.length;
+    }
   } catch {
-    // Non-JSON or binary format fallback
-    chunks.push({
-      id: `chunk-${docId}-0`,
-      docId,
-      docName: fileName,
-      chunkIndex: 0,
-      sectionHeader: 'Vector Map Coordinates',
-      text: `Vector collision specification for ${fileName}`,
-    });
+    // Non-blocking entity parsing fallback
   }
-
-  const doc: SourceDocument = {
-    id: docId,
-    name: fileName,
-    type: 'json',
-    sizeBytes: file.size || text.length,
-    dateAdded: now,
-    isEnabled: true,
-    rawContent: text,
-  };
-
-  await sourceDb.documents.put(doc);
-  await sourceDb.chunks.bulkPut(chunks);
 
   return {
     fileName,
     format: ext.toUpperCase(),
     chunksCount: chunks.length,
-    sizeBytes: doc.sizeBytes,
+    sizeBytes: file.size || text.length,
     categories,
     success: true,
+    metadata: { statblocksCount },
   };
 }
 
-// ── 6. PDF File Page-by-Page Text Extraction ────────────────────────────────
+// ── 5. PDF File Page-by-Page Extraction & Entity Parsing ────────────────────
 
 async function processPdfFile(file: File | Blob, fileName: string): Promise<IngestionFileResult> {
   const docId = `doc-${generateId()}`;
   const now = Date.now();
   const chunks: SourceChunk[] = [];
-  const categories: string[] = ['PDF Document', 'Rulebook'];
+  const categories: string[] = ['PDF Document', 'Rulebook', 'Source Material'];
+
+  // Save raw PDF to `Ingest/Source material/`
+  await saveCampaignAsset('Ingest/Source material', fileName, file);
 
   let extractedText = '';
 
   try {
-    // Dynamically load pdfjs-dist and configure worker source
     const pdfjsLib = await import('pdfjs-dist');
     if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
       try {
@@ -479,6 +735,7 @@ async function processPdfFile(file: File | Blob, fileName: string): Promise<Inge
         pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version || '4.0.379'}/build/pdf.worker.min.mjs`;
       }
     }
+
     const arrayBuffer = await file.arrayBuffer();
     const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
     const pdfDoc = await loadingTask.promise;
@@ -509,8 +766,7 @@ async function processPdfFile(file: File | Blob, fileName: string): Promise<Inge
         });
       }
     }
-  } catch (pdfErr) {
-    // Fallback if worker/canvas not present
+  } catch {
     extractedText = `PDF Document: ${fileName} (${(file.size / 1024).toFixed(1)} KB)`;
     chunks.push({
       id: `chunk-${docId}-0`,
@@ -537,6 +793,25 @@ async function processPdfFile(file: File | Blob, fileName: string): Promise<Inge
     await sourceDb.chunks.bulkPut(chunks);
   }
 
+  // Parse any 5e entities found in PDF text
+  let statblocksCount = 0;
+  if (extractedText) {
+    try {
+      const entities = parseDeterministic(extractedText, fileName);
+      if (entities.monsters.length > 0) {
+        await compendiumDb.monsters.bulkPut(entities.monsters);
+        statblocksCount += entities.monsters.length;
+        await notifyMonstersUpdated();
+      }
+      if (entities.spells.length > 0) {
+        await compendiumDb.spells.bulkPut(entities.spells);
+        statblocksCount += entities.spells.length;
+      }
+    } catch {
+      // Non-blocking entity parsing fallback
+    }
+  }
+
   return {
     fileName,
     format: 'PDF',
@@ -544,42 +819,327 @@ async function processPdfFile(file: File | Blob, fileName: string): Promise<Inge
     sizeBytes: file.size,
     categories,
     success: true,
+    metadata: { statblocksCount },
   };
 }
 
-// ── Utilities & Parsers ──────────────────────────────────────────────────────
+// ── 6. Image Media & Token Ingestion ────────────────────────────────────────
 
-function getExtension(name: string): string {
-  const parts = name.split('.');
-  return parts.length > 1 ? parts.pop()! : '';
-}
-
-async function processImageMedia(file: File | Blob, fileName: string, ext: string): Promise<IngestionFileResult> {
+async function processImageMedia(
+  file: File | Blob,
+  fileName: string,
+  ext: string
+): Promise<IngestionFileResult> {
   const mediaId = `media-${generateId()}`;
   const now = Date.now();
   const mimeType = file.type || `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+  const lowerName = fileName.toLowerCase();
 
+  const isToken = lowerName.includes('token') || lowerName.includes('portrait');
+  const targetFolder = isToken ? 'tokens' : 'maps';
+
+  // Persist into appropriate campaign subdirectory
+  const saveRes = await saveCampaignAsset(targetFolder, fileName, file);
+
+  // Store in compendiumDb.media
   await compendiumDb.media.put({
     id: mediaId,
     name: fileName,
-    sourceBook: fileName.split('/')[0] || 'Imported Media',
+    sourceBook: isToken ? 'Campaign Tokens' : 'Campaign Battlemaps',
     mimeType,
     createdAt: now,
     blob: file,
   });
+
+  // If raster battlemap, also register in mapsDb.tacticalMaps
+  if (!isToken) {
+    const tacticalMap: TacticalBattlemap = {
+      id: `map-${generateId()}`,
+      name: fileName.replace(/\.[^/.]+$/, ''),
+      type: 'tactical',
+      createdAt: now,
+      updatedAt: now,
+      grid: {
+        type: 'square',
+        sizePx: 70,
+        offsetX: 0,
+        offsetY: 0,
+        opacity: 0.35,
+        color: '#6366f1',
+      },
+      lighting: {
+        ambientDarkness: 0,
+        tintColor: '#ffffff',
+      },
+      fogOfWar: {
+        revealedPolygons: [],
+        concealedPolygons: [],
+      },
+      walls: [],
+      tokens: [],
+      textureBlob: file,
+    };
+    await mapsDb.tacticalMaps.put(tacticalMap);
+  }
 
   return {
     fileName,
     format: ext.toUpperCase(),
     chunksCount: 1,
     sizeBytes: file.size,
-    categories: ['Media', 'Image'],
+    categories: isToken ? ['Token', 'Portrait'] : ['Map', 'Raster Battlemap'],
+    success: true,
+    assetUrl: saveRes.url,
+  };
+}
+
+// ── 7. Audio Media Ingestion ────────────────────────────────────────────────
+
+async function processAudioMedia(
+  file: File | Blob,
+  fileName: string,
+  ext: string
+): Promise<IngestionFileResult> {
+  // Save directly to campaign `audio/`
+  const saveRes = await saveCampaignAsset('audio', fileName, file);
+
+  return {
+    fileName,
+    format: ext.toUpperCase(),
+    chunksCount: 1,
+    sizeBytes: file.size,
+    categories: ['Audio', 'Music/SFX'],
+    success: true,
+    assetUrl: saveRes.url,
+  };
+}
+
+// ── 8. Delimited Table Ingestion (.csv, .tsv) ───────────────────────────────
+
+async function processDelimitedTable(
+  file: File | Blob,
+  fileName: string,
+  ext: string
+): Promise<IngestionFileResult> {
+  const text = await file.text();
+  const delimiter = ext === 'tsv' ? '\t' : ',';
+  const rows = parseDelimitedRows(text, delimiter);
+  const headers = rows.length > 0 ? rows[0] : [];
+  const bodyRows = rows.slice(1);
+
+  const docId = `table-${generateId()}`;
+  const now = Date.now();
+  const chunks: SourceChunk[] = [];
+
+  const pageSize = 50;
+  for (let i = 0; i < bodyRows.length; i += pageSize) {
+    const chunkRows = bodyRows.slice(i, i + pageSize);
+    let mdTable = `| ${headers.join(' | ')} |\n| ${headers.map(() => '---').join(' | ')} |\n`;
+    for (const r of chunkRows) {
+      mdTable += `| ${r.join(' | ')} |\n`;
+    }
+    chunks.push({
+      id: `chunk-${docId}-${Math.floor(i / pageSize)}`,
+      docId,
+      docName: fileName,
+      chunkIndex: Math.floor(i / pageSize),
+      sectionHeader: `${fileName} (Rows ${i + 1}–${Math.min(i + pageSize, bodyRows.length)})`,
+      text: mdTable,
+    });
+  }
+
+  const doc: SourceDocument = {
+    id: docId,
+    name: fileName,
+    type: 'txt',
+    sizeBytes: file.size || text.length,
+    dateAdded: now,
+    isEnabled: true,
+    rawContent: text,
+  };
+
+  await sourceDb.documents.put(doc);
+  if (chunks.length > 0) {
+    await sourceDb.chunks.bulkPut(chunks);
+  }
+
+  return {
+    fileName,
+    format: ext.toUpperCase(),
+    chunksCount: chunks.length,
+    sizeBytes: doc.sizeBytes,
+    categories: headers.slice(0, 8),
     success: true,
   };
 }
 
+// ── 9. JSON & JSONL Data Ingestion ──────────────────────────────────────────
+
+async function processJsonData(
+  file: File | Blob,
+  fileName: string,
+  ext: string
+): Promise<IngestionFileResult> {
+  const text = await file.text();
+  const docId = `json-${generateId()}`;
+  const now = Date.now();
+  const chunks: SourceChunk[] = [];
+  const categories: string[] = ['JSON Data'];
+
+  let parsed: any;
+  try {
+    if (ext === 'jsonl') {
+      parsed = text
+        .split('\n')
+        .filter((l) => l.trim().length > 0)
+        .map((l) => JSON.parse(l));
+    } else {
+      parsed = JSON.parse(text);
+    }
+  } catch (err: any) {
+    return {
+      fileName,
+      format: ext.toUpperCase(),
+      chunksCount: 0,
+      sizeBytes: file.size || text.length,
+      categories,
+      success: false,
+      error: `JSON parsing error: ${err?.message || 'Invalid syntax'}`,
+    };
+  }
+
+  if (Array.isArray(parsed)) {
+    for (let i = 0; i < parsed.length; i++) {
+      const item = parsed[i];
+      const name = item.name || item.title || item.id || `Item ${i + 1}`;
+      chunks.push({
+        id: `chunk-${docId}-${i}`,
+        docId,
+        docName: fileName,
+        chunkIndex: i,
+        sectionHeader: `${fileName}: ${name}`,
+        text: `### ${name}\n` + formatJsonRecordAsMarkdown(item),
+      });
+    }
+  } else {
+    chunks.push({
+      id: `chunk-${docId}-0`,
+      docId,
+      docName: fileName,
+      chunkIndex: 0,
+      sectionHeader: `${fileName}: Root Record`,
+      text: formatJsonRecordAsMarkdown(parsed),
+    });
+  }
+
+  const doc: SourceDocument = {
+    id: docId,
+    name: fileName,
+    type: 'json',
+    sizeBytes: file.size || text.length,
+    dateAdded: now,
+    isEnabled: true,
+    rawContent: text,
+  };
+
+  await sourceDb.documents.put(doc);
+  if (chunks.length > 0) {
+    await sourceDb.chunks.bulkPut(chunks);
+  }
+
+  return {
+    fileName,
+    format: ext.toUpperCase(),
+    chunksCount: chunks.length,
+    sizeBytes: doc.sizeBytes,
+    categories,
+    success: true,
+  };
+}
+
+// ── 10. ZIP Archive Recursive Ingestion ─────────────────────────────────────
+
+async function processZipArchive(file: File | Blob, fileName: string): Promise<IngestionFileResult[]> {
+  const zip = new JSZip();
+  let loadedZip: JSZip;
+  try {
+    loadedZip = await zip.loadAsync(file);
+  } catch (err: any) {
+    return [
+      {
+        fileName,
+        format: 'ZIP',
+        chunksCount: 0,
+        sizeBytes: file.size || 0,
+        categories: ['Archive'],
+        success: false,
+        error: `Corrupted ZIP archive: ${err?.message || 'Failed to unpack'}`,
+      },
+    ];
+  }
+
+  const results: IngestionFileResult[] = [];
+
+  for (const [relativePath, zipEntry] of Object.entries(loadedZip.files)) {
+    if (zipEntry.dir) continue;
+    if (relativePath.includes('__MACOSX') || relativePath.startsWith('.')) continue;
+
+    const subName = relativePath.split('/').pop() || relativePath;
+    const subExt = getExtension(subName).toLowerCase();
+
+    if (matchesAllowedExtension(subExt)) {
+      try {
+        const blob = await zipEntry.async('blob');
+        const subResults = await ingestUniversalFile(blob, `${fileName}/${relativePath}`);
+        results.push(...subResults);
+      } catch (err: any) {
+        results.push({
+          fileName: `${fileName}/${relativePath}`,
+          format: subExt.toUpperCase(),
+          chunksCount: 0,
+          sizeBytes: 0,
+          categories: [],
+          success: false,
+          error: err?.message || 'Failed to extract file from ZIP',
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
+// ── Utilities & Helper Functions ─────────────────────────────────────────────
+
+function getExtension(name: string): string {
+  const parts = name.split('.');
+  return parts.length > 1 ? parts.pop()! : '';
+}
+
 function matchesAllowedExtension(ext: string): boolean {
-  return ['md', 'txt', 'json', 'jsonl', 'csv', 'tsv', 'ds', 'dd2vtt', 'uvtt', 'pdf', 'vttbundle', 'png', 'jpg', 'jpeg', 'webp'].includes(ext);
+  return [
+    'md',
+    'txt',
+    'json',
+    'jsonl',
+    'csv',
+    'tsv',
+    'ds',
+    'dd2vtt',
+    'uvtt',
+    'geojson',
+    'pdf',
+    'vttbundle',
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+    'mp3',
+    'wav',
+    'ogg',
+    'flac',
+    'm4a',
+  ].includes(ext);
 }
 
 function generateId(): string {
@@ -645,11 +1205,11 @@ function formatJsonRecordAsMarkdown(record: any): string {
 }
 
 function parseDelimitedRows(text: string, delimiter: string): string[][] {
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   const rows: string[][] = [];
 
   for (const line of lines) {
-    const cells = line.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
+    const cells = line.split(delimiter).map((c) => c.trim().replace(/^["']|["']$/g, ''));
     rows.push(cells);
   }
 

@@ -14,11 +14,17 @@
     onOpenSettings = () => { uiStore.isSettingsOpen = true; },
     onOpenPlayerPortal = () => {},
     onToggleCombat = () => {},
+    onToggleCompendium = () => {},
+    onOpenIngest = () => {},
+    isCompendiumOpen = false,
   }: {
     campaignName?: string;
     onOpenSettings?: () => void;
     onOpenPlayerPortal?: () => void;
     onToggleCombat?: () => void;
+    onToggleCompendium?: () => void;
+    onOpenIngest?: () => void;
+    isCompendiumOpen?: boolean;
   } = $props();
 
   let isCastMenuOpen = $state(false);
@@ -195,6 +201,30 @@
         </div>
       {/if}
     </div>
+
+    <!-- 🏛️ Compendium Quick Tray Toggle (Ctrl+B) -->
+    <button
+      type="button"
+      onclick={onToggleCompendium}
+      class="px-2.5 py-1 text-xs font-bold rounded-lg border transition-all flex items-center gap-1.5 {isCompendiumOpen
+        ? 'bg-cyan-950/80 text-cyan-300 border-cyan-700/80 shadow-sm'
+        : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800'}"
+      title="5e SRD Compendium Browser (Ctrl+B)"
+    >
+      <span>🏛️</span>
+      <span class="hidden md:inline">Compendium</span>
+    </button>
+
+    <!-- 📥 Ingestion Quick-Drop Toggle (Ctrl+I) -->
+    <button
+      type="button"
+      onclick={onOpenIngest}
+      class="px-2.5 py-1 text-xs font-bold rounded-lg border transition-all flex items-center gap-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800"
+      title="Quick Ingest Campaign Assets (Ctrl+I)"
+    >
+      <span>📥</span>
+      <span class="hidden md:inline">Ingest</span>
+    </button>
 
     <!-- Player Join Portal Button -->
     <button

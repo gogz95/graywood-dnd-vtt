@@ -32,6 +32,11 @@
   import ImageBrowserDrawer from '../lib/components/assets/ImageBrowserDrawer.svelte';
   import { assetBrowserStore } from '../lib/stores/assetBrowserStore.svelte';
   import { seedSrdCompendiumIfEmpty } from '../lib/services/srdSeedService';
+  import CompendiumBrowser from '../lib/components/compendium/CompendiumBrowser.svelte';
+  import DropzoneImporter from '../lib/components/ingest/DropzoneImporter.svelte';
+  import { campaignDirectoryStore } from '../lib/stores/campaignDirectoryStore.svelte';
+  import type { UniversalIngestionReport } from '../lib/importers/universalIngestionEngine';
+  import { importUniversalMap } from '../lib/services/mapImporter';
 
   // Aleamos Downtime, Logistics & Crafting
   import AlchemyWorkbench from '../lib/components/crafting/AlchemyWorkbench.svelte';
@@ -67,6 +72,21 @@
   let isBestiaryOpen = $state(false);
   let isMapManagerOpen = $state(false);
   let isIngestModalOpen = $state(false);
+  let isCompendiumTrayOpen = $state(false);
+  let isQuickIngestOpen = $state(false);
+  let quickIngestToast = $state<string | null>(null);
+
+  async function handleQuickIngestComplete(report: UniversalIngestionReport) {
+    await campaignDirectoryStore.refresh();
+    const count = report.successful.length;
+    const msg = count > 0
+      ? `Ingested ${count} asset(s) successfully! Active campaign index refreshed.`
+      : 'No files were ingested.';
+    quickIngestToast = msg;
+    setTimeout(() => {
+      if (quickIngestToast === msg) quickIngestToast = null;
+    }, 4500);
+  }
 
   $effect(() => {
     if (uiStore.activeView === 'canvas') {
@@ -105,15 +125,40 @@
     };
 
     const handleOpenIngest = () => {
-      isIngestModalOpen = true;
+      isQuickIngestOpen = true;
+    };
+
+    const handleGlobalKeydown = (e: KeyboardEvent) => {
+      // Ctrl+B / Cmd+B: Toggle Compendium Tray
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        isCompendiumTrayOpen = !isCompendiumTrayOpen;
+      }
+      // Ctrl+I / Cmd+I: Toggle Quick Ingest Tray
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
+        e.preventDefault();
+        isQuickIngestOpen = !isQuickIngestOpen;
+      }
     };
 
     window.addEventListener('vtt:switch-tab', handleSwitchTab);
     window.addEventListener('vtt:toggle-audio', handleToggleAudio);
     window.addEventListener('vtt:open-ingest-modal', handleOpenIngest);
+    window.addEventListener('keydown', handleGlobalKeydown);
 
-    dropCleanup = registerGlobalDropZone((asset) => {
-      if (asset.category === 'audio') floatingWindowsStore.open('audio');
+    dropCleanup = registerGlobalDropZone(async (asset) => {
+      if (asset.category === 'audio') {
+        floatingWindowsStore.open('audio');
+      } else if (asset.category === 'map' && asset.file) {
+        const res = await importUniversalMap(asset.file, asset.fileName);
+        if (res.success) {
+          activeTab = 'battlemat';
+          dmMapMode = 'tactical';
+        }
+      } else if ((asset.category === 'text' || asset.category === 'pdf') && asset.file) {
+        ingestPipelineStore.addFiles([asset.file]);
+        ingestPipelineStore.openModal();
+      }
     });
 
     return () => {
@@ -122,6 +167,7 @@
       window.removeEventListener('vtt:switch-tab', handleSwitchTab);
       window.removeEventListener('vtt:toggle-audio', handleToggleAudio);
       window.removeEventListener('vtt:open-ingest-modal', handleOpenIngest);
+      window.removeEventListener('keydown', handleGlobalKeydown);
     };
   });
 </script>
@@ -136,6 +182,9 @@
     onOpenSettings={() => uiStore.isSettingsOpen = true}
     onOpenPlayerPortal={() => isPlayerPortalOpen = true}
     onToggleCombat={() => activeTab = activeTab === 'encounter' ? 'battlemat' : 'encounter'}
+    onToggleCompendium={() => isCompendiumTrayOpen = !isCompendiumTrayOpen}
+    onOpenIngest={() => isQuickIngestOpen = true}
+    isCompendiumOpen={isCompendiumTrayOpen}
   />
 
   <!-- ═════════════════════════════════════════════════════════════════════════
@@ -157,8 +206,13 @@
           <FullBestiaryView />
         </div>
 
+        <!-- 📚 Full-Page Compendium Browser (Spells, Items, Monsters) -->
+        <div class="absolute inset-0 z-10 {uiStore.activeView === 'compendium' ? '' : 'hidden'}">
+          <CompendiumBrowser />
+        </div>
+
         <!-- 👥 Party Roster with nested Economy/Stash -->
-        <div class="absolute inset-0 {uiStore.activeView !== 'bestiary' && activeTab === 'party' ? '' : 'hidden'}">
+        <div class="absolute inset-0 {uiStore.activeView !== 'bestiary' && uiStore.activeView !== 'compendium' && activeTab === 'party' ? '' : 'hidden'}">
           <PartyRosterView />
         </div>
 
@@ -240,4 +294,98 @@
     bind:isOpen={assetBrowserStore.isOpen}
     onClose={() => assetBrowserStore.close()}
   />
+
+  <!-- ═════════════════════════════════════════════════════════════════════════
+       GLOBAL INGESTION NOTIFICATION TOAST
+  ══════════════════════════════════════════════════════════════════════════ -->
+  {#if quickIngestToast}
+    <div class="fixed bottom-6 right-6 z-50 px-4 py-2.5 bg-emerald-950/90 border border-emerald-600 text-emerald-200 text-xs font-bold rounded-xl shadow-2xl flex items-center gap-2 animate-bounce">
+      <span>⚡</span>
+      <span>{quickIngestToast}</span>
+    </div>
+  {/if}
+
+  <!-- ═════════════════════════════════════════════════════════════════════════
+       COMPENDIUM BROWSER SLIDE-OUT TRAY (Ctrl+B)
+  ══════════════════════════════════════════════════════════════════════════ -->
+  {#if isCompendiumTrayOpen}
+    <div
+      class="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm transition-opacity"
+      role="presentation"
+      onclick={() => (isCompendiumTrayOpen = false)}
+    ></div>
+
+    <div
+      class="fixed inset-y-0 right-0 z-40 w-full max-w-2xl bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col transition-transform duration-300 ease-out"
+      role="dialog"
+      aria-label="5e SRD Compendium Browser"
+    >
+      <div class="flex items-center justify-between px-4 py-2.5 bg-slate-950 border-b border-slate-800 shrink-0">
+        <div class="flex items-center gap-2">
+          <span class="text-lg">🏛️</span>
+          <h2 class="text-xs font-black uppercase tracking-wider text-slate-100">
+            5e SRD Compendium Tray
+          </h2>
+          <span class="text-[10px] font-mono text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
+            Ctrl+B
+          </span>
+        </div>
+        <button
+          type="button"
+          onclick={() => (isCompendiumTrayOpen = false)}
+          class="p-1 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
+          aria-label="Close Compendium Tray"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="flex-1 min-h-0 overflow-hidden">
+        <CompendiumBrowser />
+      </div>
+    </div>
+  {/if}
+
+  <!-- ═════════════════════════════════════════════════════════════════════════
+       INGESTION QUICK-DROP MODAL / TRAY (Ctrl+I)
+  ══════════════════════════════════════════════════════════════════════════ -->
+  {#if isQuickIngestOpen}
+    <div
+      class="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity"
+      role="presentation"
+      onclick={(e) => { if (e.target === e.currentTarget) isQuickIngestOpen = false; }}
+    >
+      <div
+        class="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="quick-ingest-title"
+      >
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2.5">
+            <span class="text-2xl">📥</span>
+            <div>
+              <h2 id="quick-ingest-title" class="text-sm font-black uppercase tracking-wider text-slate-100">
+                Quick Campaign Asset Ingestion
+              </h2>
+              <p class="text-xs text-slate-400">
+                Drop .dd2vtt battlemaps, tokens, audio, or lore markdown into active campaign storage
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onclick={() => (isQuickIngestOpen = false)}
+            class="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+
+        <DropzoneImporter
+          onComplete={handleQuickIngestComplete}
+        />
+      </div>
+    </div>
+  {/if}
 </div>

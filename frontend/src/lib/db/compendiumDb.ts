@@ -11,11 +11,14 @@ export interface CompendiumSpell {
   name: string;
   level: number;
   school: string;
-  parentClass: string[]; // e.g. ['Wizard', 'Sorcerer']
+  parentClass?: string[]; // e.g. ['Wizard', 'Sorcerer']
   castingTime: string;
+  casting_time?: string;
   range: string;
   components: string;
   duration: string;
+  concentration?: boolean;
+  ritual?: boolean;
   description: string;
   sourceBook: string;
   packageId: string;
@@ -48,6 +51,12 @@ export interface CompendiumMonster {
   int: number;
   wis: number;
   cha: number;
+  hitDice?: string;
+  savingThrows?: string;
+  skills?: string;
+  senses?: string;
+  languages?: string;
+  traits?: Array<{ name: string; description: string }>;
   actions: Array<{ name: string; description: string }>;
   sourceBook: string;
   packageId: string;
@@ -82,6 +91,7 @@ export interface CompendiumItem {
   name: string;
   type: string;
   rarity: string;
+  attunement?: boolean | string;
   damage?: string;
   armorClass?: number;
   properties?: string[];
@@ -102,6 +112,18 @@ export interface CompendiumJournal {
   sourceBook: string;
   packageId: string;
   createdAt: number;
+}
+
+export interface CompendiumRule {
+  id: string;
+  title: string;
+  category: string;
+  slug: string;
+  content: string;
+  tags?: string[];
+  sourceBook?: string;
+  packageId?: string;
+  origin?: 'SRD-5.1' | 'USER_IMPORT';
 }
 
 // ── Pure 5e SRD 5.1 Seed Records ─────────────────────────────────────────────
@@ -547,6 +569,59 @@ const SRD_FACILITIES: CompendiumFacility[] = [
   }
 ];
 
+export const SRD_RULES: CompendiumRule[] = [
+  {
+    id: 'srd-rule-combat-order',
+    title: 'Order of Combat',
+    category: 'Combat',
+    slug: 'order-of-combat',
+    content: 'A typical combat encounter involves a clash between two sides. The game organizes combat into rounds and turns. A round represents about 6 seconds in the game world.',
+    sourceBook: '5e SRD 5.1',
+    packageId: 'srd-5.1',
+    origin: 'SRD-5.1',
+  },
+  {
+    id: 'srd-rule-advantage-disadvantage',
+    title: 'Advantage and Disadvantage',
+    category: 'Core Rules',
+    slug: 'advantage-and-disadvantage',
+    content: 'When you have either advantage or disadvantage and something in the game lets you reroll or replace the d20, you can reroll or replace only one of the dice.',
+    sourceBook: '5e SRD 5.1',
+    packageId: 'srd-5.1',
+    origin: 'SRD-5.1',
+  },
+  {
+    id: 'srd-rule-spellcasting-concentration',
+    title: 'Concentration',
+    category: 'Spellcasting',
+    slug: 'concentration',
+    content: 'Some spells require you to maintain concentration in order to keep their magic active. If you lose concentration, such a spell ends. Taking damage or being incapacitated forces a Constitution saving throw (DC 10 or half damage taken).',
+    sourceBook: '5e SRD 5.1',
+    packageId: 'srd-5.1',
+    origin: 'SRD-5.1',
+  },
+  {
+    id: 'srd-rule-death-saving-throws',
+    title: 'Death Saving Throws',
+    category: 'Combat',
+    slug: 'death-saving-throws',
+    content: 'Whenever you start your turn with 0 hit points, you must make a special saving throw, called a death saving throw, to determine whether you creep closer to death or hang onto life.',
+    sourceBook: '5e SRD 5.1',
+    packageId: 'srd-5.1',
+    origin: 'SRD-5.1',
+  },
+  {
+    id: 'srd-rule-conditions',
+    title: 'Conditions',
+    category: 'Rules Reference',
+    slug: 'conditions',
+    content: 'Conditions alter a creature’s capabilities in a variety of ways and can arise as a result of a spell, a class feature, a monster’s attack, or other effect.',
+    sourceBook: '5e SRD 5.1',
+    packageId: 'srd-5.1',
+    origin: 'SRD-5.1',
+  }
+];
+
 export interface CampaignFlag {
   key: string;
   value: any;
@@ -562,6 +637,7 @@ export class CompendiumDatabase extends Dexie {
   campaignFlags!: Table<CampaignFlag, string>;
   items!: Table<CompendiumItem, string>;
   journal!: Table<CompendiumJournal, string>;
+  rules!: Table<CompendiumRule, string>;
 
   constructor() {
     super('vtt_compendium_database');
@@ -587,11 +663,19 @@ export class CompendiumDatabase extends Dexie {
       journal: 'id, title, category, sourceBook, packageId, createdAt'
     });
 
+    this.version(5).stores({
+      spells: 'id, name, level, school, casting_time, castingTime, range, concentration, ritual, *parentClass, packageId, origin, [school+level], [level+name]',
+      monsters: 'id, name, cr, size, type, alignment, ac, hp, packageId, origin, [type+cr], [cr+name]',
+      items: 'id, name, type, rarity, cost, weight, packageId, origin, [type+rarity]',
+      rules: 'id, title, category, slug, origin, packageId, [category+title]',
+    });
+
     this.on('populate', () => {
       this.spells.bulkAdd(SRD_SPELLS);
       this.subclasses.bulkAdd(SRD_SUBCLASSES);
       this.monsters.bulkAdd(SRD_MONSTERS);
       this.facilities.bulkAdd(SRD_FACILITIES);
+      this.rules.bulkAdd(SRD_RULES);
     });
   }
 
@@ -605,6 +689,7 @@ export class CompendiumDatabase extends Dexie {
     deletedFacilities: number;
     deletedItems: number;
     deletedJournal: number;
+    deletedRules: number;
   }> {
     if (packageId === 'srd-5.1') {
       throw new Error('Cannot purge protected core SRD 5.1 baseline records.');
@@ -612,7 +697,7 @@ export class CompendiumDatabase extends Dexie {
 
     return await this.transaction(
       'rw',
-      [this.spells, this.subclasses, this.monsters, this.facilities, this.items, this.journal],
+      [this.spells, this.subclasses, this.monsters, this.facilities, this.items, this.journal, this.rules],
       async () => {
         const deletedSpells = await this.spells.where('packageId').equals(packageId).delete();
         const deletedSubclasses = await this.subclasses.where('packageId').equals(packageId).delete();
@@ -620,6 +705,7 @@ export class CompendiumDatabase extends Dexie {
         const deletedFacilities = await this.facilities.where('packageId').equals(packageId).delete();
         const deletedItems = await this.items.where('packageId').equals(packageId).delete();
         const deletedJournal = await this.journal.where('packageId').equals(packageId).delete();
+        const deletedRules = await this.rules.where('packageId').equals(packageId).delete();
 
         return {
           deletedSpells,
@@ -627,7 +713,8 @@ export class CompendiumDatabase extends Dexie {
           deletedMonsters,
           deletedFacilities,
           deletedItems,
-          deletedJournal
+          deletedJournal,
+          deletedRules,
         };
       }
     );
@@ -639,7 +726,13 @@ export class CompendiumDatabase extends Dexie {
   async ensureSrdBaseline(): Promise<void> {
     const spellCount = await this.spells.where('origin').equals('SRD-5.1').count();
     if (spellCount === 0) {
-      await this.spells.bulkPut(SRD_SPELLS);
+      const normalizedSpells = SRD_SPELLS.map((s) => ({
+        ...s,
+        casting_time: s.casting_time || s.castingTime,
+        concentration: s.concentration ?? s.duration.toLowerCase().includes('concentration'),
+        ritual: s.ritual ?? false,
+      }));
+      await this.spells.bulkPut(normalizedSpells);
     }
 
     const subclassCount = await this.subclasses.where('origin').equals('SRD-5.1').count();
@@ -655,6 +748,38 @@ export class CompendiumDatabase extends Dexie {
     const facilityCount = await this.facilities.where('origin').equals('SRD-5.1').count();
     if (facilityCount === 0) {
       await this.facilities.bulkPut(SRD_FACILITIES);
+    }
+
+    const ruleCount = await this.rules.where('origin').equals('SRD-5.1').count();
+    if (ruleCount === 0) {
+      await this.rules.bulkPut(SRD_RULES);
+    }
+
+    const itemCount = await this.items.count();
+    if (itemCount === 0) {
+      try {
+        const { default: srdSeedData } = await import('../data/srdCompendiumSeed.json');
+        if (srdSeedData?.items?.length) {
+          const mappedItems: CompendiumItem[] = srdSeedData.items.map((it: any) => ({
+            id: it.id,
+            name: it.name,
+            type: it.type || 'Adventuring Gear',
+            rarity: it.rarity || 'Common',
+            damage: it.damage,
+            armorClass: it.armorClass,
+            properties: it.properties,
+            description: it.description || '',
+            weight: it.weight,
+            cost: it.cost,
+            sourceBook: it.source || '5e SRD 5.1',
+            packageId: 'srd-5.1',
+            origin: 'SRD-5.1',
+          }));
+          await this.items.bulkPut(mappedItems);
+        }
+      } catch {
+        // Fallback if dynamic import fails in certain environments
+      }
     }
   }
 }

@@ -10,6 +10,8 @@ import { mapLayers } from '../../stores/mapLayerStore.svelte';
 import { parseDungeonScrawl } from '../../canvas/parsers/dungeonScrawlParser';
 import { parseWatabouGeoJson } from '../../canvas/parsers/watabouParser';
 import { sniffAndClassify, ingestClassifiedContent } from './contentClassifier';
+import { extractAndStoreCompendiumSource } from '../../importers/pdfRuleExtractor';
+import { ingestUniversalFile } from '../../importers/universalIngestionEngine';
 import type { UVTTFormat } from '../importers/universalVttImporter';
 import type { TacticalBattlemap, MapWall } from '../../types/maps';
 import type { IngestQueueItem } from './ingestTypes';
@@ -132,6 +134,17 @@ async function routeSourceMaterial(
 ): Promise<{ success: boolean; summary: string }> {
   onProgress?.(20, 'Reading source text...');
 
+  if (ext === 'pdf') {
+    onProgress?.(30, 'Extracting text and 5e entities from PDF...');
+    const blob = await getItemBlob(item);
+    const result = await extractAndStoreCompendiumSource(blob, item.name);
+    await notifyMonstersUpdated();
+    return {
+      success: true,
+      summary: `Parsed PDF: extracted ${result.monstersExtracted.length} monsters, ${result.spellsExtracted.length} spells, ${result.facilitiesExtracted.length} facilities, ${result.tablesExtracted.length} tables`,
+    };
+  }
+
   if (ext === 'zip') {
     onProgress?.(40, 'Extracting ZIP archive...');
     const blob = await getItemBlob(item);
@@ -248,7 +261,18 @@ async function routeSourceMaterial(
     return { success: true, summary: `Created Dungeon Scrawl map with ${walls.length} walls` };
   }
 
-  onProgress?.(60, 'Deterministic NLP entity extraction...');
+  onProgress?.(60, 'Indexing document chunks and 5e entities...');
+  const blob = await getItemBlob(item);
+  let chunkCount = 0;
+  if (blob && blob.size > 0) {
+    try {
+      const ingestResults = await ingestUniversalFile(blob, item.name);
+      chunkCount = ingestResults.reduce((acc, r) => acc + r.chunksCount, 0);
+    } catch {
+      // Non-blocking source chunking fallback
+    }
+  }
+
   const text = await getItemText(item);
   const result = parseDeterministic(text, item.name);
 
@@ -265,7 +289,7 @@ async function routeSourceMaterial(
 
   return {
     success: true,
-    summary: `Extracted ${result.monsters.length} monsters, ${result.spells.length} spells, ${result.tables.length} tables`,
+    summary: `Indexed ${chunkCount} lore chunks; extracted ${result.monsters.length} monsters, ${result.spells.length} spells, ${result.tables.length} tables`,
   };
 }
 
@@ -339,20 +363,47 @@ async function routeImageOrMap(
       wallPolygons,
     });
 
-    const walls: MapWall[] = (uvtt.line_of_sight || []).map(([p1, p2]) => ({
-      id: `wall-${Math.random()}`,
-      p1: { x: p1.x * ppg, y: p1.y * ppg },
-      p2: { x: p2.x * ppg, y: p2.y * ppg },
-      type: 'wall' as const,
-    }));
-    for (const p of uvtt.portals || []) {
-      walls.push({
-        id: `door-${Math.random()}`,
-        p1: { x: p.bounds[0].x * ppg, y: p.bounds[0].y * ppg },
-        p2: { x: p.bounds[1].x * ppg, y: p.bounds[1].y * ppg },
-        type: p.closed === false ? ('door_open' as const) : ('door_closed' as const),
-      });
+    const walls: MapWall[] = [];
+    if (uvtt.line_of_sight) {
+      for (const line of uvtt.line_of_sight) {
+        if (Array.isArray(line)) {
+          for (let j = 0; j < line.length - 1; j++) {
+            const p1 = line[j];
+            const p2 = line[j + 1];
+            if (p1 && p2) {
+              walls.push({
+                id: `wall-${Date.now()}-${walls.length}`,
+                p1: { x: p1.x * ppg, y: p1.y * ppg },
+                p2: { x: p2.x * ppg, y: p2.y * ppg },
+                type: 'wall' as const,
+              });
+            }
+          }
+        }
+      }
     }
+    for (const p of uvtt.portals || []) {
+      if (p.bounds && p.bounds.length >= 2) {
+        walls.push({
+          id: `door-${Date.now()}-${walls.length}`,
+          p1: { x: p.bounds[0].x * ppg, y: p.bounds[0].y * ppg },
+          p2: { x: p.bounds[1].x * ppg, y: p.bounds[1].y * ppg },
+          type: p.closed === false ? ('door_open' as const) : ('door_closed' as const),
+        });
+      }
+    }
+
+    // Save embedded raster texture to maps/ if present in UVTT payload
+    if (uvtt.image) {
+      const imgName = `${item.name.replace(/\.[^/.]+$/, '')}.png`;
+      const cleanImgBase64 = uvtt.image.includes(',') ? uvtt.image.split(',')[1] : uvtt.image;
+      const savedImg = await campaignDirectoryStore.saveAsset('maps', imgName, cleanImgBase64);
+      if (savedImg.url) {
+        fileUrl = savedImg.url;
+      }
+    }
+
+    const lightsCount = Array.isArray(uvtt.lights) ? uvtt.lights.length : 0;
 
     await mapsDb.tacticalMaps.put(
       createTacticalMapRecord(mapId, item.name.replace(/\.[^/.]+$/, ''), ppg, walls, blob)
@@ -360,7 +411,7 @@ async function routeImageOrMap(
 
     return {
       success: true,
-      summary: `Imported Universal VTT map (${cols}x${rows}) registered with mapLayers`,
+      summary: `Imported Universal VTT (${cols}x${rows} @ ${ppg} DPI, ${walls.length} LOS walls/doors, ${lightsCount} lights)`,
     };
   }
 

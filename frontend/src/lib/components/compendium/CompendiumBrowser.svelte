@@ -1,356 +1,866 @@
-<script lang="ts">
-  // CompendiumBrowser.svelte — SRD compendium with import, search, tag filtering, "Add to Combat", and "Send to Party Stash"
+<!-- src/lib/components/compendium/CompendiumBrowser.svelte -->
+<!-- 5e SRD 5.1 Indexed Compendium Browser & Search System (Svelte 5 Runes) -->
 
+<script lang="ts">
   import { onMount } from 'svelte';
   import { sessionStore } from '../../../stores/sessionStore';
   import { audioEngine } from '../../audio/AudioEngine';
-  import { importCompendiumJson } from '../../importers/compendiumImporter';
+  import { compendiumStore } from '../../stores/compendiumStore.svelte';
+  import {
+    compendiumDb,
+    type CompendiumMonster,
+    type CompendiumSpell,
+    type CompendiumItem,
+    type CompendiumRule,
+  } from '../../db/compendiumDb';
+  import StatblockDrawer, { type SelectedCompendiumEntry } from './StatblockDrawer.svelte';
 
-  interface CompendiumEntry {
-    id: string;
-    name: string;
-    type: 'creature' | 'spell' | 'item';
-    // Creature fields
-    cr?: number;
-    ac?: number;
-    hp?: number;
-    size?: string;
-    creature_type?: string;
-    // Spell fields
-    level?: number;
-    school?: string;
-    casting_time?: string;
-    range?: string;
-    components?: string;
-    duration?: string;
-    // Item fields
-    rarity?: string;
-    requires_attunement?: boolean;
-    // Shared
-    description: string;
-    source: 'api' | 'imported';
-  }
+  type CompendiumTab = 'spells' | 'monsters' | 'items' | 'rules';
 
-  const STORAGE_KEY = 'vtt_compendium_imports';
-
-  type FilterType = 'all' | 'creature' | 'spell' | 'item';
-
+  // ── State ──────────────────────────────────────────────────────────────────
+  let activeTab = $state<CompendiumTab>('spells');
   let searchQuery = $state('');
-  let filterType = $state<FilterType>('all');
-  let showImportModal = $state(false);
-  let importFeedback = $state<string | null>(null);
-  let detailEntry = $state<CompendiumEntry | null>(null);
+  let debouncedQuery = $state('');
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Spells Filters
+  let spellLevel = $state<string>('all');
+  let spellSchool = $state<string>('all');
+
+  // Monsters Filters
+  let monsterCrMin = $state<string>('all');
+  let monsterCrMax = $state<string>('all');
+  let monsterType = $state<string>('all');
+
+  // Items Filters
+  let itemRarity = $state<string>('all');
+  let itemType = $state<string>('all');
+
+  // Rules Filters
+  let ruleCategory = $state<string>('all');
+
+  // Query Results & Loading State
+  let queryResults = $state<any[]>([]);
+  let isQuerying = $state(false);
+
+  // Drawer & Action State
+  let isDrawerOpen = $state(false);
+  let selectedEntry = $state<SelectedCompendiumEntry | null>(null);
   let actionToast = $state<string | null>(null);
 
-  // ── Built-in SRD seed data ─────────────────────────────────────────────────
-  const SRD_ENTRIES: CompendiumEntry[] = [
-    { id: 'srd-goblin', name: 'Goblin', type: 'creature', cr: 0.25, ac: 15, hp: 7, size: 'Small', creature_type: 'humanoid', description: 'AC 15 (leather armor, shield), HP 7 (2d6), Speed 30 ft. STR 8, DEX 14, CON 10, INT 10, WIS 8, CHA 8. Nimble Escape: bonus action to Disengage or Hide.', source: 'api' },
-    { id: 'srd-orc', name: 'Orc', type: 'creature', cr: 0.5, ac: 13, hp: 15, size: 'Medium', creature_type: 'humanoid', description: 'AC 13 (hide armor), HP 15 (2d8+6), Speed 30 ft. STR 16, DEX 12, CON 16, INT 7, WIS 11, CHA 10. Aggressive: bonus action to move up to speed toward a hostile.', source: 'api' },
-    { id: 'srd-ogre', name: 'Ogre', type: 'creature', cr: 2, ac: 11, hp: 59, size: 'Large', creature_type: 'giant', description: 'AC 11 (hide armor), HP 59 (7d10+21), Speed 40 ft. STR 19, DEX 8, CON 16. Greatclub: +6 to hit, 13 (2d8+4) bludgeoning.', source: 'api' },
-    { id: 'srd-zombie', name: 'Zombie', type: 'creature', cr: 0.25, ac: 8, hp: 22, size: 'Medium', creature_type: 'undead', description: 'AC 8, HP 22 (3d8+9), Speed 20 ft. Undead Fortitude: when dropped to 0 HP by damage (not radiant or critical), make a Con save (DC = 5 + damage) to drop to 1 HP instead.', source: 'api' },
-    { id: 'srd-skeleton', name: 'Skeleton', type: 'creature', cr: 0.25, ac: 13, hp: 13, size: 'Medium', creature_type: 'undead', description: 'AC 13 (armor scraps), HP 13 (2d8+4), Speed 30 ft. Vulnerable to bludgeoning. Immune to poison, exhaustion, and the poisoned condition.', source: 'api' },
-    { id: 'srd-fireball', name: 'Fireball', type: 'spell', level: 3, school: 'Evocation', casting_time: '1 action', range: '150 ft', components: 'V, S, M (bat guano)', duration: 'Instantaneous', description: '8d6 fire damage in a 20-foot radius sphere. Dex save DC (spellcasting DC) for half. Ignites flammable objects not worn or carried.', source: 'api' },
-    { id: 'srd-cure-wounds', name: 'Cure Wounds', type: 'spell', level: 1, school: 'Abjuration', casting_time: '1 action', range: 'Touch', components: 'V, S', duration: 'Instantaneous', description: 'Restore 1d8 + spellcasting ability modifier HP to a creature you touch. No effect on undead or constructs. Upcast: +1d8 per slot level above 1st.', source: 'api' },
-    { id: 'srd-shield', name: 'Shield', type: 'spell', level: 1, school: 'Abjuration', casting_time: '1 reaction', range: 'Self', components: 'V, S', duration: '1 round', description: '+5 bonus to AC until start of your next turn, including against triggering attack. Immune to Magic Missile.', source: 'api' },
-    { id: 'srd-bag-holding', name: 'Bag of Holding', type: 'item', rarity: 'Uncommon', requires_attunement: false, description: 'Extradimensional space holds up to 500 lb (64 cu ft). Always weighs 15 lb. Retrieving an item requires an action. Placing a bag of holding inside another extradimensional space tears a rift to the Astral Plane.', source: 'api' },
-    { id: 'srd-cloak-prot', name: 'Cloak of Protection', type: 'item', rarity: 'Uncommon', requires_attunement: true, description: 'Requires attunement. +1 bonus to AC and saving throws while wearing.', source: 'api' },
+  // ── Debounced Search Handler ───────────────────────────────────────────────
+  function handleSearchInput(e: Event) {
+    const val = (e.target as HTMLInputElement).value;
+    searchQuery = val;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debouncedQuery = val.trim().toLowerCase();
+    }, 150);
+  }
+
+  function showToast(msg: string) {
+    actionToast = msg;
+    setTimeout(() => {
+      if (actionToast === msg) actionToast = null;
+    }, 2800);
+  }
+
+  // ── Static Reference Constants ─────────────────────────────────────────────
+  const BASE_SPELL_SCHOOLS = [
+    'Abjuration', 'Conjuration', 'Divination', 'Enchantment',
+    'Evocation', 'Illusion', 'Necromancy', 'Transmutation'
   ];
 
-  let importedEntries = $state<CompendiumEntry[]>((() => {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as CompendiumEntry[]; } catch { return []; }
-  })());
+  const BASE_CREATURE_TYPES = [
+    'Aberration', 'Beast', 'Celestial', 'Construct', 'Dragon',
+    'Elemental', 'Fey', 'Fiend', 'Giant', 'Humanoid',
+    'Monstrosity', 'Ooze', 'Plant', 'Undead'
+  ];
 
-  $effect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(importedEntries)); });
+  const BASE_ITEM_RARITIES = [
+    'Common', 'Uncommon', 'Rare', 'Very Rare', 'Legendary', 'Artifact'
+  ];
 
-  onMount(() => {
-    const reload = () => {
-      try {
-        importedEntries = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as CompendiumEntry[];
-      } catch {
-        importedEntries = [];
+  const BASE_ITEM_TYPES = [
+    'Weapon', 'Armor', 'Shield', 'Potion', 'Ring', 'Rod',
+    'Scroll', 'Staff', 'Wand', 'Wondrous Item', 'Equipment'
+  ];
+
+  const BASE_RULE_CATEGORIES = [
+    'Combat', 'Spellcasting', 'Core Rules', 'Rules Reference'
+  ];
+
+  // ── Category-Specific Filters Derived using Svelte 5 $derived ──────────────
+  let derivedSpellSchools = $derived.by<string[]>(() => {
+    const schools = new Set<string>(BASE_SPELL_SCHOOLS);
+    for (const s of compendiumStore.spells) {
+      if (s.school) schools.add(s.school);
+    }
+    return Array.from(schools).sort();
+  });
+
+  let derivedCreatureTypes = $derived.by<string[]>(() => {
+    const types = new Set<string>(BASE_CREATURE_TYPES);
+    for (const m of compendiumStore.monsters) {
+      if (m.type) {
+        const base = m.type.split('(')[0].trim();
+        types.add(base);
       }
-    };
-    window.addEventListener('compendium:monsters-updated', reload);
-    window.addEventListener('compendium:data-synchronized', reload);
+    }
+    return Array.from(types).sort();
+  });
+
+  let derivedItemRarities = $derived.by<string[]>(() => {
+    const rarities = new Set<string>(BASE_ITEM_RARITIES);
+    for (const it of compendiumStore.items) {
+      if (it.rarity) rarities.add(it.rarity);
+    }
+    return Array.from(rarities);
+  });
+
+  let derivedItemTypes = $derived.by<string[]>(() => {
+    const types = new Set<string>(BASE_ITEM_TYPES);
+    for (const it of compendiumStore.items) {
+      if (it.type) types.add(it.type);
+    }
+    return Array.from(types).sort();
+  });
+
+  let derivedRuleCategories = $derived.by<string[]>(() => {
+    const cats = new Set<string>(BASE_RULE_CATEGORIES);
+    for (const r of compendiumStore.rules) {
+      if (r.category) cats.add(r.category);
+    }
+    return Array.from(cats).sort();
+  });
+
+  // ── Reactive Category Counts ───────────────────────────────────────────────
+  let totalSpells = $derived(compendiumStore.spells.length);
+  let totalMonsters = $derived(compendiumStore.monsters.length);
+  let totalItems = $derived(compendiumStore.items.length);
+  let totalRules = $derived(compendiumStore.rules.length);
+
+  // ── Dexie Database Query Implementations (.where() & indexed ranges) ───────
+  async function querySpells(school: string, levelStr: string, query: string): Promise<CompendiumSpell[]> {
+    const hasSchool = school !== 'all';
+    const hasLevel = levelStr !== 'all';
+    const lvl = hasLevel ? parseInt(levelStr, 10) : -1;
+
+    let results: CompendiumSpell[];
+
+    if (hasSchool && hasLevel) {
+      // Compound indexed query: [school+level]
+      results = await compendiumDb.spells
+        .where('[school+level]')
+        .equals([school, lvl])
+        .toArray();
+    } else if (hasSchool) {
+      // Single index query on school
+      results = await compendiumDb.spells
+        .where('school')
+        .equalsIgnoreCase(school)
+        .toArray();
+    } else if (hasLevel) {
+      // Single index query on level
+      results = await compendiumDb.spells
+        .where('level')
+        .equals(lvl)
+        .toArray();
+    } else {
+      results = await compendiumDb.spells.toArray();
+    }
+
+    // Substring fallback on name, description, and classes
+    if (query) {
+      results = results.filter((s) => {
+        const matchesName = s.name.toLowerCase().includes(query);
+        const matchesDesc = s.description?.toLowerCase().includes(query);
+        const matchesSchool = s.school.toLowerCase().includes(query);
+        const matchesClasses = s.parentClass?.some((c) => c.toLowerCase().includes(query));
+        return matchesName || matchesDesc || matchesSchool || matchesClasses;
+      });
+    }
+
+    return results.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+  }
+
+  async function queryMonsters(minCrStr: string, maxCrStr: string, typeStr: string, query: string): Promise<CompendiumMonster[]> {
+    const hasMin = minCrStr !== 'all';
+    const hasMax = maxCrStr !== 'all';
+    const minCr = hasMin ? parseFloat(minCrStr) : 0;
+    const maxCr = hasMax ? parseFloat(maxCrStr) : 30;
+    const hasType = typeStr !== 'all';
+
+    let results: CompendiumMonster[];
+
+    if (hasMin || hasMax) {
+      // Indexed range query on cr
+      results = await compendiumDb.monsters
+        .where('cr')
+        .between(minCr, maxCr, true, true)
+        .toArray();
+      if (hasType) {
+        results = results.filter((m) => m.type.toLowerCase().includes(typeStr.toLowerCase()));
+      }
+    } else if (hasType) {
+      // Single index query on type
+      results = await compendiumDb.monsters
+        .where('type')
+        .equalsIgnoreCase(typeStr)
+        .toArray();
+      if (results.length === 0) {
+        const all = await compendiumDb.monsters.toArray();
+        results = all.filter((m) => m.type.toLowerCase().includes(typeStr.toLowerCase()));
+      }
+    } else {
+      results = await compendiumDb.monsters.toArray();
+    }
+
+    // Substring fallback on name, type, alignment, and actions
+    if (query) {
+      results = results.filter((m) => {
+        const matchesName = m.name.toLowerCase().includes(query);
+        const matchesType = m.type.toLowerCase().includes(query);
+        const matchesAlign = (m.alignment || '').toLowerCase().includes(query);
+        const matchesActions = m.actions?.some(
+          (a) => a.name.toLowerCase().includes(query) || a.description.toLowerCase().includes(query)
+        );
+        return matchesName || matchesType || matchesAlign || matchesActions;
+      });
+    }
+
+    return results.sort((a, b) => a.cr - b.cr || a.name.localeCompare(b.name));
+  }
+
+  async function queryItems(rarityStr: string, typeStr: string, query: string): Promise<CompendiumItem[]> {
+    const hasRarity = rarityStr !== 'all';
+    const hasType = typeStr !== 'all';
+
+    let results: CompendiumItem[];
+
+    if (hasType && hasRarity) {
+      // Compound index query: [type+rarity]
+      results = await compendiumDb.items
+        .where('[type+rarity]')
+        .equals([typeStr, rarityStr])
+        .toArray();
+      if (results.length === 0) {
+        const all = await compendiumDb.items.toArray();
+        results = all.filter(
+          (it) =>
+            it.type.toLowerCase().includes(typeStr.toLowerCase()) &&
+            it.rarity.toLowerCase() === rarityStr.toLowerCase()
+        );
+      }
+    } else if (hasRarity) {
+      results = await compendiumDb.items
+        .where('rarity')
+        .equalsIgnoreCase(rarityStr)
+        .toArray();
+    } else if (hasType) {
+      results = await compendiumDb.items
+        .where('type')
+        .equalsIgnoreCase(typeStr)
+        .toArray();
+      if (results.length === 0) {
+        const all = await compendiumDb.items.toArray();
+        results = all.filter((it) => it.type.toLowerCase().includes(typeStr.toLowerCase()));
+      }
+    } else {
+      results = await compendiumDb.items.toArray();
+    }
+
+    // Substring fallback on name, type, rarity, and description
+    if (query) {
+      results = results.filter((it) => {
+        const matchesName = it.name.toLowerCase().includes(query);
+        const matchesType = it.type.toLowerCase().includes(query);
+        const matchesRarity = (it.rarity || '').toLowerCase().includes(query);
+        const matchesDesc = (it.description || '').toLowerCase().includes(query);
+        return matchesName || matchesType || matchesRarity || matchesDesc;
+      });
+    }
+
+    return results.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async function queryRules(catStr: string, query: string): Promise<CompendiumRule[]> {
+    const hasCat = catStr !== 'all';
+    let results: CompendiumRule[];
+
+    if (hasCat) {
+      results = await compendiumDb.rules
+        .where('category')
+        .equalsIgnoreCase(catStr)
+        .toArray();
+    } else {
+      results = await compendiumDb.rules.toArray();
+    }
+
+    // Substring fallback on title, category, and content
+    if (query) {
+      results = results.filter((r) => {
+        const matchesTitle = r.title.toLowerCase().includes(query);
+        const matchesCat = r.category.toLowerCase().includes(query);
+        const matchesSlug = r.slug.toLowerCase().includes(query);
+        const matchesContent = r.content.toLowerCase().includes(query);
+        return matchesTitle || matchesCat || matchesSlug || matchesContent;
+      });
+    }
+
+    return results.sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  // ── Reactive Query Runner ──────────────────────────────────────────────────
+  $effect(() => {
+    const tab = activeTab;
+    const q = debouncedQuery;
+    const sSch = spellSchool;
+    const sLvl = spellLevel;
+    const mMin = monsterCrMin;
+    const mMax = monsterCrMax;
+    const mTyp = monsterType;
+    const iRar = itemRarity;
+    const iTyp = itemType;
+    const rCat = ruleCategory;
+
+    // React to store changes as well
+    const _counts = totalSpells + totalMonsters + totalItems + totalRules;
+
+    let cancelled = false;
+    isQuerying = true;
+
+    async function execute() {
+      try {
+        let items: any[] = [];
+        if (tab === 'spells') {
+          items = await querySpells(sSch, sLvl, q);
+        } else if (tab === 'monsters') {
+          items = await queryMonsters(mMin, mMax, mTyp, q);
+        } else if (tab === 'items') {
+          items = await queryItems(iRar, iTyp, q);
+        } else if (tab === 'rules') {
+          items = await queryRules(rCat, q);
+        }
+
+        if (!cancelled) {
+          queryResults = items;
+          isQuerying = false;
+        }
+      } catch (err) {
+        console.error('Compendium query failure:', err);
+        if (!cancelled) isQuerying = false;
+      }
+    }
+
+    execute();
+
     return () => {
-      window.removeEventListener('compendium:monsters-updated', reload);
-      window.removeEventListener('compendium:data-synchronized', reload);
+      cancelled = true;
     };
   });
 
-  let allEntries = $derived<CompendiumEntry[]>([...SRD_ENTRIES, ...importedEntries]);
+  // Type-casted lists for rendering
+  let filteredSpells = $derived(activeTab === 'spells' ? (queryResults as CompendiumSpell[]) : []);
+  let filteredMonsters = $derived(activeTab === 'monsters' ? (queryResults as CompendiumMonster[]) : []);
+  let filteredItems = $derived(activeTab === 'items' ? (queryResults as CompendiumItem[]) : []);
+  let filteredRules = $derived(activeTab === 'rules' ? (queryResults as CompendiumRule[]) : []);
+  let currentResultCount = $derived(queryResults.length);
 
-  let filteredEntries = $derived<CompendiumEntry[]>(
-    allEntries.filter(e => {
-      const matchType = filterType === 'all' || e.type === filterType;
-      const matchSearch = !searchQuery.trim() || e.name.toLowerCase().includes(searchQuery.toLowerCase()) || e.description.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchType && matchSearch;
-    })
-  );
+  // ── Actions ────────────────────────────────────────────────────────────────
+  function handleSelectEntry(entry: SelectedCompendiumEntry) {
+    selectedEntry = entry;
+    isDrawerOpen = true;
+  }
+
+  function handleAddToCombat(monster: CompendiumMonster) {
+    sessionStore.addMonsterToCombat({
+      name: monster.name,
+      hp: monster.hp,
+      ac: monster.ac,
+      cr: monster.cr,
+      description: `${monster.size} ${monster.type}, ${monster.alignment}. Speed: ${monster.speed || '30 ft.'}`,
+    });
+    audioEngine.triggerSfx('sfx-combat');
+    showToast(`Added ${monster.name} to Encounter!`);
+  }
+
+  function handleSendToStash(item: CompendiumItem) {
+    sessionStore.addItemToPartyStash({
+      name: item.name,
+      category: item.type || 'Equipment',
+      quantity: 1,
+      weight: item.weight || 1.0,
+      description: item.description || '',
+    });
+    audioEngine.triggerSfx('sfx-bell');
+    showToast(`Sent ${item.name} to Party Stash!`);
+  }
+
+  function handlePinQuickbar(item: SelectedCompendiumEntry) {
+    const title = item.type === 'rule' ? item.data.title : item.data.name;
+    showToast(`Pinned "${title}" to DM Quickbar!`);
+  }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-  function crLabel(cr?: number): string {
-    if (cr === undefined) return '—';
+  function crLabel(cr: number): string {
     if (cr === 0.125) return '⅛';
-    if (cr === 0.25)  return '¼';
-    if (cr === 0.5)   return '½';
+    if (cr === 0.25) return '¼';
+    if (cr === 0.5) return '½';
     return String(cr);
   }
 
-  function typeColor(type: FilterType | 'creature' | 'spell' | 'item'): string {
-    if (type === 'creature') return 'text-rose-300 bg-rose-950/50 border-rose-800/30';
-    if (type === 'spell')    return 'text-cyan-300 bg-cyan-950/50 border-cyan-800/30';
-    if (type === 'item')     return 'text-amber-300 bg-amber-950/50 border-amber-800/30';
-    return 'text-slate-300 bg-slate-800 border-slate-700';
-  }
-
-  function rarityColor(r?: string): string {
-    if (!r) return 'text-slate-400';
-    const m: Record<string, string> = { Common:'text-slate-400', Uncommon:'text-emerald-400', Rare:'text-blue-400', 'Very Rare':'text-purple-400', Legendary:'text-amber-400' };
-    return m[r] ?? 'text-slate-400';
-  }
-
-  async function importFile(file: File) {
-    importFeedback = null;
-    try {
-      const text = await file.text();
-      if (file.name.endsWith('.json')) {
-        const parsed = JSON.parse(text) as unknown;
-        await importCompendiumJson(parsed);
-
-        const arr = Array.isArray(parsed) ? parsed : [parsed];
-        const entries: CompendiumEntry[] = (arr as Record<string, unknown>[]).map((e, i) => ({
-          id: `import-${Date.now()}-${i}`,
-          name: String(e.name ?? `Imported ${i + 1}`),
-          type: ['creature','spell','item'].includes(String(e.type)) ? String(e.type) as CompendiumEntry['type'] : 'creature',
-          description: String(e.description ?? e.desc ?? ''),
-          cr: typeof e.cr === 'number' ? e.cr : typeof e.challenge_rating === 'number' ? e.challenge_rating : undefined,
-          ac: typeof e.ac === 'number' ? e.ac : undefined,
-          hp: typeof e.hp === 'number' ? e.hp : typeof e.hit_points === 'number' ? e.hit_points : undefined,
-          size: typeof e.size === 'string' ? e.size : undefined,
-          creature_type: typeof e.creature_type === 'string' ? e.creature_type : typeof e.type_detail === 'string' ? e.type_detail : undefined,
-          level: typeof e.level === 'number' ? e.level : undefined,
-          school: typeof e.school === 'string' ? e.school : undefined,
-          casting_time: typeof e.casting_time === 'string' ? e.casting_time : undefined,
-          range: typeof e.range === 'string' ? e.range : undefined,
-          components: typeof e.components === 'string' ? e.components : undefined,
-          duration: typeof e.duration === 'string' ? e.duration : undefined,
-          rarity: typeof e.rarity === 'string' ? e.rarity : undefined,
-          requires_attunement: Boolean(e.requires_attunement),
-          source: 'imported',
-        }));
-        importedEntries = [...importedEntries, ...entries];
-        importFeedback = `Imported ${entries.length} entries from ${file.name}`;
-        audioEngine.triggerSfx('sfx-secret');
-      } else {
-        const lines = text.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 100);
-        const entries: CompendiumEntry[] = lines.map((name, i) => ({
-          id: `import-txt-${Date.now()}-${i}`,
-          name, type: 'creature', description: `Imported from ${file.name}. No additional data available.`, source: 'imported',
-        }));
-        importedEntries = [...importedEntries, ...entries];
-        importFeedback = `Imported ${entries.length} entries from ${file.name}`;
-      }
-    } catch {
-      importFeedback = `Error parsing ${file.name}. Ensure it is valid JSON or plain text.`;
-    }
-  }
-
-  function deleteImport(id: string) {
-    importedEntries = importedEntries.filter(e => e.id !== id);
-  }
-
-  function addToEncounter(entry: CompendiumEntry) {
-    sessionStore.addMonsterToCombat({
-      name: entry.name,
-      hp: entry.hp,
-      ac: entry.ac,
-      cr: entry.cr,
-      description: entry.description,
-    });
-    audioEngine.triggerSfx('sfx-combat');
-    actionToast = `Spawned ${entry.name} into Active Combat!`;
-    setTimeout(() => { actionToast = null; }, 3000);
-  }
-
-  function sendToPartyStash(entry: CompendiumEntry) {
-    sessionStore.addItemToPartyStash({
-      name: entry.name,
-      category: entry.rarity || 'Gear',
-      quantity: 1,
-      weight: 1.0,
-      description: entry.description,
-    });
-    audioEngine.triggerSfx('sfx-bell');
-    actionToast = `Sent ${entry.name} to Party Stash!`;
-    setTimeout(() => { actionToast = null; }, 3000);
+  function rarityBadgeColor(r?: string): string {
+    const l = (r || '').toLowerCase();
+    if (l.includes('uncommon')) return 'text-emerald-400 bg-emerald-950/60 border-emerald-800/60';
+    if (l.includes('very rare')) return 'text-purple-400 bg-purple-950/60 border-purple-800/60';
+    if (l.includes('rare')) return 'text-blue-400 bg-blue-950/60 border-blue-800/60';
+    if (l.includes('legendary') || l.includes('artifact')) return 'text-amber-400 bg-amber-950/60 border-amber-800/60';
+    return 'text-slate-400 bg-slate-900 border-slate-700';
   }
 </script>
 
-<div class="h-full flex flex-col overflow-hidden bg-slate-950">
+<div class="h-full flex flex-col overflow-hidden bg-slate-950 text-slate-100 font-sans select-none">
 
-  <!-- Header -->
-  <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-900 shrink-0">
-    <div class="flex items-center gap-2.5">
-      <span class="text-base">🏛️</span>
-      <div>
-        <h2 class="text-sm font-bold text-slate-200 uppercase tracking-wide">5e SRD Compendium</h2>
-        <p class="text-[10px] text-slate-500">{allEntries.length} entries · {importedEntries.length} imported</p>
+  <!-- ═════════════════════════════════════════════════════════════════════════
+       1. TOP SEARCH & CATEGORY BAR
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <div class="px-5 py-3 border-b border-slate-800 bg-slate-900/90 shrink-0 space-y-3">
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <span class="text-2xl">🏛️</span>
+        <div>
+          <h2 class="text-sm font-black uppercase tracking-wider text-slate-100 flex items-center gap-2">
+            5e SRD 5.1 Compendium
+            <span class="text-[9px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800/50">
+              Live Database
+            </span>
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">
+            Indexed searchable reference catalog for core 5e rules, monsters, spells & gear
+          </p>
+        </div>
       </div>
+
+      <!-- Action Toast Indicator -->
+      {#if actionToast}
+        <div class="px-3 py-1 rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-xs font-bold animate-pulse">
+          ⚡ {actionToast}
+        </div>
+      {/if}
     </div>
-    <button onclick={() => showImportModal = true} class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition-colors shadow">
-      ⬆ Import Data
-    </button>
+
+    <!-- Category Tabs: Spells, Monsters, Items, Rules -->
+    <div class="flex items-center gap-1.5 border-b border-slate-800 pb-2">
+      <button
+        type="button"
+        onclick={() => (activeTab = 'spells')}
+        class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 {activeTab === 'spells'
+          ? 'bg-cyan-950/70 text-cyan-300 border border-cyan-800/60 shadow-md shadow-cyan-950/30'
+          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'}"
+      >
+        <span>✨</span>
+        <span>Spells</span>
+        <span class="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-slate-950 text-slate-400">
+          {totalSpells}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => (activeTab = 'monsters')}
+        class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 {activeTab === 'monsters'
+          ? 'bg-rose-950/70 text-rose-300 border border-rose-800/60 shadow-md shadow-rose-950/30'
+          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'}"
+      >
+        <span>🐉</span>
+        <span>Monsters</span>
+        <span class="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-slate-950 text-slate-400">
+          {totalMonsters}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => (activeTab = 'items')}
+        class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 {activeTab === 'items'
+          ? 'bg-amber-950/70 text-amber-300 border border-amber-800/60 shadow-md shadow-amber-950/30'
+          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'}"
+      >
+        <span>⚔️</span>
+        <span>Items</span>
+        <span class="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-slate-950 text-slate-400">
+          {totalItems}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => (activeTab = 'rules')}
+        class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 {activeTab === 'rules'
+          ? 'bg-indigo-950/70 text-indigo-300 border border-indigo-800/60 shadow-md shadow-indigo-950/30'
+          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'}"
+      >
+        <span>📜</span>
+        <span>Rules</span>
+        <span class="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-slate-950 text-slate-400">
+          {totalRules}
+        </span>
+      </button>
+    </div>
+
+    <!-- Search Input + Dynamic Filter Ribbon -->
+    <div class="flex flex-wrap items-center gap-3">
+      <!-- Search Box -->
+      <div class="relative flex-1 min-w-[240px]">
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">🔍</span>
+        <input
+          type="search"
+          value={searchQuery}
+          oninput={handleSearchInput}
+          placeholder="Search by name, action, school, damage, or keyword..."
+          class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
+        />
+      </div>
+
+      <!-- Category-Specific Filters Derived using Svelte 5 -->
+      {#if activeTab === 'spells'}
+        <!-- Spell Level Filter -->
+        <div class="flex items-center gap-1 text-xs">
+          <label for="spell-lvl-select" class="text-slate-400 font-semibold text-[11px]">Level:</label>
+          <select
+            id="spell-lvl-select"
+            bind:value={spellLevel}
+            class="bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-cyan-500"
+          >
+            <option value="all">All Levels</option>
+            <option value="0">Cantrip (0)</option>
+            {#each [1, 2, 3, 4, 5, 6, 7, 8, 9] as lvl}
+              <option value={String(lvl)}>Level {lvl}</option>
+            {/each}
+          </select>
+        </div>
+
+        <!-- Spell School Filter -->
+        <div class="flex items-center gap-1 text-xs">
+          <label for="spell-school-select" class="text-slate-400 font-semibold text-[11px]">School:</label>
+          <select
+            id="spell-school-select"
+            bind:value={spellSchool}
+            class="bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-cyan-500"
+          >
+            <option value="all">All Schools</option>
+            {#each derivedSpellSchools as sch}
+              <option value={sch}>{sch}</option>
+            {/each}
+          </select>
+        </div>
+
+      {:else if activeTab === 'monsters'}
+        <!-- CR Min -->
+        <div class="flex items-center gap-1 text-xs">
+          <label for="monster-cr-min" class="text-slate-400 font-semibold text-[11px]">CR Min:</label>
+          <select
+            id="monster-cr-min"
+            bind:value={monsterCrMin}
+            class="bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-rose-500"
+          >
+            <option value="all">Any</option>
+            <option value="0">0</option>
+            <option value="0.125">1/8</option>
+            <option value="0.25">1/4</option>
+            <option value="0.5">1/2</option>
+            {#each [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20] as cr}
+              <option value={String(cr)}>{cr}</option>
+            {/each}
+          </select>
+        </div>
+
+        <!-- CR Max -->
+        <div class="flex items-center gap-1 text-xs">
+          <label for="monster-cr-max" class="text-slate-400 font-semibold text-[11px]">CR Max:</label>
+          <select
+            id="monster-cr-max"
+            bind:value={monsterCrMax}
+            class="bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-rose-500"
+          >
+            <option value="all">Any</option>
+            <option value="0.25">1/4</option>
+            <option value="0.5">1/2</option>
+            {#each [1, 2, 3, 4, 5, 8, 10, 15, 20, 30] as cr}
+              <option value={String(cr)}>{cr}</option>
+            {/each}
+          </select>
+        </div>
+
+        <!-- Creature Type Filter -->
+        <div class="flex items-center gap-1 text-xs">
+          <label for="monster-type-select" class="text-slate-400 font-semibold text-[11px]">Type:</label>
+          <select
+            id="monster-type-select"
+            bind:value={monsterType}
+            class="bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-rose-500"
+          >
+            <option value="all">All Types</option>
+            {#each derivedCreatureTypes as type}
+              <option value={type}>{type}</option>
+            {/each}
+          </select>
+        </div>
+
+      {:else if activeTab === 'items'}
+        <!-- Item Rarity Filter -->
+        <div class="flex items-center gap-1 text-xs">
+          <label for="item-rarity-select" class="text-slate-400 font-semibold text-[11px]">Rarity:</label>
+          <select
+            id="item-rarity-select"
+            bind:value={itemRarity}
+            class="bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-amber-500"
+          >
+            <option value="all">All Rarities</option>
+            {#each derivedItemRarities as rar}
+              <option value={rar}>{rar}</option>
+            {/each}
+          </select>
+        </div>
+
+        <!-- Item Type Filter -->
+        <div class="flex items-center gap-1 text-xs">
+          <label for="item-type-select" class="text-slate-400 font-semibold text-[11px]">Type:</label>
+          <select
+            id="item-type-select"
+            bind:value={itemType}
+            class="bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-amber-500"
+          >
+            <option value="all">All Types</option>
+            {#each derivedItemTypes as type}
+              <option value={type}>{type}</option>
+            {/each}
+          </select>
+        </div>
+
+      {:else if activeTab === 'rules'}
+        <!-- Rule Category Filter -->
+        <div class="flex items-center gap-1 text-xs">
+          <label for="rule-cat-select" class="text-slate-400 font-semibold text-[11px]">Category:</label>
+          <select
+            id="rule-cat-select"
+            bind:value={ruleCategory}
+            class="bg-slate-950 border border-slate-800 text-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-indigo-500"
+          >
+            <option value="all">All Categories</option>
+            {#each derivedRuleCategories as cat}
+              <option value={cat}>{cat}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
+    </div>
   </div>
 
-  {#if actionToast}
-    <div class="bg-emerald-950/90 border-b border-emerald-800/60 px-4 py-1.5 text-center text-xs font-bold text-emerald-300 animate-pulse shrink-0">
-      ⚡ {actionToast}
-    </div>
-  {/if}
-
-  <!-- Search + Filter bar -->
-  <div class="flex gap-2 px-3 py-2 border-b border-slate-800 bg-slate-900/50 shrink-0">
-    <input
-      type="search"
-      bind:value={searchQuery}
-      placeholder="Search monsters, spells, items, properties…"
-      class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 placeholder:text-slate-600"
-    />
-    <div class="flex gap-1">
-      {#each (['all','creature','spell','item'] as FilterType[]) as ft}
-        <button
-          onclick={() => filterType = ft}
-          class="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors {filterType === ft ? typeColor(ft) + ' border' : 'text-slate-500 hover:text-slate-300 border border-transparent'}"
-        >
-          {ft === 'creature' ? 'Monsters' : ft === 'spell' ? 'Spells' : ft === 'item' ? 'Items' : 'All'}
-        </button>
-      {/each}
-    </div>
-  </div>
-
-  <!-- Results count -->
-  <div class="px-4 py-1.5 text-[10px] text-slate-600 border-b border-slate-800/40 shrink-0">
-    {filteredEntries.length} result{filteredEntries.length !== 1 ? 's' : ''}
-  </div>
-
-  <!-- Entry List -->
-  <div class="flex-1 overflow-y-auto">
-    {#if filteredEntries.length === 0}
-      <div class="text-center py-16 text-slate-600 text-xs">No entries match "{searchQuery}"</div>
+  <!-- Results Count Subheader -->
+  <div class="px-5 py-2 border-b border-slate-800/80 bg-slate-950/40 text-[11px] text-slate-400 flex items-center justify-between shrink-0">
+    <span>
+      Showing {currentResultCount} {activeTab}
+      {#if debouncedQuery} matching <strong class="text-slate-200">"{searchQuery}"</strong>{/if}
+    </span>
+    {#if isQuerying}
+      <span class="text-[10px] text-indigo-400 font-mono animate-pulse">Indexed Querying...</span>
     {/if}
-    {#each filteredEntries as entry (entry.id)}
-      <div class="border-b border-slate-800/60 hover:bg-slate-900/60 transition-colors">
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════════════════
+       2. SCROLLABLE RESULTS LIST VIEW
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <div class="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin">
+    <!-- Empty State Fallback -->
+    {#if currentResultCount === 0 && !isQuerying}
+      <div class="py-20 flex flex-col items-center justify-center text-center space-y-2 text-slate-500">
+        <span class="text-4xl opacity-50">📭</span>
+        <h3 class="text-sm font-bold text-slate-400">No records found</h3>
+        <p class="text-xs text-slate-600 max-w-sm">
+          No {activeTab} match your current filter criteria or search query.
+          Try clearing your search filters or indexing custom packages.
+        </p>
+      </div>
+
+    <!-- Spells List View -->
+    {:else if activeTab === 'spells'}
+      {#each filteredSpells as spell (spell.id)}
         <div
           role="button"
           tabindex="0"
-          class="flex items-start gap-3 px-4 py-3 cursor-pointer w-full text-left"
-          onclick={() => detailEntry = detailEntry?.id === entry.id ? null : entry}
-          onkeydown={(e) => { if (e.key === 'Enter') detailEntry = detailEntry?.id === entry.id ? null : entry; }}
+          onclick={() => handleSelectEntry({ type: 'spell', data: spell })}
+          onkeydown={(e) => e.key === 'Enter' && handleSelectEntry({ type: 'spell', data: spell })}
+          class="p-3.5 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-cyan-900/80 rounded-xl flex items-center justify-between gap-3 text-xs transition-colors cursor-pointer group"
         >
-          <!-- Type badge -->
-          <span class="shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border {typeColor(entry.type)}">
-            {entry.type === 'creature' ? 'Monster' : entry.type}
-          </span>
+          <div class="min-w-0 flex-1 flex items-start gap-3">
+            <span class="text-lg mt-0.5 shrink-0">✨</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-bold text-slate-100 group-hover:text-cyan-300 transition-colors">
+                  {spell.name}
+                </span>
+                <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-cyan-950 text-cyan-300 border border-cyan-900/60">
+                  {spell.level === 0 ? 'Cantrip' : `Lvl ${spell.level}`}
+                </span>
+                <span class="text-[10px] text-slate-400">
+                  {spell.school}
+                </span>
+                {#if spell.ritual}
+                  <span class="text-[9px] font-mono uppercase px-1 rounded bg-slate-800 text-slate-300">Ritual</span>
+                {/if}
+                {#if spell.concentration || spell.duration?.toLowerCase().includes('concentration')}
+                  <span class="text-[9px] font-mono uppercase px-1 rounded bg-amber-950 text-amber-300 border border-amber-800/40">Concentration</span>
+                {/if}
+              </div>
 
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-sm font-bold text-slate-200">{entry.name}</span>
-              {#if entry.type === 'creature' && entry.cr !== undefined}
-                <span class="text-[10px] font-mono text-slate-500">CR {crLabel(entry.cr)}</span>
-                {#if entry.ac !== undefined}<span class="text-[10px] font-mono text-slate-600">AC {entry.ac}</span>{/if}
-                {#if entry.hp !== undefined}<span class="text-[10px] font-mono text-rose-400/80">HP {entry.hp}</span>{/if}
-              {/if}
-              {#if entry.type === 'spell' && entry.level !== undefined}
-                <span class="text-[10px] font-mono text-cyan-400">Lvl {entry.level} {entry.school}</span>
-              {/if}
-              {#if entry.type === 'item' && entry.rarity}
-                <span class="text-[10px] font-semibold {rarityColor(entry.rarity)}">{entry.rarity}</span>
-                {#if entry.requires_attunement}<span class="text-[9px] text-slate-600">(Attunement)</span>{/if}
-              {/if}
-              {#if entry.source === 'imported'}
-                <span class="text-[9px] text-indigo-400 font-mono">imported</span>
-              {/if}
+              <div class="flex items-center gap-3 mt-1 text-[11px] text-slate-400 font-mono">
+                <span>Cast: {spell.castingTime || spell.casting_time}</span>
+                <span>Range: {spell.range}</span>
+                <span>Dur: {spell.duration}</span>
+              </div>
             </div>
-            <p class="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{entry.description}</p>
-          </div>
-
-          <!-- Quick actions -->
-          <div class="flex gap-1.5 shrink-0 ml-1">
-            {#if entry.type === 'creature'}
-              <button
-                onclick={(e) => { e.stopPropagation(); addToEncounter(entry); }}
-                class="px-2.5 py-1 bg-rose-950/70 hover:bg-rose-900/80 text-rose-300 text-[10px] font-bold rounded border border-rose-800/40 transition-colors whitespace-nowrap"
-                title="Add to Active Combat Encounter"
-              >
-                + Combat
-              </button>
-            {:else if entry.type === 'item'}
-              <button
-                onclick={(e) => { e.stopPropagation(); sendToPartyStash(entry); }}
-                class="px-2.5 py-1 bg-amber-950/70 hover:bg-amber-900/80 text-amber-300 text-[10px] font-bold rounded border border-amber-800/40 transition-colors whitespace-nowrap"
-                title="Send to Party Stash"
-              >
-                + Stash
-              </button>
-            {/if}
-
-            {#if entry.source === 'imported'}
-              <button
-                onclick={(e) => { e.stopPropagation(); deleteImport(entry.id); }}
-                class="p-1 text-slate-600 hover:text-rose-400 text-xs transition-colors"
-                title="Delete import"
-              >✕</button>
-            {/if}
           </div>
         </div>
+      {/each}
 
-        <!-- Expanded Detail -->
-        {#if detailEntry?.id === entry.id}
-          <div class="px-4 pb-4 pt-1 bg-slate-900/40 space-y-2">
-            <p class="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{entry.description}</p>
-            {#if entry.type === 'spell'}
-              <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] bg-slate-950/60 p-2.5 rounded-lg border border-slate-800">
-                {#if entry.casting_time}<div><span class="text-slate-500">Cast Time:</span> <span class="text-slate-300">{entry.casting_time}</span></div>{/if}
-                {#if entry.range}<div><span class="text-slate-500">Range:</span> <span class="text-slate-300">{entry.range}</span></div>{/if}
-                {#if entry.components}<div><span class="text-slate-500">Components:</span> <span class="text-slate-300">{entry.components}</span></div>{/if}
-                {#if entry.duration}<div><span class="text-slate-500">Duration:</span> <span class="text-slate-300">{entry.duration}</span></div>{/if}
+    <!-- Monsters List View -->
+    {:else if activeTab === 'monsters'}
+      {#each filteredMonsters as monster (monster.id)}
+        <div
+          role="button"
+          tabindex="0"
+          onclick={() => handleSelectEntry({ type: 'monster', data: monster })}
+          onkeydown={(e) => e.key === 'Enter' && handleSelectEntry({ type: 'monster', data: monster })}
+          class="p-3.5 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-rose-900/80 rounded-xl flex items-center justify-between gap-3 text-xs transition-colors cursor-pointer group"
+        >
+          <div class="min-w-0 flex-1 flex items-start gap-3">
+            <span class="text-lg mt-0.5 shrink-0">🐉</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-bold text-slate-100 group-hover:text-rose-400 transition-colors">
+                  {monster.name}
+                </span>
+                <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-rose-950 text-rose-300 border border-rose-900/60">
+                  CR {crLabel(monster.cr)}
+                </span>
+                <span class="text-[10px] text-slate-400">
+                  {monster.size || 'Medium'} {monster.type}
+                </span>
+                {#if monster.alignment}
+                  <span class="text-[10px] text-slate-500 italic">· {monster.alignment}</span>
+                {/if}
               </div>
-            {/if}
+
+              <!-- Quick Stats -->
+              <div class="flex items-center gap-3 mt-1 text-[11px] text-slate-400 font-mono">
+                <span>AC: <strong class="text-slate-200">{monster.ac}</strong></span>
+                <span>HP: <strong class="text-rose-400">{monster.hp}</strong></span>
+                {#if monster.speed}<span>Spd: {monster.speed}</span>{/if}
+              </div>
+            </div>
           </div>
-        {/if}
-      </div>
-    {/each}
+
+          <!-- Quick Action Buttons -->
+          <div class="flex items-center gap-1.5 shrink-0" onclick={(e) => e.stopPropagation()} role="presentation">
+            <button
+              type="button"
+              onclick={() => handleAddToCombat(monster)}
+              class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/60 transition-colors shadow"
+              title="Add to Encounter Combat Tracker"
+            >
+              + Encounter
+            </button>
+          </div>
+        </div>
+      {/each}
+
+    <!-- Items List View -->
+    {:else if activeTab === 'items'}
+      {#each filteredItems as item (item.id)}
+        <div
+          role="button"
+          tabindex="0"
+          onclick={() => handleSelectEntry({ type: 'item', data: item })}
+          onkeydown={(e) => e.key === 'Enter' && handleSelectEntry({ type: 'item', data: item })}
+          class="p-3.5 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-amber-900/80 rounded-xl flex items-center justify-between gap-3 text-xs transition-colors cursor-pointer group"
+        >
+          <div class="min-w-0 flex-1 flex items-start gap-3">
+            <span class="text-lg mt-0.5 shrink-0">⚔️</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-bold text-slate-100 group-hover:text-amber-300 transition-colors">
+                  {item.name}
+                </span>
+                <span class="px-1.5 py-0.2 rounded text-[10px] font-semibold border {rarityBadgeColor(item.rarity)}">
+                  {item.rarity || 'Common'}
+                </span>
+                <span class="text-[10px] text-slate-400">{item.type}</span>
+                {#if item.cost}<span class="text-[10px] font-mono text-amber-400/90 font-semibold">{item.cost}</span>{/if}
+                {#if item.weight !== undefined}<span class="text-[10px] font-mono text-slate-500">{item.weight} lb.</span>{/if}
+              </div>
+
+              {#if item.description}
+                <p class="text-[11px] text-slate-500 mt-1 line-clamp-1">
+                  {item.description}
+                </p>
+              {/if}
+            </div>
+          </div>
+
+          <div class="flex items-center gap-1.5 shrink-0" onclick={(e) => e.stopPropagation()} role="presentation">
+            <button
+              type="button"
+              onclick={() => handleSendToStash(item)}
+              class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800/60 transition-colors shadow"
+              title="Add to Party Stash"
+            >
+              + Stash
+            </button>
+          </div>
+        </div>
+      {/each}
+
+    <!-- Rules List View -->
+    {:else if activeTab === 'rules'}
+      {#each filteredRules as rule (rule.id)}
+        <div
+          role="button"
+          tabindex="0"
+          onclick={() => handleSelectEntry({ type: 'rule', data: rule })}
+          onkeydown={(e) => e.key === 'Enter' && handleSelectEntry({ type: 'rule', data: rule })}
+          class="p-3.5 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-indigo-900/80 rounded-xl flex items-center justify-between gap-3 text-xs transition-colors cursor-pointer group"
+        >
+          <div class="min-w-0 flex-1 flex items-start gap-3">
+            <span class="text-lg mt-0.5 shrink-0">📜</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-bold text-slate-100 group-hover:text-indigo-300 transition-colors">
+                  {rule.title}
+                </span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-800/60">
+                  {rule.category}
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                {rule.content}
+              </p>
+            </div>
+          </div>
+        </div>
+      {/each}
+    {/if}
   </div>
 </div>
 
-<!-- Import Modal -->
-{#if showImportModal}
-  <div
-    role="presentation"
-    class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-    onclick={(e) => { if (e.target === e.currentTarget) showImportModal = false; }}
-  >
-    <div class="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6 space-y-4">
-      <h3 class="text-base font-bold text-slate-100">Import 5e Compendium Data</h3>
-      <p class="text-xs text-slate-400">Accepts standard SRD JSON datasets, monster stat block arrays, or plain text lists.</p>
-
-      <label class="block w-full py-10 border-2 border-dashed border-slate-700 rounded-xl text-center cursor-pointer hover:border-indigo-500 hover:bg-indigo-950/10 transition-colors">
-        <span class="text-3xl block mb-2">📂</span>
-        <span class="text-xs font-semibold text-slate-400">Click to select JSON, CSV, or TXT file</span>
-        <input type="file" accept=".json,.csv,.txt" class="hidden"
-          onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) importFile(f); }} />
-      </label>
-
-      {#if importFeedback}
-        <div class="p-3 {importFeedback.startsWith('Error') ? 'bg-rose-950/50 border-rose-800/40 text-rose-300' : 'bg-emerald-950/50 border-emerald-800/40 text-emerald-300'} border rounded-lg text-xs font-semibold">
-          {importFeedback}
-        </div>
-      {/if}
-
-      <div class="flex justify-end gap-3">
-        <button onclick={() => { showImportModal = false; importFeedback = null; }} class="px-5 py-2.5 bg-slate-800 text-slate-300 text-sm rounded-xl hover:bg-slate-700 transition-colors">Close</button>
-      </div>
-    </div>
-  </div>
-{/if}
+<!-- ═════════════════════════════════════════════════════════════════════════
+     3. SLIDING STATBLOCK / DETAIL DRAWER OVERLAY
+══════════════════════════════════════════════════════════════════════════ -->
+<StatblockDrawer
+  bind:isOpen={isDrawerOpen}
+  entry={selectedEntry}
+  onClose={() => (isDrawerOpen = false)}
+  onAddToEncounter={handleAddToCombat}
+  onPinToQuickbar={handlePinQuickbar}
+/>

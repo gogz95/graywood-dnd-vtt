@@ -3,19 +3,21 @@
 
 import { audioEngine } from '../audio/AudioEngine';
 
-export type DropCategory = 'audio' | 'image' | 'json' | 'text' | 'unknown';
+export type DropCategory = 'audio' | 'image' | 'map' | 'json' | 'text' | 'pdf' | 'unknown';
 
 export interface DroppedAsset {
   category: DropCategory;
   fileName: string;
-  url: string;   // Object URL (audio/image) or empty string (text/json handled in-line)
+  url: string;   // Object URL (audio/image/map) or empty string (text/json handled in-line)
   data?: string; // text content for json/text files
+  file?: File;
 }
 
 export type DropCallback = (asset: DroppedAsset) => void;
 
 const AUDIO_EXTS = new Set(['.mp3', '.ogg', '.wav', '.flac', '.webm', '.m4a', '.aac']);
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.avif', '.bmp']);
+const MAP_EXTS = new Set(['.dd2vtt', '.uvtt', '.geojson', '.map', '.ds']);
 
 function ext(name: string): string {
   const idx = name.lastIndexOf('.');
@@ -24,8 +26,10 @@ function ext(name: string): string {
 
 function categorize(file: File): DropCategory {
   const e = ext(file.name);
+  if (MAP_EXTS.has(e)) return 'map';
   if (AUDIO_EXTS.has(e)) return 'audio';
   if (IMAGE_EXTS.has(e)) return 'image';
+  if (e === '.pdf' || file.type === 'application/pdf') return 'pdf';
   if (e === '.json') return 'json';
   if (e === '.txt' || e === '.md') return 'text';
   if (file.type.startsWith('audio/')) return 'audio';
@@ -38,17 +42,22 @@ function categorize(file: File): DropCategory {
 async function processFile(file: File): Promise<DroppedAsset> {
   const category = categorize(file);
 
-  if (category === 'audio' || category === 'image') {
+  if (category === 'audio' || category === 'image' || category === 'map') {
     const url = URL.createObjectURL(file);
-    return { category, fileName: file.name, url };
+    return { category, fileName: file.name, url, file };
   }
 
   if (category === 'json' || category === 'text') {
     const data = await file.text();
-    return { category, fileName: file.name, url: '', data };
+    return { category, fileName: file.name, url: '', data, file };
   }
 
-  return { category: 'unknown', fileName: file.name, url: '' };
+  if (category === 'pdf') {
+    const url = URL.createObjectURL(file);
+    return { category, fileName: file.name, url, file };
+  }
+
+  return { category: 'unknown', fileName: file.name, url: '', file };
 }
 
 /**

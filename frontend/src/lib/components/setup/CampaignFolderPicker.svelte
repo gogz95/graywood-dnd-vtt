@@ -13,7 +13,8 @@
   async function handleBrowse() {
     const res = await campaignDirectoryStore.selectDirectory();
     if (res && onSelect) {
-      onSelect(res.root_path);
+      const p = typeof res === 'string' ? res : res.root_path;
+      if (p) onSelect(p);
     }
   }
 

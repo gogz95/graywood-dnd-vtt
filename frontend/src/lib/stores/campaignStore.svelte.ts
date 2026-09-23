@@ -49,6 +49,11 @@ export class CampaignStore {
     if (typeof window !== 'undefined') {
       try {
         if (compendiumDb.campaignFlags) {
+          const profileFlag = await compendiumDb.campaignFlags.get('activeCampaignProfile');
+          if (profileFlag && typeof profileFlag.value === 'string' && profileFlag.value.trim() !== '') {
+            this.campaignName = profileFlag.value;
+          }
+
           const nameFlag = await compendiumDb.campaignFlags.get('campaignName');
           if (nameFlag && typeof nameFlag.value === 'string' && nameFlag.value.trim() !== '') {
             this.campaignName = nameFlag.value;
@@ -65,8 +70,8 @@ export class CampaignStore {
           }
 
           const wizardFlag = await compendiumDb.campaignFlags.get('hasCompletedWizard');
-          if (wizardFlag && typeof wizardFlag.value === 'boolean') {
-            this.hasCompletedWizard = wizardFlag.value;
+          if (wizardFlag && (wizardFlag.value === true || wizardFlag.value === 'true')) {
+            this.hasCompletedWizard = true;
           }
         }
       } catch (err) {
@@ -81,6 +86,7 @@ export class CampaignStore {
       try {
         await compendiumDb.campaignFlags.bulkPut([
           { key: 'campaignName', value: this.campaignName },
+          { key: 'activeCampaignProfile', value: this.campaignName },
           { key: 'dmAlias', value: this.dmAlias },
           { key: 'masterPin', value: this.masterPin },
           { key: 'hasCompletedWizard', value: this.hasCompletedWizard }

@@ -9,14 +9,13 @@
   import { campaignStore } from '../../stores/campaignStore.svelte';
   import { ingestUniversalFile } from '../../importers/universalIngestionEngine';
   import { importUniversalMap } from '../../services/mapImporter';
-  import { seedSrdCompendiumIfEmpty } from '../../services/srdSeedService';
   import { campaignDirectoryStore } from '../../stores/campaignDirectoryStore.svelte';
   import Step2Scaffolding from './Step2Scaffolding.svelte';
 
   let {
     isOpen = $bindable(false),
     onComplete,
-    maxSteps = 4,
+    maxSteps = 3,
   }: {
     isOpen?: boolean;
     onComplete?: () => void;
@@ -49,9 +48,7 @@
   let ruleGrittyRealism = $state(false);
   let ruleDurability = $state(false);
 
-  // Step 4: Compendium & Sources
-  let isSeeding = $state(false);
-  let seededCount = $state<number | null>(null);
+  // Step 3 Ingestion
   let isDragging = $state(false);
   let importedFiles = $state<string[]>([]);
 
@@ -108,18 +105,6 @@
       step += 1;
     } else {
       await finishSetup();
-    }
-  }
-
-  async function handleSeedSrd(): Promise<void> {
-    isSeeding = true;
-    try {
-      const res = await seedSrdCompendiumIfEmpty(true);
-      seededCount = res.monstersCount + res.spellsCount + res.itemsCount;
-    } catch {
-      // ignore
-    } finally {
-      isSeeding = false;
     }
   }
 
@@ -197,7 +182,7 @@
           <span class="text-xl">🎲</span>
           <div>
             <h2 class="text-sm font-black text-slate-100 uppercase tracking-wider">GRAYWOOD VTT SETUP WIZARD</h2>
-            <p class="text-[11px] text-slate-400">Step {step} of {maxSteps}: {step === 1 ? 'Campaign Identity' : step === 2 ? 'Campaign Scaffolding' : step === 3 ? 'Display & Rules' : 'Compendium & Ingestion'}</p>
+            <p class="text-[11px] text-slate-400">Step {step} of {maxSteps}: {step === 1 ? 'Campaign Identity' : step === 2 ? 'Campaign Scaffolding' : 'Display & Rules'}</p>
           </div>
         </div>
         <!-- Step Indicators & Dismiss Button -->
@@ -329,44 +314,29 @@
                 </label>
               </div>
             </div>
-          </div>
-        {:else if step === 4}
-          <div class="space-y-3">
-            <h3 class="font-bold text-sm text-slate-200">Compendium Seeding &amp; Source Ingestion</h3>
-            <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-              <div>
-                <span class="font-bold text-slate-200 block">Seed 5e SRD 5.1 Baseline</span>
-                <span class="text-[10px] text-slate-500">Populates 300+ SRD Spells, Subclasses, Monsters, and Facilities.</span>
-              </div>
-              <button
-                type="button"
-                onclick={handleSeedSrd}
-                disabled={isSeeding || seededCount !== null}
-                class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-lg transition-colors"
+
+            <!-- Source Material Ingestion -->
+            <div class="space-y-2 pt-2 border-t border-slate-800">
+              <h3 class="font-bold text-sm text-slate-200">Source Material Ingestion (Optional)</h3>
+              <div
+                role="region"
+                aria-label="Dropzone"
+                ondragover={(e) => { e.preventDefault(); isDragging = true; }}
+                ondragleave={() => isDragging = false}
+                ondrop={handleDropFiles}
+                class="border-2 border-dashed rounded-xl p-5 text-center transition-all {isDragging ? 'border-indigo-400 bg-indigo-950/20' : 'border-slate-800 bg-slate-950/50'}"
               >
-                {isSeeding ? 'Seeding…' : seededCount !== null ? `✓ Seeded` : 'Seed Compendium'}
-              </button>
-            </div>
-
-            <!-- Drag and drop zone -->
-            <div
-              role="region"
-              aria-label="Dropzone"
-              ondragover={(e) => { e.preventDefault(); isDragging = true; }}
-              ondragleave={() => isDragging = false}
-              ondrop={handleDropFiles}
-              class="border-2 border-dashed rounded-xl p-6 text-center transition-all {isDragging ? 'border-indigo-400 bg-indigo-950/20' : 'border-slate-800 bg-slate-950/50'}"
-            >
-              <span class="text-3xl block mb-1">📂</span>
-              <span class="font-bold text-slate-300 block">Drop Sourcebooks, PDFs or Azgaar Maps</span>
-              <span class="text-[10px] text-slate-500 block">Accepts .pdf, .md, .txt, .geojson, .dd2vtt</span>
-            </div>
-
-            {#if importedFiles.length > 0}
-              <div class="text-[10px] text-emerald-400 font-mono">
-                Imported: {importedFiles.join(', ')}
+                <span class="text-2xl block mb-1">📂</span>
+                <span class="font-bold text-slate-300 block">Drop Sourcebooks, PDFs or Azgaar Maps</span>
+                <span class="text-[10px] text-slate-500 block">Accepts .pdf, .md, .txt, .geojson, .dd2vtt</span>
               </div>
-            {/if}
+
+              {#if importedFiles.length > 0}
+                <div class="text-[10px] text-emerald-400 font-mono">
+                  Imported: {importedFiles.join(', ')}
+                </div>
+              {/if}
+            </div>
           </div>
         {/if}
       </div>

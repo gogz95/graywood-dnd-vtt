@@ -9,7 +9,8 @@ import {
   type CompendiumMonster,
   type CompendiumFacility,
   type CompendiumItem,
-  type CompendiumJournal
+  type CompendiumJournal,
+  type CompendiumRule
 } from '../db/compendiumDb';
 import type { IngestedTable } from '../types/compendium';
 import { extractAndStoreCompendiumSource, type ExtractionResult } from '../importers/pdfRuleExtractor';
@@ -33,6 +34,7 @@ class CompendiumStore {
   facilities = $state<CompendiumFacility[]>([]);
   items = $state<CompendiumItem[]>([]);
   journal = $state<CompendiumJournal[]>([]);
+  rules = $state<CompendiumRule[]>([]);
   tables = $state<IngestedTable[]>([]);
   packages = $state<PackageSummary[]>([]);
   isLoading = $state(true);
@@ -42,6 +44,7 @@ class CompendiumStore {
   spellCount = $derived(this.spells.length);
   itemCount = $derived(this.items.length);
   journalCount = $derived(this.journal.length);
+  ruleCount = $derived(this.rules.length);
 
   private subs: Subscription[] = [];
 
@@ -101,7 +104,14 @@ class CompendiumStore {
       error: (err) => console.warn('Compendium journal liveQuery error:', err)
     });
 
-    this.subs = [spellsSub, subSub, monsterSub, facilitySub, itemsSub, journalSub];
+    const rulesSub = liveQuery(() => compendiumDb.rules.toArray()).subscribe({
+      next: (val) => {
+        this.rules = val;
+      },
+      error: (err) => console.warn('Compendium rules liveQuery error:', err)
+    });
+
+    this.subs = [spellsSub, subSub, monsterSub, facilitySub, itemsSub, journalSub, rulesSub];
   }
 
   async refreshFromDb(): Promise<void> {
@@ -220,7 +230,7 @@ class CompendiumStore {
 
   getSpellsByClass(className: string): CompendiumSpell[] {
     const c = className.toLowerCase();
-    return this.spells.filter((s) => s.parentClass.some((pc) => pc.toLowerCase() === c));
+    return this.spells.filter((s) => s.parentClass?.some((pc) => pc.toLowerCase() === c));
   }
 
   getSubclassesForClass(className: string): CompendiumSubclass[] {

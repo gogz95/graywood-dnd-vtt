@@ -7,7 +7,7 @@
   let {
     isOpen = $bindable(false),
     onComplete,
-    maxSteps = 4,
+    maxSteps = 3,
   }: {
     isOpen?: boolean;
     onComplete?: () => void;

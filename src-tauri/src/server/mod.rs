@@ -1,3 +1,4 @@
+pub mod companion_hub;
 pub mod error;
 pub mod routes;
 pub mod state;
@@ -70,6 +71,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/campaign/directory/current",
             get(routes::campaign_dir::get_current_directory),
+        )
+        .route(
+            "/api/campaign/directory/status",
+            get(routes::campaign_dir::get_campaign_directory_status),
         )
         .route(
             "/api/campaign/directory/select",
@@ -149,6 +154,19 @@ pub fn create_router(state: AppState) -> Router {
         )
         // 8. WebSocket Synchronization Hub
         .route("/ws", get(routes::ws::ws_handler))
+        // 9. Mobile Companion Relay & Discovery Endpoints
+        .route(
+            "/api/companion/status",
+            get(companion_hub::get_companion_status),
+        )
+        .route(
+            "/api/companion/config",
+            post(companion_hub::set_companion_config),
+        )
+        .route(
+            "/ws/companion",
+            get(companion_hub::companion_ws_handler),
+        )
         // Catch-all fallback for client-side routing
         .fallback(routes::assets::serve_index)
         .layer(cors)

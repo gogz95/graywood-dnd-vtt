@@ -45,8 +45,9 @@
   });
 
   // ── Core logic ───────────────────────────────────────────────────────────
-  async function runVerify(path: string): Promise<void> {
-    if (!path.trim()) return;
+  async function runVerify(path: string | undefined | null): Promise<void> {
+    const cleanPath = path?.trim();
+    if (!cleanPath) return;
     isVerifying = true;
     verifyError = null;
     report = null;
@@ -56,7 +57,7 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          root_path: path.trim(),
+          root_path: cleanPath,
           seed_srd: seedSrd,
         }),
       });
@@ -66,9 +67,29 @@
         throw new Error((body as any).error ?? `HTTP ${res.status}`);
       }
 
-      report = (await res.json()) as ScaffoldReport;
-      selectedDirectory = path.trim();
-      onDirectoryConfirmed?.(path.trim());
+      let reportData: ScaffoldReport | null = null;
+      try {
+        const text = await res.text();
+        reportData = text ? JSON.parse(text) : null;
+      } catch {
+        // ignore
+      }
+
+      report = reportData ?? {
+        root_path: cleanPath,
+        subdirs: REQUIRED_SUBDIRS.map((p) => ({
+          path: p,
+          existed: true,
+          created: false,
+        })),
+        triaged: [],
+        triage_errors: [],
+      };
+      if (seedSrd) {
+        import("$lib/services/srdSeedService").then((m) => m.seedSrdCompendiumIfEmpty().catch(() => {}));
+      }
+      selectedDirectory = cleanPath;
+      onDirectoryConfirmed?.(cleanPath);
     } catch (err: any) {
       verifyError = err?.message ?? "Unknown error";
     } finally {
@@ -78,14 +99,24 @@
 
   async function handleBrowse(): Promise<void> {
     isSelectingFolder = true;
+    verifyError = null;
     try {
-      const info = await campaignDirectoryStore.selectDirectory();
-      if (info) {
-        manualPath = info.root_path;
-        await runVerify(info.root_path);
+      const info: any = await campaignDirectoryStore.selectDirectory();
+      if (!info) return;
+
+      const resolvedPath: string | undefined =
+        typeof info === 'string'
+          ? info
+          : (info.root_path ?? info.path ?? info.directoryPath);
+
+      if (resolvedPath) {
+        manualPath = resolvedPath;
+        await runVerify(resolvedPath);
+      } else {
+        verifyError = 'No valid folder path returned from file picker.';
       }
     } catch (err: any) {
-      verifyError = err?.message ?? "Failed to open folder picker";
+      verifyError = err?.message ?? 'Failed to open folder picker';
     } finally {
       isSelectingFolder = false;
     }

@@ -1,4 +1,12 @@
-import { invoke } from '@tauri-apps/api/core';
+async function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+    const win = typeof window !== 'undefined' ? (window as any) : {};
+    const invokeFn = win.__TAURI__?.core?.invoke || win.__TAURI_INTERNALS__?.invoke;
+    if (typeof invokeFn === 'function') {
+        return invokeFn(cmd, args);
+    }
+    throw new Error('Tauri API is not available');
+}
+
 class BestiaryStore {
     availableSources = $state<string[]>([]);
     isLoading = $state(false);
