@@ -309,10 +309,66 @@ describe('Graywood VTT Exhaustive Self-Test Suite', () => {
   describe('Phase 6: Combat Tracker & Dice Engine', () => {
     it('sorts combatants by initiative descending and cycles rounds cleanly', () => {
       const combatants: ActiveCombatant[] = [
-        { id: 'c1', name: 'Goblin Scout', initiative: 12, hp: 7, maxHp: 7, ac: 15, isPlayer: false, conditions: [] },
-        { id: 'c2', name: 'Theron (Fighter)', initiative: 19, hp: 28, maxHp: 28, ac: 18, isPlayer: true, conditions: [] },
-        { id: 'c3', name: 'Elira (Wizard)', initiative: 8, hp: 16, maxHp: 16, ac: 12, isPlayer: true, conditions: [] },
-        { id: 'c4', name: 'Ogre Brute', initiative: 15, hp: 59, maxHp: 59, ac: 11, isPlayer: false, conditions: [] }
+        {
+          id: 'c1',
+          encounter_id: 'enc-1',
+          token_id: 'tok-1',
+          name: 'Goblin Scout',
+          initiative: 12,
+          hp_current: 7,
+          hp_max: 7,
+          temp_hp: 0,
+          ac: 15,
+          is_monster: true,
+          monster_compendium_id: 'srd-goblin',
+          multiattack_profile: null,
+          conditions: []
+        },
+        {
+          id: 'c2',
+          encounter_id: 'enc-1',
+          token_id: 'tok-2',
+          name: 'Theron (Fighter)',
+          initiative: 19,
+          hp_current: 28,
+          hp_max: 28,
+          temp_hp: 0,
+          ac: 18,
+          is_monster: false,
+          monster_compendium_id: null,
+          multiattack_profile: null,
+          conditions: []
+        },
+        {
+          id: 'c3',
+          encounter_id: 'enc-1',
+          token_id: 'tok-3',
+          name: 'Elira (Wizard)',
+          initiative: 8,
+          hp_current: 16,
+          hp_max: 16,
+          temp_hp: 0,
+          ac: 12,
+          is_monster: false,
+          monster_compendium_id: null,
+          multiattack_profile: null,
+          conditions: []
+        },
+        {
+          id: 'c4',
+          encounter_id: 'enc-1',
+          token_id: 'tok-4',
+          name: 'Ogre Brute',
+          initiative: 15,
+          hp_current: 59,
+          hp_max: 59,
+          temp_hp: 0,
+          ac: 11,
+          is_monster: true,
+          monster_compendium_id: 'srd-ogre',
+          multiattack_profile: null,
+          conditions: []
+        }
       ];
 
       // Sort descending by initiative
