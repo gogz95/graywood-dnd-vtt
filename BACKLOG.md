@@ -11,7 +11,7 @@
 - [x] **TKT-04: Mobile Route Shell (`frontend/src/routes/mobile/+page.svelte`)**:
   - Responsive, touch-first mobile layout with safe-area-inset padding for iOS/Android.
   - Virtual keypad PIN entry screen connecting to `/ws/companion`.
-- [ ] **TKT-05: Real-Time Mobile State Sync**:
+- [x] **TKT-05: Real-Time Mobile State Sync**:
   - Touch-friendly HP tracking card (+/- 1, +/- 5, damage/heal calculator mode).
   - Auto-reconnect with exponential backoff on screen sleep or Wi-Fi drops.
   - Periodic heartbeat ping every 15 seconds.
