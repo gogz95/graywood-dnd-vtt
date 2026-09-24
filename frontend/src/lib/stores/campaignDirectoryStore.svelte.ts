@@ -30,6 +30,23 @@ class CampaignDirectoryStore {
   audioStats = $derived(this.dirInfo?.subfolders.find((s) => s.name === 'audio') ?? null);
   compendiumsStats = $derived(this.dirInfo?.subfolders.find((s) => s.name === 'compendiums') ?? null);
   tokensStats = $derived(this.dirInfo?.subfolders.find((s) => s.name === 'tokens') ?? null);
+  mapFiles = $derived(
+    this.activeAssetList.filter((f) => {
+      const lower = f.toLowerCase();
+      return (
+        lower.startsWith('maps/') ||
+        lower.startsWith('maps\\') ||
+        lower.endsWith('.dd2vtt') ||
+        lower.endsWith('.uvtt') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.webp') ||
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.ds') ||
+        lower.endsWith('.geojson')
+      );
+    })
+  );
 
   constructor() {
     this.hydrateFromStorage();
@@ -154,6 +171,18 @@ class CampaignDirectoryStore {
       // fallback
     }
     return this.activeAssetList;
+  }
+
+  async refreshAssets(): Promise<string[]> {
+    await this.refresh();
+    const assets = await this.loadAssetList();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('vtt:campaign-assets-refreshed', { detail: { assets } })
+      );
+      window.dispatchEvent(new CustomEvent('vtt:maps-updated'));
+    }
+    return assets;
   }
 
   async selectDirectory(): Promise<CampaignDirInfo | string | null> {

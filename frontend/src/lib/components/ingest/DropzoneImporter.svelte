@@ -9,6 +9,7 @@
     type IngestionFileResult,
   } from '../../importers/universalIngestionEngine';
   import { audioEngine } from '../../audio/AudioEngine';
+  import { campaignDirectoryStore } from '../../stores/campaignDirectoryStore.svelte';
 
   let {
     onComplete,
@@ -22,6 +23,7 @@
   let isDragging = $state(false);
   let isProcessing = $state(false);
   let report = $state<UniversalIngestionReport | null>(null);
+  let toastMessage = $state<string | null>(null);
 
   let currentFileName = $state('');
   let currentStep = $state('');
@@ -92,6 +94,42 @@
       const result = await ingestFiles(files);
       report = result;
 
+      // Auto-refresh campaign directory maps list when maps are ingested
+      const hasMap = result.fileResults.some(
+        (f) =>
+          f.format === 'DD2VTT' ||
+          f.format === 'UVTT' ||
+          f.categories?.includes('Map') ||
+          f.fileName.toLowerCase().endsWith('.dd2vtt') ||
+          f.fileName.toLowerCase().endsWith('.uvtt')
+      ) || result.mapsExtracted > 0;
+
+      if (hasMap) {
+        await campaignDirectoryStore.refreshAssets();
+      }
+
+      // Check for .dd2vtt / .uvtt map toasts
+      for (const f of result.fileResults) {
+        const isUvtt =
+          f.format === 'DD2VTT' ||
+          f.format === 'UVTT' ||
+          f.fileName.toLowerCase().endsWith('.dd2vtt') ||
+          f.fileName.toLowerCase().endsWith('.uvtt');
+
+        if (f.success && isUvtt) {
+          const mapName = (f.metadata as any)?.mapName || f.fileName.replace(/\.[^/.]+$/, '');
+          const width = (f.metadata as any)?.width ?? 20;
+          const height = (f.metadata as any)?.height ?? 20;
+          const toastMsg = `Map "${mapName}" ingested (${width}x${height} grid)`;
+          toastMessage = toastMsg;
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('vtt:toast', { detail: { message: toastMsg, type: 'success' } })
+            );
+          }
+        }
+      }
+
       // Dispatch individual file callbacks
       if (onFileIngested) {
         for (const f of result.fileResults) {
@@ -146,6 +184,24 @@
     class="hidden"
     accept=".dd2vtt,.uvtt,.pdf,.md,.txt,.geojson,.ds,.png,.jpg,.jpeg,.webp,.mp3,.wav,.ogg,.flac,.m4a,.csv,.tsv,.json,.zip"
   />
+
+  <!-- Toast Notification Banner -->
+  {#if toastMessage}
+    <div class="p-3 rounded-xl bg-indigo-950/90 border border-indigo-500/70 text-indigo-200 text-xs font-semibold flex items-center justify-between shadow-lg">
+      <div class="flex items-center gap-2">
+        <span class="text-base">🗺️</span>
+        <span>{toastMessage}</span>
+      </div>
+      <button
+        type="button"
+        onclick={() => (toastMessage = null)}
+        class="text-indigo-400 hover:text-white font-bold ml-2 text-xs"
+        aria-label="Dismiss toast"
+      >
+        ✕
+      </button>
+    </div>
+  {/if}
 
   <!-- ═════════════════════════════════════════════════════════════════════════
        1. DRAG-AND-DROP ACTIVE ZONE

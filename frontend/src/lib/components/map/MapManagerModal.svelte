@@ -36,6 +36,13 @@
 
   onMount(() => {
     loadMaps();
+    const handleRefresh = () => { loadMaps(); };
+    window.addEventListener('vtt:maps-updated', handleRefresh);
+    window.addEventListener('vtt:campaign-assets-refreshed', handleRefresh);
+    return () => {
+      window.removeEventListener('vtt:maps-updated', handleRefresh);
+      window.removeEventListener('vtt:campaign-assets-refreshed', handleRefresh);
+    };
   });
 
   async function handleFiles(files: FileList | null) {

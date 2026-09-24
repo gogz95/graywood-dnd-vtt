@@ -447,10 +447,15 @@ async function processUvttMapFile(
     success: true,
     assetUrl: savedImageUrl,
     metadata: {
+      mapName: baseName,
+      width: mapSize.x,
+      height: mapSize.y,
       gridPitch,
       wallsCount: walls.length,
       lightsCount: lights.length,
       portalsCount: portals.length,
+      sidecarName: `${baseName}.uvtt.json`,
+      imageName: `${baseName}.png`,
     },
   };
 }

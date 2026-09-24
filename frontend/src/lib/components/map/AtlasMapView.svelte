@@ -63,6 +63,13 @@
 
   onMount(() => {
     loadAtlases();
+    const handleRefresh = () => { loadAtlases(); };
+    window.addEventListener('vtt:maps-updated', handleRefresh);
+    window.addEventListener('vtt:campaign-assets-refreshed', handleRefresh);
+    return () => {
+      window.removeEventListener('vtt:maps-updated', handleRefresh);
+      window.removeEventListener('vtt:campaign-assets-refreshed', handleRefresh);
+    };
   });
 
   $effect(() => {

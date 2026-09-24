@@ -5,7 +5,7 @@
 - [x] **TKT-02: Chunk Splitting Optimization**:
   - Make `srdSeedService.ts` dynamic across all importing routes (`+page.svelte`, `Step2Scaffolding.svelte`).
   - Configure `manualChunks` in `vite.config.ts` for `compendium-data`, `pdfjs-dist`, and `pixi.js` to eliminate chunk warnings (>1000 kB).
-- [ ] **TKT-03: Ingestion UI Pipeline Linking**: Ensure parsed `.dd2vtt` files in the desktop dropzone automatically refresh `campaignDirectoryStore` maps list without manual restart.
+- [x] **TKT-03: Ingestion UI Pipeline Linking**: Ensure parsed `.dd2vtt` files in the desktop dropzone automatically refresh `campaignDirectoryStore` maps list without manual restart.
 
 ## Phase B: Milestone 3 — Mobile Companion UI & Sync
 - [ ] **TKT-04: Mobile Route Shell (`frontend/src/routes/mobile/+page.svelte`)**:

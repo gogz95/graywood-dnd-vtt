@@ -79,6 +79,51 @@
   let dynamicLightingEnabled = $state(true);
   let wallVisibilityEnabled = $state(true);
 
+  // ── Tactical Battlemap Store Linkage ───────────────────────────────────────
+  let availableTacticalMaps = $state<{ id: string; name: string }[]>([]);
+  let activeBattlemapId = $state<string>('');
+
+  async function reloadTacticalMapsList() {
+    try {
+      const list = await mapsDb.tacticalMaps.toArray();
+      availableTacticalMaps = list.map((m) => ({ id: m.id, name: m.name }));
+      const storedId = typeof localStorage !== 'undefined' ? localStorage.getItem('vtt_active_battlemap_id') : null;
+      if (storedId && list.some((m) => m.id === storedId)) {
+        activeBattlemapId = storedId;
+      } else if (list.length > 0 && !activeBattlemapId) {
+        activeBattlemapId = list[0].id;
+      }
+    } catch {
+      availableTacticalMaps = [];
+    }
+  }
+
+  async function handleSelectMap(e: Event) {
+    const targetId = (e.target as HTMLSelectElement).value;
+    if (!targetId) return;
+    activeBattlemapId = targetId;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('vtt_active_battlemap_id', targetId);
+    }
+    const selected = await mapsDb.tacticalMaps.get(targetId);
+    if (selected) {
+      if (selected.textureBlob) {
+        const url = URL.createObjectURL(selected.textureBlob);
+        loadMapFromUrl(url);
+      }
+      gridSize = selected.grid?.sizePx || 60;
+      gridOpacity = selected.grid?.opacity ?? 0.35;
+      walls = selected.walls.map((w) => ({
+        id: w.id,
+        x1: w.p1.x,
+        y1: w.p1.y,
+        x2: w.p2.x,
+        y2: w.p2.y,
+      }));
+      canvasStore.setWallsAndDoors(walls, []);
+    }
+  }
+
   // ── Tactical Operational Tools ─────────────────────────────────────────────
   let activeTool = $state<'select' | 'ruler' | 'circle' | 'cone' | 'cube' | 'line'>('select');
   let aoePublic = $state(true);
@@ -835,6 +880,9 @@
     }
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    reloadTacticalMapsList();
+    window.addEventListener('vtt:maps-updated', reloadTacticalMapsList);
+    window.addEventListener('vtt:campaign-assets-refreshed', reloadTacticalMapsList);
     window.addEventListener('vtt:load-battle-map', handleBattleMapEvent);
     window.addEventListener('vtt:spawn-token', handleSpawnTokenEvent);
     window.addEventListener('vtt:weather-changed', handleWeatherChangedEvent);
@@ -847,6 +895,8 @@
     weatherRenderer?.destroy();
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
+    window.removeEventListener('vtt:maps-updated', reloadTacticalMapsList);
+    window.removeEventListener('vtt:campaign-assets-refreshed', reloadTacticalMapsList);
     window.removeEventListener('vtt:load-battle-map', handleBattleMapEvent);
     window.removeEventListener('vtt:spawn-token', handleSpawnTokenEvent);
     window.removeEventListener('vtt:weather-changed', handleWeatherChangedEvent);
@@ -878,6 +928,23 @@
   <!-- ── Toolbar ──────────────────────────────────────────────────────────── -->
   <div class="flex items-center gap-2 px-3 py-2 border-b border-slate-800 bg-slate-900 shrink-0 flex-wrap">
     <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Battle Mat</span>
+
+    <!-- Active Tactical Map Selector Dropdown -->
+    <div class="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1">
+      <span class="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Map:</span>
+      <select
+        id="workstation-active-map-select"
+        value={activeBattlemapId}
+        onchange={handleSelectMap}
+        class="bg-slate-900 border border-slate-800 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500 max-w-[170px] truncate font-semibold cursor-pointer"
+      >
+        <option value="">-- Select Active Map --</option>
+        {#each availableTacticalMaps as tMap}
+          <option value={tMap.id}>{tMap.name}</option>
+        {/each}
+      </select>
+    </div>
+
     <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1">
       <span class="text-[10px] text-slate-600">Zoom</span>
       <span class="text-[11px] font-mono font-bold text-slate-300">{Math.round(vpZoom*100)}%</span>

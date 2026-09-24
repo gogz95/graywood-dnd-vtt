@@ -76,7 +76,7 @@
   let quickIngestToast = $state<string | null>(null);
 
   async function handleQuickIngestComplete(report: UniversalIngestionReport) {
-    await campaignDirectoryStore.refresh();
+    await campaignDirectoryStore.refreshAssets();
     const count = report.successful.length;
     const msg = count > 0
       ? `Ingested ${count} asset(s) successfully! Active campaign index refreshed.`
@@ -147,6 +147,17 @@
     window.addEventListener('vtt:open-ingest-modal', handleOpenIngest);
     window.addEventListener('keydown', handleGlobalKeydown);
 
+    const handleToast = (e: Event) => {
+      const detail = (e as CustomEvent<{ message: string }>).detail;
+      if (detail?.message) {
+        quickIngestToast = detail.message;
+        setTimeout(() => {
+          if (quickIngestToast === detail.message) quickIngestToast = null;
+        }, 4500);
+      }
+    };
+    window.addEventListener('vtt:toast', handleToast);
+
     dropCleanup = registerGlobalDropZone(async (asset) => {
       if (asset.category === 'audio') {
         floatingWindowsStore.open('audio');
@@ -155,6 +166,7 @@
         if (res.success) {
           activeTab = 'battlemat';
           dmMapMode = 'tactical';
+          await campaignDirectoryStore.refreshAssets();
         }
       } else if ((asset.category === 'text' || asset.category === 'pdf') && asset.file) {
         ingestPipelineStore.addFiles([asset.file]);
@@ -169,6 +181,7 @@
       window.removeEventListener('vtt:toggle-audio', handleToggleAudio);
       window.removeEventListener('vtt:open-ingest-modal', handleOpenIngest);
       window.removeEventListener('keydown', handleGlobalKeydown);
+      window.removeEventListener('vtt:toast', handleToast);
     };
   });
 </script>
@@ -388,5 +401,26 @@
         />
       </div>
     </div>
+  {/if}
+
+  <!-- Floating Desktop Toast Notification -->
+  {#if quickIngestToast}
+    <aside
+      aria-label="Notification"
+      class="fixed bottom-6 right-6 z-50 max-w-md bg-slate-900/95 border border-indigo-500/80 rounded-2xl shadow-2xl p-4 text-xs font-semibold text-slate-100 flex items-center justify-between gap-3 backdrop-blur-md animate-in fade-in slide-in-from-bottom-3"
+    >
+      <div class="flex items-center gap-2.5">
+        <span class="text-base text-indigo-400">🗺️</span>
+        <span>{quickIngestToast}</span>
+      </div>
+      <button
+        type="button"
+        onclick={() => (quickIngestToast = null)}
+        class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+        aria-label="Dismiss toast"
+      >
+        ✕
+      </button>
+    </aside>
   {/if}
 </div>
