@@ -31,6 +31,9 @@ export default defineConfig({
           if (id.includes('/routes/projector/') || id.includes('\\routes\\projector\\')) {
             return 'route-projector';
           }
+          if (id.includes('/routes/mobile/') || id.includes('\\routes\\mobile\\')) {
+            return 'route-mobile';
+          }
           if (id.includes('node_modules')) {
             if (id.includes('jszip')) return 'jszip-vendor';
             if (id.includes('dexie')) return 'dexie-vendor';

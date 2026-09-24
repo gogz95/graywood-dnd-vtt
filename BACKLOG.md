@@ -8,7 +8,7 @@
 - [x] **TKT-03: Ingestion UI Pipeline Linking**: Ensure parsed `.dd2vtt` files in the desktop dropzone automatically refresh `campaignDirectoryStore` maps list without manual restart.
 
 ## Phase B: Milestone 3 — Mobile Companion UI & Sync
-- [ ] **TKT-04: Mobile Route Shell (`frontend/src/routes/mobile/+page.svelte`)**:
+- [x] **TKT-04: Mobile Route Shell (`frontend/src/routes/mobile/+page.svelte`)**:
   - Responsive, touch-first mobile layout with safe-area-inset padding for iOS/Android.
   - Virtual keypad PIN entry screen connecting to `/ws/companion`.
 - [ ] **TKT-05: Real-Time Mobile State Sync**:

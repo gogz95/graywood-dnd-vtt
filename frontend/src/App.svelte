@@ -3,9 +3,10 @@
   import RootWorkspace from './routes/+page.svelte';
   import PlayerCompanionPortal from './routes/play/+page.svelte';
   import ProjectorBattleMatView from './routes/projector/+page.svelte';
+  import MobileCompanionView from './routes/mobile/+page.svelte';
   import ErrorBoundary from './lib/components/system/ErrorBoundary.svelte';
 
-  type Route = 'workspace' | 'play' | 'projector';
+  type Route = 'workspace' | 'play' | 'projector' | 'mobile';
 
   let currentRoute = $state<Route>('workspace');
 
@@ -15,7 +16,9 @@
     const hash = window.location.hash.toLowerCase();
     const search = window.location.search.toLowerCase();
 
-    if (path.startsWith('/projector') || hash.startsWith('#/projector')) {
+    if (path.startsWith('/mobile') || hash.startsWith('#/mobile')) {
+      currentRoute = 'mobile';
+    } else if (path.startsWith('/projector') || hash.startsWith('#/projector')) {
       currentRoute = 'projector';
     } else if (path.startsWith('/play') || hash.startsWith('#/play') || search.includes('pin=')) {
       currentRoute = 'play';
@@ -37,7 +40,9 @@
 </script>
 
 <ErrorBoundary>
-  {#if currentRoute === 'projector'}
+  {#if currentRoute === 'mobile'}
+    <MobileCompanionView />
+  {:else if currentRoute === 'projector'}
     <ProjectorBattleMatView />
   {:else if currentRoute === 'play'}
     <PlayerCompanionPortal />
