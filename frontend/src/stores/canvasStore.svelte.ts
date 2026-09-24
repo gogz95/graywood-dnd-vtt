@@ -527,6 +527,11 @@ class CanvasStoreClass {
     this.broadcast('FULL_STATE_SYNC', { gridColor: color });
   }
 
+  setGridOpacity(opacity: number) {
+    this.gridOpacity = Math.max(0, Math.min(1, opacity));
+    this.broadcast('FULL_STATE_SYNC', { gridOpacity: this.gridOpacity });
+  }
+
   setWallCollisions(walls: Array<{ x1: number; y1: number; x2: number; y2: number }>) {
     this.walls = walls.map((w, i) => ({
       id: `wall-col-${Date.now()}-${i}`,

@@ -20,8 +20,8 @@
   - Broadcast rolls to workstation via `RollDice` / `DiceResult`.
 
 ## Phase C: Milestone 4 — PixiJS Battlemap & Spatial Engine
-- [ ] **TKT-07: Canvas Viewport Controller**: Smooth panning, zoom limits, boundary clamping, and mouse-wheel dampening.
-- [ ] **TKT-08: Calibration & Grid Engine**:
+- [x] **TKT-07: Canvas Viewport Controller**: Smooth panning, zoom limits, boundary clamping, and mouse-wheel dampening.
+- [x] **TKT-08: Calibration & Grid Engine**:
   - Dynamic square, hex, and isometric grid rendering with custom color and opacity controls.
   - "3x3 Square" calibration drag tool to calculate exact PPI and align non-gridded maps.
 - [ ] **TKT-09: Token Management Layer**:
