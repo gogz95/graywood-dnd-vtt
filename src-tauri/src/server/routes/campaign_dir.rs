@@ -91,9 +91,14 @@ pub async fn list_campaign_assets_route(
     let guard = state.campaign_dir.read().await;
     let base_dir = guard.clone().unwrap_or_else(|| state.assets_dir.clone());
     let mut files = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&base_dir) {
-        for entry in entries.flatten() {
-            files.push(entry.file_name().to_string_lossy().to_string());
+    for entry in walkdir::WalkDir::new(&base_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if entry.file_type().is_file() {
+            if let Ok(rel) = entry.path().strip_prefix(&base_dir) {
+                files.push(rel.to_string_lossy().replace('\\', "/"));
+            }
         }
     }
     Ok(Json(files))
@@ -309,6 +314,7 @@ pub async fn verify_and_scaffold_campaign(
         "maps",
         "tokens",
         "audio",
+        "journal",
     ];
 
     let mut subdirs = Vec::new();
@@ -345,7 +351,7 @@ pub async fn get_campaign_subfolders(
         .unwrap_or_else(|| state.assets_dir.clone());
 
     let mut stats = Vec::new();
-    let subfolders = vec!["maps", "audio", "tokens", "portraits", "data"];
+    let subfolders = vec!["maps", "audio", "tokens", "portraits", "data", "journal"];
 
     for folder in subfolders {
         let folder_path = app_dir.join(folder);

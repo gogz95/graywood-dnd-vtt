@@ -62,6 +62,18 @@ class CampaignDirectoryStore {
       );
     })
   );
+  journalFiles = $derived(
+    this.activeAssetList.filter((f) => {
+      const lower = f.toLowerCase();
+      return (
+        lower.startsWith('journal/') ||
+        lower.startsWith('journal\\') ||
+        lower.endsWith('.md') ||
+        lower.endsWith('.markdown') ||
+        lower.endsWith('.txt')
+      );
+    })
+  );
 
   constructor() {
     this.hydrateFromStorage();
@@ -314,12 +326,12 @@ class CampaignDirectoryStore {
     }
   }
 
-  getAssetUrl(subfolder: 'maps' | 'audio' | 'compendiums' | 'tokens', filename: string): string {
+  getAssetUrl(subfolder: 'maps' | 'audio' | 'compendiums' | 'tokens' | 'journal' | string, filename: string): string {
     return `/api/campaign/assets/${subfolder}/${encodeURIComponent(filename)}`;
   }
 
   async saveAsset(
-    subfolder: 'maps' | 'audio' | 'compendiums' | 'tokens',
+    subfolder: 'maps' | 'audio' | 'compendiums' | 'tokens' | 'journal' | string,
     filename: string,
     dataBase64: string
   ): Promise<{ success: boolean; url?: string; error?: string }> {

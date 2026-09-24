@@ -747,12 +747,19 @@
           ✕
         </button>
       </div>
-      <div class="mt-4 flex-1 overflow-hidden flex items-center justify-center">
-        <img
-          src={activeHandout.url}
-          alt={activeHandout.title}
-          class="max-w-full max-h-[70vh] object-contain rounded-xl shadow-2xl border border-slate-800"
-        />
+      <div class="mt-4 flex-1 overflow-y-auto w-full flex flex-col items-center justify-center space-y-3">
+        {#if activeHandout.image_url || activeHandout.url}
+          <img
+            src={activeHandout.image_url || activeHandout.url}
+            alt={activeHandout.title}
+            class="max-w-full max-h-[60vh] object-contain rounded-xl shadow-2xl border border-slate-800"
+          />
+        {/if}
+        {#if activeHandout.content}
+          <div class="w-full max-w-2xl bg-slate-950/70 p-4 rounded-xl border border-slate-800/80 text-sm text-slate-200 whitespace-pre-wrap font-sans leading-relaxed">
+            {activeHandout.content}
+          </div>
+        {/if}
       </div>
     </div>
   </div>

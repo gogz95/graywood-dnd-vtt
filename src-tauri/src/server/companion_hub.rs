@@ -44,6 +44,14 @@ pub enum CompanionClientMsg {
 
     #[serde(rename = "Heartbeat", alias = "heartbeat", alias = "HEARTBEAT")]
     Heartbeat,
+
+    #[serde(rename = "Handout", alias = "HANDOUT", alias = "handout")]
+    Handout {
+        id: String,
+        title: String,
+        content: String,
+        image_url: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +80,14 @@ pub enum CompanionServerMsg {
 
     #[serde(rename = "Ping")]
     Ping,
+
+    #[serde(rename = "Handout", alias = "HANDOUT", alias = "handout")]
+    Handout {
+        id: String,
+        title: String,
+        content: String,
+        image_url: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -321,6 +337,20 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     character_id: entity_id,
                                     current_hp: delta,
                                     temp_hp: 0,
+                                });
+                            }
+                            CompanionClientMsg::Handout { id, title, content, image_url } => {
+                                hub_clone.broadcast(CompanionServerMsg::Handout {
+                                    id: id.clone(),
+                                    title: title.clone(),
+                                    content: content.clone(),
+                                    image_url: image_url.clone(),
+                                });
+                                let _ = ws_sender_clone.send(WsEvent::Handout {
+                                    id,
+                                    title,
+                                    content,
+                                    image_url,
                                 });
                             }
                             CompanionClientMsg::Auth { .. } => {

@@ -2,8 +2,11 @@
 // Cross-window and LAN Handout & Media Broadcasting Service
 
 export interface HandoutPayload {
+  id?: string;
   title: string;
-  url: string;
+  url?: string;
+  content?: string;
+  image_url?: string;
   caption?: string;
   mediaId?: string;
 }

@@ -47,6 +47,6 @@
 - [x] **TKT-15: Local Ambience & SFX Mixer**:
   - Multi-channel Web Audio soundboard playing directly from the campaign `audio/` directory.
   - Looping atmosphere layers with channel faders and one-shot sound effects triggers.
-- [ ] **TKT-16: Markdown Campaign Journal**:
+- [x] **TKT-16: Markdown Campaign Journal**:
   - In-app DM scratchpad with automatic compendium entity linking (e.g. `[[Goblin]]` or `[[Fireball]]` hover tooltips).
   - Player handout broadcaster (one-click push of images/lore to player devices).

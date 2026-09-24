@@ -76,6 +76,14 @@ pub enum WsEvent {
         round: i32,
         current_turn_index: i32,
     },
+
+    #[serde(rename = "HANDOUT", alias = "Handout", alias = "handout")]
+    Handout {
+        id: String,
+        title: String,
+        content: String,
+        image_url: Option<String>,
+    },
 }
 
 pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
@@ -101,6 +109,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     let broadcast_tx = state.ws_sender.clone();
     let db = state.db.clone();
+    let companion_hub = state.companion_hub.clone();
 
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
@@ -132,6 +141,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                         character_id
                                     ],
                                 );
+                            }
+                            WsEvent::Handout { id, title, content, image_url } => {
+                                companion_hub.broadcast(crate::server::companion_hub::CompanionServerMsg::Handout {
+                                    id: id.clone(),
+                                    title: title.clone(),
+                                    content: content.clone(),
+                                    image_url: image_url.clone(),
+                                });
                             }
                             _ => {}
                         }

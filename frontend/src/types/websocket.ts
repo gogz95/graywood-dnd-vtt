@@ -38,6 +38,13 @@ export type WsEvent =
       date_formatted: string;
     }
   | {
+      type: 'HANDOUT' | 'Handout';
+      id: string;
+      title: string;
+      content: string;
+      image_url?: string | null;
+    }
+  | {
       type: 'HANDOUT_BROADCAST';
       handout_id: string;
       title: string;

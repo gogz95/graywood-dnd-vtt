@@ -4,6 +4,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import MobileDiceTray, { type DiceResultItem } from '$lib/components/mobile/MobileDiceTray.svelte';
+  import { broadcaster } from '$lib/services/broadcaster';
 
   // ── Svelte 5 Rune State ───────────────────────────────────────────────────
   let connectionStatus = $state<
@@ -17,6 +18,12 @@
   } | null>(null);
 
   let rollHistory = $state<DiceResultItem[]>([]);
+  let activeHandout = $state<{
+    id: string;
+    title: string;
+    content: string;
+    imageUrl?: string | null;
+  } | null>(null);
 
   // Authentication & Form
   let pin = $state('');
@@ -139,6 +146,13 @@
               timestamp: Date.now(),
             };
             rollHistory = [rollItem, ...rollHistory.slice(0, 49)];
+          } else if (msg.type === 'Handout' || msg.type === 'HANDOUT') {
+            activeHandout = {
+              id: msg.id || `handout-${Date.now()}`,
+              title: msg.title || 'Campaign Handout',
+              content: msg.content || '',
+              imageUrl: msg.image_url || null,
+            };
           }
         } catch {
           // Ignore invalid socket payloads
@@ -335,15 +349,31 @@
     }
   }
 
+  let unsubBroadcaster: (() => void) | null = null;
+
   onMount(() => {
     if (typeof window !== 'undefined') {
       document.addEventListener('visibilitychange', handleVisibilityChange);
       window.addEventListener('online', handleOnline);
+
+      unsubBroadcaster = broadcaster.subscribe((event) => {
+        if (event.type === 'SHOW_HANDOUT') {
+          activeHandout = {
+            id: event.payload.id || `handout-${Date.now()}`,
+            title: event.payload.title || 'Campaign Handout',
+            content: event.payload.content || '',
+            imageUrl: event.payload.image_url || event.payload.url || null,
+          };
+        } else if (event.type === 'HIDE_HANDOUT') {
+          activeHandout = null;
+        }
+      });
     }
   });
 
   onDestroy(() => {
     disconnectSocket();
+    unsubBroadcaster?.();
     if (typeof window !== 'undefined') {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('online', handleOnline);
@@ -688,3 +718,60 @@
     </footer>
   </main>
 </div>
+
+{#if activeHandout}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div
+    class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 select-none cursor-pointer animate-in fade-in duration-200"
+    role="dialog"
+    tabindex="-1"
+    aria-modal="true"
+    onclick={() => activeHandout = null}
+  >
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+      class="w-full max-w-sm bg-zinc-900 border border-amber-500/50 rounded-2xl p-4 shadow-2xl flex flex-col max-h-[85vh] text-zinc-100 cursor-default animate-in zoom-in-95 duration-200"
+      onclick={(e) => e.stopPropagation()}
+      role="document"
+    >
+      <div class="flex items-center justify-between border-b border-zinc-800 pb-2.5 mb-3">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-xl">📜</span>
+          <h3 class="text-sm font-bold text-amber-200 truncate">{activeHandout.title}</h3>
+        </div>
+        <button
+          type="button"
+          onclick={() => activeHandout = null}
+          class="p-1 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
+          aria-label="Dismiss handout"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto space-y-3 pr-1 text-sm text-zinc-200">
+        {#if activeHandout.imageUrl}
+          <div class="rounded-xl overflow-hidden border border-zinc-800 bg-black/40">
+            <img src={activeHandout.imageUrl} alt={activeHandout.title} class="w-full max-h-56 object-contain" />
+          </div>
+        {/if}
+        {#if activeHandout.content}
+          <div class="whitespace-pre-wrap font-sans text-xs bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/80 leading-relaxed">
+            {activeHandout.content}
+          </div>
+        {/if}
+      </div>
+
+      <div class="mt-3 pt-2.5 border-t border-zinc-800">
+        <button
+          type="button"
+          onclick={() => activeHandout = null}
+          class="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs shadow-md transition-all active:scale-[0.98]"
+        >
+          Dismiss Handout
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}

@@ -85,6 +85,10 @@ pub fn create_router(state: AppState) -> Router {
             post(routes::campaign_dir::set_campaign_directory),
         )
         .route(
+            "/api/campaign/assets",
+            get(routes::campaign_dir::list_campaign_assets_route),
+        )
+        .route(
             "/api/campaign/assets/browse",
             get(routes::campaign_dir::list_campaign_assets_route),
         )
