@@ -1,9 +1,11 @@
-<!-- BattlemapCanvas.svelte — PixiJS v8 Battlemap Viewport Controller & Dynamic Grid Calibration Engine -->
+<!-- BattlemapCanvas.svelte — PixiJS v8 Battlemap Viewport Controller, Grid Engine & Token Management Layer -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { Application, Container, Graphics, Sprite, Assets } from 'pixi.js';
+  import { Application, Container, Graphics, Sprite, Assets, Text } from 'pixi.js';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
+  import { tokenStore, type VttToken, parseSizeToCells } from '../../stores/tokenStore.svelte';
   import { pixiLifecycle } from '../../services/pixiLifecycle';
+  import TokenLayer from './TokenLayer.svelte';
 
   // ── Types ──────────────────────────────────────────────────────────────────
   export type GridMode = 'square' | 'hexagonal' | 'off';
@@ -61,6 +63,15 @@
     avgCell: number;
   } | null>(null);
 
+  // Token interaction state
+  let isDraggingToken = $state<boolean>(false);
+  let draggingTokenId = $state<string | null>(null);
+  let tokenDragOffset = { x: 0, y: 0 };
+  let snapGhostPos = $state<{ x: number; y: number } | null>(null);
+
+  let isRotatingToken = $state<boolean>(false);
+  let rotatingTokenId = $state<string | null>(null);
+
   // Map scale adjustment
   let mapScale = $state<number>(1.0);
   let mapOffset = $state<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -68,7 +79,6 @@
   // UI status & toasts
   let toastMessage = $state<string | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
-  let showGridSettings = $state<boolean>(true);
 
   // ── PixiJS Engine References ───────────────────────────────────────────────
   let pixiApp: Application | null = null;
@@ -77,6 +87,8 @@
   let mapContainer: Container | null = null;
   let mapSprite: Sprite | null = null;
   let gridGraphics: Graphics | null = null;
+  let tokenContainer: Container | null = null;
+  let selectionGraphics: Graphics | null = null;
   let calibrationGraphics: Graphics | null = null;
 
   // Pan interaction tracking
@@ -132,7 +144,6 @@
     const cursorScreenX = clientX - rect.left;
     const cursorScreenY = clientY - rect.top;
 
-    // Anchor world coordinates under mouse cursor
     const worldAnchorX = (cursorScreenX - panX) / oldZoom;
     const worldAnchorY = (cursorScreenY - panY) / oldZoom;
 
@@ -148,7 +159,6 @@
 
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
-    // Wheel damping exponential curve
     const dampingFactor = Math.exp(-e.deltaY * 0.0015);
     zoomAt(dampingFactor, e.clientX, e.clientY);
   }
@@ -200,17 +210,14 @@
     const effectiveH = Math.max(mapHeight * mapScale, 2400);
 
     if (gridMode === 'square') {
-      // Draw vertical square grid lines
       for (let x = 0; x <= effectiveW + gridSize; x += gridSize) {
         gridGraphics.moveTo(x, 0).lineTo(x, effectiveH);
       }
-      // Draw horizontal square grid lines
       for (let y = 0; y <= effectiveH + gridSize; y += gridSize) {
         gridGraphics.moveTo(0, y).lineTo(effectiveW, y);
       }
       gridGraphics.stroke({ color: hexColor, alpha, width: 1 });
     } else if (gridMode === 'hexagonal') {
-      // Regular Pointy-topped Hexagons
       const R = gridSize / Math.sqrt(3);
       const colDist = gridSize;
       const rowDist = 1.5 * R;
@@ -222,7 +229,6 @@
         const xOffset = r % 2 === 1 ? colDist / 2 : 0;
         for (let c = 0; c < cols; c++) {
           const cx = c * colDist + xOffset + colDist / 2;
-          // Draw individual hexagon path
           for (let i = 0; i < 6; i++) {
             const angle = (Math.PI / 180) * (60 * i - 30);
             const vx = cx + R * Math.cos(angle);
@@ -248,10 +254,8 @@
     const w = Math.max(mapWidth * mapScale, 3000);
     const h = Math.max(mapHeight * mapScale, 2400);
 
-    // Deep slate base floor
     bgGraphics.rect(0, 0, w, h).fill({ color: 0x090b10, alpha: 1.0 });
 
-    // Subtle stone checkerboard tile pattern
     const tileSize = 120;
     for (let x = 0; x < w; x += tileSize) {
       for (let y = 0; y < h; y += tileSize) {
@@ -261,7 +265,6 @@
       }
     }
 
-    // Outer border frame
     bgGraphics.rect(0, 0, w, h).stroke({ color: 0x334155, width: 3 });
   }
 
@@ -291,16 +294,243 @@
 
       renderBackgroundMat();
       renderGrid();
+      renderTokens();
       fitToView();
     } catch (err) {
       console.warn('BattlemapCanvas: Failed to load map image texture:', err);
     }
   }
 
+  // ── Token Layer Rendering ──────────────────────────────────────────────────
+  function renderTokens() {
+    if (!tokenContainer) return;
+
+    // Purge children safely
+    tokenContainer.removeChildren().forEach((child) => child.destroy({ children: true }));
+
+    const tokens = tokenStore.tokens;
+    for (const tok of tokens) {
+      const tokNode = new Container();
+      tokNode.position.set(tok.x, tok.y);
+      tokNode.rotation = ((tok.rotation || 0) * Math.PI) / 180;
+
+      const footprintPx = tok.size * gridSize;
+      const radius = (footprintPx * 0.88) / 2;
+
+      const g = new Graphics();
+      tokNode.addChild(g);
+
+      // 1. Token Circular Body
+      const bodyColor = parseHexColor(tok.color || (tok.isPlayer ? '#3b82f6' : '#ef4444'));
+      g.circle(0, 0, radius).fill({ color: bodyColor, alpha: 0.95 });
+
+      // Outer Token Rim (Gold for Players, Crimson for Monsters)
+      const rimColor = tok.isPlayer ? 0xfbbf24 : 0xef4444;
+      g.circle(0, 0, radius).stroke({ color: rimColor, width: 2.5 });
+
+      // 2. Initials Label
+      const initials = (tok.name || 'T')
+        .split(' ')
+        .map((w) => w[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase();
+
+      const initialText = new Text({
+        text: initials,
+        style: {
+          fontSize: Math.max(12, Math.round(radius * 0.55)),
+          fontWeight: 'bold',
+          fill: 0xffffff,
+          align: 'center',
+        },
+      });
+      initialText.anchor.set(0.5);
+      tokNode.addChild(initialText);
+
+      // 3. Health Bar Overlays (Circular Arc & Linear Overhead Bar)
+      const hpRatio = Math.max(0, Math.min(1, tok.hp / (tok.maxHp || 1)));
+      const hpColor = hpRatio > 0.5 ? 0x22c55e : hpRatio > 0.2 ? 0xf59e0b : 0xef4444;
+
+      // Circular Health Arc around rim
+      if (hpRatio > 0) {
+        g.arc(0, 0, radius + 3, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * hpRatio).stroke({
+          color: hpColor,
+          width: 3,
+        });
+      }
+
+      // Linear Health Bar (fixed orientation: child of separate counter-rotated container)
+      const overheadNode = new Container();
+      overheadNode.position.set(tok.x, tok.y);
+      // Counter-rotate overhead HUD so it remains upright regardless of token rotation
+      overheadNode.rotation = 0;
+
+      const hudG = new Graphics();
+      overheadNode.addChild(hudG);
+
+      const barW = Math.max(32, radius * 1.5);
+      const barH = 5;
+      const barY = -radius - 14;
+
+      // HP Bar background
+      hudG.rect(-barW / 2, barY, barW, barH).fill({ color: 0x0f172a, alpha: 0.85 }).stroke({ color: 0x334155, width: 1 });
+
+      // HP Bar foreground
+      if (hpRatio > 0) {
+        hudG.rect(-barW / 2, barY, barW * hpRatio, barH).fill({ color: hpColor, alpha: 0.95 });
+      }
+
+      // 4. Condition Status Badges (Orbiting bottom perimeter)
+      if (tok.conditions && tok.conditions.length > 0) {
+        const badgeRadius = 7;
+        const total = tok.conditions.length;
+        const startAngle = Math.PI / 4;
+        const span = Math.PI / 2;
+
+        tok.conditions.slice(0, 4).forEach((cond, idx) => {
+          const angle = total === 1 ? Math.PI / 2 : startAngle + (span / (total - 1)) * idx;
+          const bx = Math.cos(angle) * (radius + 2);
+          const by = Math.sin(angle) * (radius + 2);
+
+          hudG.circle(bx, by, badgeRadius).fill({ color: 0x090d16 }).stroke({ color: 0x38bdf8, width: 1.5 });
+
+          const condText = new Text({
+            text: cond.slice(0, 1).toUpperCase(),
+            style: {
+              fontSize: 9,
+              fontWeight: 'bold',
+              fill: 0x38bdf8,
+            },
+          });
+          condText.anchor.set(0.5);
+          condText.position.set(bx, by);
+          overheadNode.addChild(condText);
+        });
+      }
+
+      // 5. Elevation / Flight Marker Tag
+      if (tok.elevation && tok.elevation > 0) {
+        const elevX = radius * 0.7;
+        const elevY = -radius - 8;
+        const elevW = 38;
+        const elevH = 14;
+
+        hudG
+          .rect(elevX, elevY, elevW, elevH)
+          .fill({ color: 0x082f49, alpha: 0.9 })
+          .stroke({ color: 0x0284c7, width: 1.5 });
+
+        const elevText = new Text({
+          text: `▲${tok.elevation}ft`,
+          style: {
+            fontSize: 9,
+            fontWeight: 'bold',
+            fill: 0x38bdf8,
+          },
+        });
+        elevText.anchor.set(0.5);
+        elevText.position.set(elevX + elevW / 2, elevY + elevH / 2);
+        overheadNode.addChild(elevText);
+      }
+
+      tokenContainer.addChild(tokNode);
+      tokenContainer.addChild(overheadNode);
+    }
+
+    renderSelectionAndSnap();
+  }
+
+  // ── Selection Ring, Rotation Handle & Snap Ghost ───────────────────────────
+  function renderSelectionAndSnap() {
+    if (!selectionGraphics) return;
+    selectionGraphics.clear();
+
+    const selectedId = tokenStore.selectedTokenId;
+    if (!selectedId) return;
+
+    const tok = tokenStore.tokens.find((t) => t.id === selectedId);
+    if (!tok) return;
+
+    const footprintPx = tok.size * gridSize;
+    const radius = (footprintPx * 0.88) / 2;
+
+    // 1. Selection Highlight Ring
+    selectionGraphics
+      .circle(tok.x, tok.y, radius + 7)
+      .stroke({ color: 0x38bdf8, width: 2.5, alpha: 0.95 });
+
+    // Outer subtle dashed pulse ring
+    selectionGraphics
+      .circle(tok.x, tok.y, radius + 11)
+      .stroke({ color: 0x0284c7, width: 1.5, alpha: 0.6 });
+
+    // 2. Rotation Stalk & Handle
+    const rotRad = ((tok.rotation || 0) - 90) * (Math.PI / 180);
+    const stalkDist = radius + 22;
+    const handleX = tok.x + Math.cos(rotRad) * stalkDist;
+    const handleY = tok.y + Math.sin(rotRad) * stalkDist;
+
+    selectionGraphics
+      .moveTo(tok.x, tok.y)
+      .lineTo(handleX, handleY)
+      .stroke({ color: 0x38bdf8, width: 1.5, alpha: 0.75 });
+
+    selectionGraphics
+      .circle(handleX, handleY, 6)
+      .fill({ color: 0x38bdf8 })
+      .stroke({ color: 0xffffff, width: 1.5 });
+
+    // 3. Drag Snap Ghost Footprint Preview
+    if (isDraggingToken && snapGhostPos) {
+      const snapLeft = snapGhostPos.x - footprintPx / 2;
+      const snapTop = snapGhostPos.y - footprintPx / 2;
+
+      selectionGraphics
+        .rect(snapLeft, snapTop, footprintPx, footprintPx)
+        .fill({ color: 0x38bdf8, alpha: 0.15 })
+        .stroke({ color: 0x38bdf8, width: 2, alpha: 0.85 });
+
+      // Ghost token circle preview
+      selectionGraphics
+        .circle(snapGhostPos.x, snapGhostPos.y, radius)
+        .stroke({ color: 0xffffff, width: 1.5, alpha: 0.5 });
+    }
+  }
+
+  // ── Hit Testing Helpers ────────────────────────────────────────────────────
+  function findTokenAtWorldPos(wx: number, wy: number): VttToken | null {
+    for (let i = tokenStore.tokens.length - 1; i >= 0; i--) {
+      const tok = tokenStore.tokens[i];
+      const footprintPx = tok.size * gridSize;
+      const radius = (footprintPx * 0.88) / 2;
+      const dx = wx - tok.x;
+      const dy = wy - tok.y;
+      if (dx * dx + dy * dy <= radius * radius) {
+        return tok;
+      }
+    }
+    return null;
+  }
+
+  function isOverRotationHandle(tok: VttToken, wx: number, wy: number): boolean {
+    const footprintPx = tok.size * gridSize;
+    const radius = (footprintPx * 0.88) / 2;
+    const rotRad = ((tok.rotation || 0) - 90) * (Math.PI / 180);
+    const stalkDist = radius + 22;
+    const handleX = tok.x + Math.cos(rotRad) * stalkDist;
+    const handleY = tok.y + Math.sin(rotRad) * stalkDist;
+
+    const dx = wx - handleX;
+    const dy = wy - handleY;
+    return dx * dx + dy * dy <= 10 * 10;
+  }
+
   // ── 3x3 Calibration Ruler Tool ─────────────────────────────────────────────
   function toggleCalibration() {
     isCalibrating = !isCalibrating;
     if (isCalibrating) {
+      tokenStore.selectToken(null);
       showToast('📐 3x3 Calibration Active: Drag across a 3x3 square grid area on your map.', 4500);
     } else {
       cancelCalibration();
@@ -327,24 +557,20 @@
 
     if (boxW < 2 || boxH < 2) return;
 
-    // Semi-transparent cyan tinted bounding box
     calibrationGraphics
       .rect(minX, minY, boxW, boxH)
       .fill({ color: 0x06b6d4, alpha: 0.18 })
       .stroke({ color: 0x38bdf8, width: 2 / zoom });
 
-    // Internal 3x3 divider lines
     const thirdW = boxW / 3;
     const thirdH = boxH / 3;
 
-    // 2 Vertical divider lines
     calibrationGraphics
       .moveTo(minX + thirdW, minY)
       .lineTo(minX + thirdW, minY + boxH)
       .moveTo(minX + thirdW * 2, minY)
       .lineTo(minX + thirdW * 2, minY + boxH);
 
-    // 2 Horizontal divider lines
     calibrationGraphics
       .moveTo(minX, minY + thirdH)
       .lineTo(minX + boxW, minY + thirdH)
@@ -381,11 +607,96 @@
       }
 
       renderGrid();
+      renderTokens();
     } else {
       showToast('⚠️ Calibration box too small. Drag across at least 3 grid squares.', 3000);
     }
 
     cancelCalibration();
+  }
+
+  // ── Drag & Drop Token Placement onto Grid ──────────────────────────────────
+  function handleDragOver(e: DragEvent) {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    const rawData = e.dataTransfer?.getData('application/json') || e.dataTransfer?.getData('text/plain');
+    if (!rawData) return;
+
+    try {
+      const payload = JSON.parse(rawData);
+      const worldPos = screenToWorld(e.clientX, e.clientY);
+      const sizeCells = parseSizeToCells(payload.size || payload.sizeCategory || 1);
+
+      // Snap token center to nearest grid intersection or cell center
+      const cellCol = Math.round((worldPos.x - (sizeCells * gridSize) / 2) / gridSize);
+      const cellRow = Math.round((worldPos.y - (sizeCells * gridSize) / 2) / gridSize);
+      const snappedCenterX = Math.round((cellCol + sizeCells / 2) * gridSize);
+      const snappedCenterY = Math.round((cellRow + sizeCells / 2) * gridSize);
+
+      const isPc = Boolean(payload.isPlayer || payload.type === 'PLAYER_TOKEN');
+      const newToken: VttToken = {
+        id: `tok-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: payload.name || (isPc ? 'Hero' : 'Monster'),
+        x: snappedCenterX,
+        y: snappedCenterY,
+        size: sizeCells,
+        hp: payload.hp || (isPc ? 25 : 18),
+        maxHp: payload.maxHp || payload.hp || (isPc ? 25 : 18),
+        ac: payload.ac || 12,
+        conditions: payload.conditions || [],
+        isRevealed: true,
+        isGmOnly: Boolean(payload.isGmOnly),
+        imageUrl: payload.imageUrl || payload.url || payload.portraitUrl,
+        color: payload.color || (isPc ? '#3b82f6' : '#ef4444'),
+        elevation: payload.elevation || 0,
+        rotation: payload.rotation || 0,
+        isPlayer: isPc,
+      };
+
+      tokenStore.addToken(newToken);
+      tokenStore.selectToken(newToken.id);
+      showToast(`Placed ${newToken.name} (${sizeCells}×${sizeCells}) snapped to grid`);
+    } catch (err) {
+      console.warn('Failed to parse dropped token payload:', err);
+    }
+  }
+
+  // ── Quick Token Spawner ────────────────────────────────────────────────────
+  function spawnQuickToken(isPlayer = false, size = 1) {
+    if (!containerEl) return;
+    const centerWorld = screenToWorld(containerEl.clientWidth / 2, containerEl.clientHeight / 2);
+    const cellCol = Math.round((centerWorld.x - (size * gridSize) / 2) / gridSize);
+    const cellRow = Math.round((centerWorld.y - (size * gridSize) / 2) / gridSize);
+    const snappedX = Math.round((cellCol + size / 2) * gridSize);
+    const snappedY = Math.round((cellRow + size / 2) * gridSize);
+
+    const newToken: VttToken = {
+      id: `tok-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: isPlayer ? 'Adventurer' : size === 2 ? 'Ogre' : size === 3 ? 'Dragon' : 'Goblin',
+      x: snappedX,
+      y: snappedY,
+      size,
+      hp: isPlayer ? 30 : size === 2 ? 59 : size === 3 ? 178 : 7,
+      maxHp: isPlayer ? 30 : size === 2 ? 59 : size === 3 ? 178 : 7,
+      ac: isPlayer ? 14 : size === 2 ? 11 : size === 3 ? 18 : 15,
+      conditions: [],
+      isRevealed: true,
+      isGmOnly: false,
+      color: isPlayer ? '#3b82f6' : '#ef4444',
+      elevation: 0,
+      rotation: 0,
+      isPlayer,
+    };
+
+    tokenStore.addToken(newToken);
+    tokenStore.selectToken(newToken.id);
+    showToast(`Spawned ${newToken.name} (${size}×${size}) at grid center`);
   }
 
   // ── Pointer Event Handlers ─────────────────────────────────────────────────
@@ -400,14 +711,45 @@
       return;
     }
 
+    const worldPos = screenToWorld(e.clientX, e.clientY);
+
     // 2. 3x3 Calibration Drag with Left Click (0)
     if (isCalibrating && e.button === 0) {
       e.preventDefault();
-      const worldPos = screenToWorld(e.clientX, e.clientY);
       calibStartWorld = worldPos;
       calibCurrentWorld = worldPos;
       isDraggingCalibration = true;
       if (containerEl) containerEl.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    // 3. Rotation Handle Drag
+    if (tokenStore.selectedToken && isOverRotationHandle(tokenStore.selectedToken, worldPos.x, worldPos.y)) {
+      e.preventDefault();
+      isRotatingToken = true;
+      rotatingTokenId = tokenStore.selectedToken.id;
+      if (containerEl) containerEl.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    // 4. Token Selection & Dragging
+    const clickedToken = findTokenAtWorldPos(worldPos.x, worldPos.y);
+    if (clickedToken && e.button === 0) {
+      e.preventDefault();
+      tokenStore.selectToken(clickedToken.id);
+      isDraggingToken = true;
+      draggingTokenId = clickedToken.id;
+      tokenDragOffset = { x: clickedToken.x - worldPos.x, y: clickedToken.y - worldPos.y };
+      snapGhostPos = { x: clickedToken.x, y: clickedToken.y };
+      renderSelectionAndSnap();
+      if (containerEl) containerEl.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    // 5. Click on Empty Canvas: Deselect Token
+    if (e.button === 0 && !isCalibrating) {
+      tokenStore.selectToken(null);
+      renderSelectionAndSnap();
     }
   }
 
@@ -426,9 +768,39 @@
       return;
     }
 
+    const worldPos = screenToWorld(e.clientX, e.clientY);
+
+    // Handle token rotation
+    if (isRotatingToken && rotatingTokenId) {
+      const tok = tokenStore.tokens.find((t) => t.id === rotatingTokenId);
+      if (tok) {
+        const angleRad = Math.atan2(worldPos.y - tok.y, worldPos.x - tok.x);
+        const angleDeg = ((angleRad * 180) / Math.PI + 90 + 360) % 360;
+        tokenStore.setRotation(rotatingTokenId, Math.round(angleDeg));
+      }
+      return;
+    }
+
+    // Handle token dragging with real-time grid snap ghost
+    if (isDraggingToken && draggingTokenId) {
+      const tok = tokenStore.tokens.find((t) => t.id === draggingTokenId);
+      if (tok) {
+        const targetX = worldPos.x + tokenDragOffset.x;
+        const targetY = worldPos.y + tokenDragOffset.y;
+
+        const cellCol = Math.round((targetX - (tok.size * gridSize) / 2) / gridSize);
+        const cellRow = Math.round((targetY - (tok.size * gridSize) / 2) / gridSize);
+        snapGhostPos = {
+          x: Math.round((cellCol + tok.size / 2) * gridSize),
+          y: Math.round((cellRow + tok.size / 2) * gridSize),
+        };
+        renderSelectionAndSnap();
+      }
+      return;
+    }
+
     // Handle 3x3 calibration ruler drag
     if (isDraggingCalibration && calibStartWorld) {
-      const worldPos = screenToWorld(e.clientX, e.clientY);
       calibCurrentWorld = worldPos;
 
       const boxW = Math.abs(calibCurrentWorld.x - calibStartWorld.x);
@@ -465,6 +837,31 @@
       } catch {}
     }
 
+    if (isRotatingToken) {
+      isRotatingToken = false;
+      rotatingTokenId = null;
+      try {
+        if (containerEl?.hasPointerCapture(e.pointerId)) {
+          containerEl.releasePointerCapture(e.pointerId);
+        }
+      } catch {}
+    }
+
+    if (isDraggingToken && draggingTokenId) {
+      if (snapGhostPos) {
+        tokenStore.moveToken(draggingTokenId, snapGhostPos.x, snapGhostPos.y);
+      }
+      isDraggingToken = false;
+      draggingTokenId = null;
+      snapGhostPos = null;
+      renderSelectionAndSnap();
+      try {
+        if (containerEl?.hasPointerCapture(e.pointerId)) {
+          containerEl.releasePointerCapture(e.pointerId);
+        }
+      } catch {}
+    }
+
     if (isDraggingCalibration) {
       try {
         if (containerEl?.hasPointerCapture(e.pointerId)) {
@@ -475,13 +872,31 @@
     }
   }
 
-  // ── Keyboard Shortcuts (Space for Pan) ─────────────────────────────────────
+  // ── Keyboard Shortcuts (Delete token, Escape, Space for Pan) ───────────────
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.code === 'Space' && !e.repeat && document.activeElement?.tagName !== 'INPUT') {
+    const isEditingText =
+      document.activeElement?.tagName === 'INPUT' ||
+      document.activeElement?.tagName === 'TEXTAREA' ||
+      document.activeElement?.tagName === 'SELECT';
+
+    if (e.code === 'Space' && !e.repeat && !isEditingText) {
       isSpacePressed = true;
     }
-    if (e.key === 'Escape' && isCalibrating) {
-      cancelCalibration();
+
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !isEditingText) {
+      if (tokenStore.selectedTokenId) {
+        tokenStore.deleteToken(tokenStore.selectedTokenId);
+        showToast('Token removed from battlemat');
+      }
+    }
+
+    if (e.key === 'Escape') {
+      if (isCalibrating) {
+        cancelCalibration();
+      } else if (tokenStore.selectedTokenId) {
+        tokenStore.selectToken(null);
+        renderSelectionAndSnap();
+      }
     }
   }
 
@@ -527,12 +942,19 @@
     gridGraphics = new Graphics();
     worldContainer.addChild(gridGraphics);
 
+    tokenContainer = new Container();
+    worldContainer.addChild(tokenContainer);
+
+    selectionGraphics = new Graphics();
+    worldContainer.addChild(selectionGraphics);
+
     calibrationGraphics = new Graphics();
     worldContainer.addChild(calibrationGraphics);
 
     // Initial renders
     renderBackgroundMat();
     renderGrid();
+    renderTokens();
 
     // 3. Load Map Image if provided
     const targetUrl = mapImageUrl || canvasStore.mapImageUrl;
@@ -594,10 +1016,27 @@
     const _color = gridColor;
     const _opacity = gridOpacity;
     renderGrid();
+    renderTokens();
   });
 
   $effect(() => {
-    // Watch mapImageUrl change
+    // Re-render tokens when tokenStore changes
+    const _tokens = tokenStore.tokens.map((t) => ({
+      x: t.x,
+      y: t.y,
+      hp: t.hp,
+      maxHp: t.maxHp,
+      size: t.size,
+      rotation: t.rotation,
+      elevation: t.elevation,
+      conds: t.conditions.join(','),
+      color: t.color,
+    }));
+    const _selected = tokenStore.selectedTokenId;
+    renderTokens();
+  });
+
+  $effect(() => {
     if (mapImageUrl && mapImageUrl !== '') {
       loadMapImage(mapImageUrl);
     }
@@ -607,11 +1046,13 @@
 <!-- ── Canvas Viewport Container ───────────────────────────────────────────── -->
 <div
   bind:this={containerEl}
-  class="relative w-full h-full overflow-hidden select-none bg-slate-950 font-sans {isCalibrating ? 'cursor-crosshair' : isPanning ? 'cursor-grabbing' : 'cursor-grab'}"
+  class="relative w-full h-full overflow-hidden select-none bg-slate-950 font-sans {isCalibrating ? 'cursor-crosshair' : isPanning ? 'cursor-grabbing' : isDraggingToken ? 'cursor-move' : isRotatingToken ? 'cursor-crosshair' : 'cursor-grab'}"
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
   onwheel={handleWheel}
+  ondragover={handleDragOver}
+  ondrop={handleDrop}
   oncontextmenu={(e) => e.preventDefault()}
   role="region"
   aria-label="Interactive Battlemap Canvas"
@@ -723,6 +1164,34 @@
           {isCalibrating ? 'Cancel 3x3 Ruler' : '3×3 Calibration'}
         </button>
       </div>
+
+      <!-- Quick Token Spawner Buttons -->
+      <div class="flex items-center gap-1 px-2 border-l border-slate-800">
+        <button
+          type="button"
+          class="px-2 py-1 bg-blue-950/80 hover:bg-blue-900 border border-blue-700/60 rounded text-blue-300 font-semibold text-xs transition-colors flex items-center gap-1"
+          onclick={() => spawnQuickToken(true, 1)}
+          title="Spawn Player Character Token (1x1 Medium)"
+        >
+          <span>+ PC</span>
+        </button>
+        <button
+          type="button"
+          class="px-2 py-1 bg-rose-950/80 hover:bg-rose-900 border border-rose-700/60 rounded text-rose-300 font-semibold text-xs transition-colors flex items-center gap-1"
+          onclick={() => spawnQuickToken(false, 1)}
+          title="Spawn Monster Token (1x1 Medium)"
+        >
+          <span>+ NPC</span>
+        </button>
+        <button
+          type="button"
+          class="px-2 py-1 bg-amber-950/80 hover:bg-amber-900 border border-amber-700/60 rounded text-amber-300 font-semibold text-xs transition-colors"
+          onclick={() => spawnQuickToken(false, 2)}
+          title="Spawn Large Creature Token (2x2)"
+        >
+          + Large
+        </button>
+      </div>
     </div>
   </div>
 
@@ -785,6 +1254,9 @@
       <div class="text-cyan-400 font-bold">Cell: ~{calibLiveBadge.avgCell} px / square</div>
     </div>
   {/if}
+
+  <!-- ── Selected Token Inspector HUD Component ────────────────────────────── -->
+  <TokenLayer gridSize={gridSize} />
 
   <!-- ── Feedback Toast Notification ────────────────────────────────────────── -->
   {#if toastMessage}

@@ -24,7 +24,7 @@
 - [x] **TKT-08: Calibration & Grid Engine**:
   - Dynamic square, hex, and isometric grid rendering with custom color and opacity controls.
   - "3x3 Square" calibration drag tool to calculate exact PPI and align non-gridded maps.
-- [ ] **TKT-09: Token Management Layer**:
+- [x] **TKT-09: Token Management Layer**:
   - Drag tokens from sidebar/compendium onto the grid.
   - Automatic grid snapping and size scaling (Medium = 1x1, Large = 2x2, Huge = 3x3).
   - Overhead health bars and condition indicators.
