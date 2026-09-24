@@ -6,6 +6,7 @@
   import { tokenStore, type VttToken, parseSizeToCells } from '../../stores/tokenStore.svelte';
   import { pixiLifecycle } from '../../services/pixiLifecycle';
   import TokenLayer from './TokenLayer.svelte';
+  import VisionFogLayer from './VisionFogLayer.svelte';
 
   // ── Types ──────────────────────────────────────────────────────────────────
   export type GridMode = 'square' | 'hexagonal' | 'off';
@@ -71,6 +72,10 @@
 
   let isRotatingToken = $state<boolean>(false);
   let rotatingTokenId = $state<string | null>(null);
+
+  // Fog of war state
+  let enableFog = $state<boolean>(true);
+  let isGmFogView = $state<boolean>(false);
 
   // Map scale adjustment
   let mapScale = $state<number>(1.0);
@@ -1192,6 +1197,18 @@
           + Large
         </button>
       </div>
+
+      <!-- Fog of War Toggle -->
+      <div class="px-2 border-l border-slate-800">
+        <button
+          type="button"
+          class="px-2.5 py-1 rounded-lg font-semibold text-xs transition-all {enableFog ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}"
+          onclick={() => { enableFog = !enableFog; }}
+          title="Toggle Dynamic Lighting and Fog of War Mask"
+        >
+          Fog: {enableFog ? 'ON' : 'OFF'}
+        </button>
+      </div>
     </div>
   </div>
 
@@ -1253,6 +1270,19 @@
       <div>Box: {calibLiveBadge.boxW} × {calibLiveBadge.boxH} px</div>
       <div class="text-cyan-400 font-bold">Cell: ~{calibLiveBadge.avgCell} px / square</div>
     </div>
+  {/if}
+
+  <!-- ── Dynamic Lighting & Fog of War Layer ───────────────────────────────── -->
+  {#if enableFog}
+    <VisionFogLayer
+      mapWidth={mapWidth * mapScale || 2400}
+      mapHeight={mapHeight * mapScale || 1800}
+      gridSize={gridSize}
+      zoom={zoom}
+      panX={panX}
+      panY={panY}
+      bind:isGmView={isGmFogView}
+    />
   {/if}
 
   <!-- ── Selected Token Inspector HUD Component ────────────────────────────── -->

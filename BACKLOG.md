@@ -28,7 +28,7 @@
   - Drag tokens from sidebar/compendium onto the grid.
   - Automatic grid snapping and size scaling (Medium = 1x1, Large = 2x2, Huge = 3x3).
   - Overhead health bars and condition indicators.
-- [ ] **TKT-10: Dynamic Lighting & Fog of War (Core)**:
+- [x] **TKT-10: Dynamic Lighting & Fog of War (Core)**:
   - Extrude 2D raycasting polygon shadow masks using parsed UVTT `line_of_sight` and `portals`.
   - Manual DM fog eraser and brush tool for standard image maps.
 
