@@ -40,6 +40,22 @@
   let cleanupSync: (() => void) | null = null;
   let activeHandout = $state<HandoutPayload | null>(null);
 
+  // Tabletop 1-inch physical calibration
+  let showPhysicalCalibration = $state(false);
+  let physicalPpi = $state(96);
+
+  function applyPhysicalScale(ppi: number) {
+    physicalPpi = ppi;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('vtt_projector_physical_ppi', String(ppi));
+    }
+    const targetZoom = ppi / (canvasStore.gridSize || 60);
+    canvasStore.setProjectorViewport({
+      ...canvasStore.projectorViewport,
+      zoom: Math.max(0.1, Math.min(4.0, targetZoom)),
+    });
+  }
+
   // Filtered tokens: strictly hide DM-invisible creatures
   let visibleTokens = $derived(
     canvasStore.tokens.filter(t => t.isVisible !== false && !t.name.toLowerCase().includes('(hidden)'))
@@ -84,6 +100,13 @@
     if (!canvasEl) return;
     ctx = canvasEl.getContext('2d');
     syncCanvasDimensions();
+
+    if (typeof localStorage !== 'undefined') {
+      const savedPpi = localStorage.getItem('vtt_projector_physical_ppi');
+      if (savedPpi) {
+        physicalPpi = Number(savedPpi) || 96;
+      }
+    }
 
     cleanupSync = initProjectorSyncListener((msg: SyncMessage) => {
       switch (msg.type) {
@@ -439,8 +462,16 @@
 </svelte:head>
 
 {#if projectorStore.castSource === 'blackout'}
-  <!-- Blackout Mode: Pitch black screen -->
-  <div class="fixed inset-0 bg-black z-50 flex items-center justify-center select-none cursor-none" aria-label="Projector Blackout"></div>
+  <!-- Blackout Mode: Atmospheric DM setup shroud -->
+  <div class="fixed inset-0 bg-black z-50 flex flex-col items-center justify-center select-none cursor-none p-8" aria-label="Projector Blackout">
+    <div class="text-center opacity-30 animate-pulse flex flex-col items-center gap-3">
+      <svg class="w-12 h-12 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+      </svg>
+      <span class="text-sm font-serif tracking-widest text-slate-400 uppercase">The Scene Fades to Darkness</span>
+      <span class="text-[11px] font-mono text-slate-600">Awaiting the Dungeon Master</span>
+    </div>
+  </div>
 {:else if projectorStore.castSource === 'atlas'}
   <!-- World Atlas Mode: Overland vector map with POI pins -->
   <div class="fixed inset-0 bg-slate-950 text-slate-100 font-sans select-none overflow-hidden flex flex-col">
@@ -574,7 +605,7 @@
       ></canvas>
     </div>
 
-    <!-- Bottom-Left Decoupled Status Watermark -->
+    <!-- Bottom Status Watermarks & Tabletop Tools -->
     <div class="absolute bottom-3 left-4 z-10 pointer-events-none text-[10px] font-mono font-bold text-slate-600/70 uppercase tracking-wider flex items-center gap-2">
       <span>PROJECTOR DISPLAY</span>
       {#if canvasStore.lockProjectorPan}
@@ -583,6 +614,101 @@
         <span class="text-emerald-500/80">🎥 SYNCED TO DM</span>
       {/if}
     </div>
+
+    <!-- Bottom-Right Tabletop TV Calibration Button -->
+    <div class="absolute bottom-3 right-4 z-30 pointer-events-auto">
+      <button
+        type="button"
+        class="px-2.5 py-1 bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white rounded-lg text-xs font-mono font-medium backdrop-blur-md transition-all shadow-xl flex items-center gap-1.5"
+        onclick={() => showPhysicalCalibration = !showPhysicalCalibration}
+        title="Physical 1-Inch Scale Calibration for Tabletop Displays"
+      >
+        <span>📏 1-Inch Scale</span>
+      </button>
+    </div>
+
+    <!-- ── Physical 1-Inch Calibration Modal Drawer ────────────────────────── -->
+    {#if showPhysicalCalibration}
+      <div class="absolute bottom-12 right-4 z-40 w-80 bg-slate-900/95 border border-indigo-500/50 rounded-2xl p-4 shadow-2xl backdrop-blur-md text-xs font-sans animate-fade-in pointer-events-auto">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800 mb-3">
+          <div class="flex items-center gap-1.5 font-bold text-white text-sm">
+            <span>📏</span>
+            <span>1-Inch Physical Calibration</span>
+          </div>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-white text-base leading-none p-1"
+            onclick={() => showPhysicalCalibration = false}
+          >
+            ✕
+          </button>
+        </div>
+
+        <p class="text-[11px] text-slate-400 mb-3 leading-relaxed">
+          Place a physical D&D miniature or 1-inch ruler on your TV glass. Adjust the slider until the dashed box matches 1 physical inch exactly.
+        </p>
+
+        <!-- On-Screen 1-Inch Box Preview (Physical PPI size) -->
+        <div class="flex flex-col items-center justify-center my-3 py-2 bg-slate-950/80 border border-slate-800 rounded-xl">
+          <div
+            class="flex items-center justify-center border-2 border-dashed border-cyan-400 bg-cyan-950/20 text-cyan-300 font-mono text-[10px] font-bold text-center select-none"
+            style="width: {physicalPpi}px; height: {physicalPpi}px;"
+          >
+            1.0 INCH
+          </div>
+          <span class="text-[10px] font-mono text-slate-500 mt-2">{physicalPpi} px = 1 inch</span>
+        </div>
+
+        <!-- PPI Slider -->
+        <div class="mb-3">
+          <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+            <span>Target Screen PPI</span>
+            <span class="font-mono font-bold text-cyan-400">{physicalPpi} PPI</span>
+          </div>
+          <input
+            type="range"
+            min="50"
+            max="160"
+            step="1"
+            bind:value={physicalPpi}
+            oninput={() => applyPhysicalScale(physicalPpi)}
+            class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+          />
+        </div>
+
+        <!-- Quick Presets -->
+        <div class="grid grid-cols-2 gap-1.5 pt-2 border-t border-slate-800">
+          <button
+            type="button"
+            class="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-medium"
+            onclick={() => applyPhysicalScale(96)}
+          >
+            Monitor (96 PPI)
+          </button>
+          <button
+            type="button"
+            class="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-medium"
+            onclick={() => applyPhysicalScale(69)}
+          >
+            32" 1080p (~69 PPI)
+          </button>
+          <button
+            type="button"
+            class="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-medium"
+            onclick={() => applyPhysicalScale(102)}
+          >
+            43" 4K (~102 PPI)
+          </button>
+          <button
+            type="button"
+            class="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-medium"
+            onclick={() => applyPhysicalScale(80)}
+          >
+            55" 4K (~80 PPI)
+          </button>
+        </div>
+      </div>
+    {/if}
 
   </div>
 {/if}

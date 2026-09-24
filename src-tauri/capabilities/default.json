@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default capability for Graywood VTT main window with scoped campaign filesystem and dialog permissions",
-  "windows": ["main"],
+  "windows": ["main", "projector"],
   "permissions": [
     "core:default",
     "core:window:default",

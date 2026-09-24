@@ -33,11 +33,11 @@
   - Manual DM fog eraser and brush tool for standard image maps.
 
 ## Phase D: Milestone 5 — Dual-Screen Projector & Tabletop View
-- [ ] **TKT-11: Secondary Window Management**:
+- [x] **TKT-11: Secondary Window Management**:
   - Tauri secondary window or `/projector` browser route designed for flat-lying tabletop TV displays.
-- [ ] **TKT-12: Perspective Decoupling**:
+- [x] **TKT-12: Perspective Decoupling**:
   - Strict player-only view: hide GM notes, secret doors, hidden monster tokens, and unrevealed fog.
-- [ ] **TKT-13: Tabletop Hardware Tools**:
+- [x] **TKT-13: Tabletop Hardware Tools**:
   - Quick blackout curtain hotkey (`Ctrl+Shift+B`) for DM prep transitions.
   - 1-inch physical grid scale calibration slider for TV tabletop accuracy.
 

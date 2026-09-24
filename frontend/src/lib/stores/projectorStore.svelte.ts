@@ -155,6 +155,16 @@ class ProjectorStore {
     this.broadcast();
   }
 
+  toggleBlackout(): void {
+    if (this.castSource === 'blackout') {
+      this.castSource = this.previousSource === 'blackout' ? 'battlemap' : this.previousSource;
+    } else {
+      this.previousSource = this.castSource;
+      this.castSource = 'blackout';
+    }
+    this.broadcast();
+  }
+
   updateSettings(partial: Partial<ProjectorPlayerSettings>): void {
     this.playerSettings = {
       ...this.playerSettings,

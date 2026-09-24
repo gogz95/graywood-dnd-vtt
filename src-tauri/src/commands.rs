@@ -11,6 +11,34 @@ use tokio::sync::{broadcast, Mutex};
 
 /// IPC command to safely export the local campaign database, assets, and metadata
 /// into a compressed `.aleamos` archive file for disaster recovery.
+/// IPC command to launch or focus the borderless secondary projector window.
+#[tauri::command]
+pub async fn open_projector_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(w) = app.get_webview_window("projector") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+
+    let builder = tauri::WebviewWindowBuilder::new(
+        &app,
+        "projector",
+        tauri::WebviewUrl::App("projector".into()),
+    )
+    .title("Graywood VTT - Player Tabletop Projector")
+    .inner_size(1920.0, 1080.0)
+    .decorations(false)
+    .resizable(true);
+
+    builder
+        .build()
+        .map_err(|e| format!("Failed to create projector window: {}", e))?;
+
+    Ok(())
+}
+
 pub async fn export_campaign_archive_cmd(
     db_path: PathBuf,
     assets_dir: PathBuf,

@@ -7,6 +7,7 @@
   import { pixiLifecycle } from '../../services/pixiLifecycle';
   import TokenLayer from './TokenLayer.svelte';
   import VisionFogLayer from './VisionFogLayer.svelte';
+  import { projectorStore } from '../../stores/projectorStore.svelte';
 
   // ── Types ──────────────────────────────────────────────────────────────────
   export type GridMode = 'square' | 'hexagonal' | 'off';
@@ -704,6 +705,23 @@
     showToast(`Spawned ${newToken.name} (${size}×${size}) at grid center`);
   }
 
+  // ── Projector Window Launcher ──────────────────────────────────────────────
+  async function launchProjectorWindow() {
+    try {
+      const win = window as any;
+      const invokeFn = win.__TAURI__?.core?.invoke || win.__TAURI_INTERNALS__?.invoke;
+      if (typeof invokeFn === 'function') {
+        await invokeFn('open_projector_window');
+        showToast('Launched secondary projector window');
+        return;
+      }
+    } catch (err) {
+      console.warn('Tauri open_projector_window invoke failed, falling back:', err);
+    }
+    window.open('/projector', '_blank', 'width=1920,height=1080');
+    showToast('Opened projector view in new window');
+  }
+
   // ── Pointer Event Handlers ─────────────────────────────────────────────────
   function handlePointerDown(e: PointerEvent) {
     // 1. Pan with Middle Mouse (1), Right Click (2), or Space + Left Click (0)
@@ -883,6 +901,14 @@
       document.activeElement?.tagName === 'INPUT' ||
       document.activeElement?.tagName === 'TEXTAREA' ||
       document.activeElement?.tagName === 'SELECT';
+
+    // Blackout Curtain Hotkey: Ctrl+Shift+B
+    if (e.ctrlKey && e.shiftKey && (e.code === 'KeyB' || e.key.toLowerCase() === 'b')) {
+      e.preventDefault();
+      projectorStore.toggleBlackout();
+      showToast(projectorStore.castSource === 'blackout' ? 'Blackout Curtain: SHROUDED (Ctrl+Shift+B)' : 'Blackout Curtain: CLEARED');
+      return;
+    }
 
     if (e.code === 'Space' && !e.repeat && !isEditingText) {
       isSpacePressed = true;
@@ -1207,6 +1233,33 @@
           title="Toggle Dynamic Lighting and Fog of War Mask"
         >
           Fog: {enableFog ? 'ON' : 'OFF'}
+        </button>
+      </div>
+
+      <!-- Blackout Curtain Toggle -->
+      <div class="px-2 border-l border-slate-800">
+        <button
+          type="button"
+          class="px-2.5 py-1 rounded-lg font-semibold text-xs transition-all {projectorStore.castSource === 'blackout' ? 'bg-rose-700 text-white shadow-lg animate-pulse' : 'bg-slate-800 text-slate-300 hover:text-white'}"
+          onclick={() => {
+            projectorStore.toggleBlackout();
+            showToast(projectorStore.castSource === 'blackout' ? 'Projector Blackout Shroud Active' : 'Projector Battlemat Restored');
+          }}
+          title="Blackout Curtain: Shroud secondary projector screen in black (Ctrl+Shift+B)"
+        >
+          {projectorStore.castSource === 'blackout' ? '⬛ Blackout ON' : 'Curtain'}
+        </button>
+      </div>
+
+      <!-- Projector Window Launch Button -->
+      <div class="px-2 border-l border-slate-800">
+        <button
+          type="button"
+          class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg font-semibold text-xs transition-colors flex items-center gap-1"
+          onclick={launchProjectorWindow}
+          title="Open Secondary Projector Window for Tabletop TV"
+        >
+          <span>🖥️ Projector</span>
         </button>
       </div>
     </div>
