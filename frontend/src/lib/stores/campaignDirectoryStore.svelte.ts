@@ -47,6 +47,21 @@ class CampaignDirectoryStore {
       );
     })
   );
+  audioFiles = $derived(
+    this.activeAssetList.filter((f) => {
+      const lower = f.toLowerCase();
+      return (
+        lower.startsWith('audio/') ||
+        lower.startsWith('audio\\') ||
+        lower.endsWith('.mp3') ||
+        lower.endsWith('.ogg') ||
+        lower.endsWith('.wav') ||
+        lower.endsWith('.m4a') ||
+        lower.endsWith('.flac') ||
+        lower.endsWith('.webm')
+      );
+    })
+  );
 
   constructor() {
     this.hydrateFromStorage();

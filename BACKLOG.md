@@ -42,9 +42,9 @@
   - 1-inch physical grid scale calibration slider for TV tabletop accuracy.
 
 ## Phase E: Auxiliary Tabletop Engines (Post-Core VTT)
-- [ ] **TKT-14: Combat & Turn Tracker**:
+- [x] **TKT-14: Combat & Turn Tracker**:
   - Initiative manager with condition tracking (Blinded, Stunned, Concentrating) synchronized to mobile companion devices.
-- [ ] **TKT-15: Local Ambience & SFX Mixer**:
+- [x] **TKT-15: Local Ambience & SFX Mixer**:
   - Multi-channel Web Audio soundboard playing directly from the campaign `audio/` directory.
   - Looping atmosphere layers with channel faders and one-shot sound effects triggers.
 - [ ] **TKT-16: Markdown Campaign Journal**:
