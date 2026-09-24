@@ -1,8 +1,8 @@
 # Graywood VTT — Master Development Backlog & Fix List
 
 ## Phase A: Architecture Hardening & Build Cleanups (Immediate)
-- [ ] **TKT-01: Vite Native Config Loader Fix**: Replace `__dirname` with `import.meta.dirname` in `frontend/vite.config.ts`.
-- [ ] **TKT-02: Chunk Splitting Optimization**:
+- [x] **TKT-01: Vite Native Config Loader Fix**: Replace `__dirname` with `import.meta.dirname` in `frontend/vite.config.ts`.
+- [x] **TKT-02: Chunk Splitting Optimization**:
   - Make `srdSeedService.ts` dynamic across all importing routes (`+page.svelte`, `Step2Scaffolding.svelte`).
   - Configure `manualChunks` in `vite.config.ts` for `compendium-data`, `pdfjs-dist`, and `pixi.js` to eliminate chunk warnings (>1000 kB).
 - [ ] **TKT-03: Ingestion UI Pipeline Linking**: Ensure parsed `.dd2vtt` files in the desktop dropzone automatically refresh `campaignDirectoryStore` maps list without manual restart.

@@ -9,7 +9,7 @@ import {
   type CompendiumItem,
   type CompendiumRule
 } from '../db/compendiumDb';
-import srdSeedData from '../data/srdCompendiumSeed.json';
+
 
 export interface SrdSeedResult {
   seeded: boolean;
@@ -53,6 +53,8 @@ export async function seedSrdCompendiumIfEmpty(force = false): Promise<SrdSeedRe
     }
 
     // Populate missing tables transactionally
+    const { default: srdSeedData } = await import('../data/srdCompendiumSeed.json');
+
     await compendiumDb.transaction(
       'rw',
       [compendiumDb.monsters, compendiumDb.spells, compendiumDb.items, compendiumDb.rules, compendiumDb.campaignFlags],

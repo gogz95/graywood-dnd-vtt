@@ -22,8 +22,20 @@ export default defineConfig({
           if (id.includes('pdfjs-dist')) {
             return 'pdf-engine';
           }
-          if (id.includes('pixi.js')) {
+          if (id.includes('pixi.js') || id.includes('@pixi')) {
             return 'pixi-vendor';
+          }
+          if (id.includes('/routes/play/') || id.includes('\\routes\\play\\')) {
+            return 'route-play';
+          }
+          if (id.includes('/routes/projector/') || id.includes('\\routes\\projector\\')) {
+            return 'route-projector';
+          }
+          if (id.includes('node_modules')) {
+            if (id.includes('jszip')) return 'jszip-vendor';
+            if (id.includes('dexie')) return 'dexie-vendor';
+            if (id.includes('@tauri-apps')) return 'tauri-vendor';
+            if (id.includes('svelte')) return 'svelte-vendor';
           }
         },
       },
