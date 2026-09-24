@@ -7,6 +7,12 @@
   import { pixiLifecycle } from '../../services/pixiLifecycle';
   import TokenLayer from './TokenLayer.svelte';
   import VisionFogLayer from './VisionFogLayer.svelte';
+  import RulerLayer from './RulerLayer.svelte';
+  import {
+    calculate5eDistanceFeet,
+    calculateConeVertices,
+    calculateLineVertices,
+  } from '../map/MeasurementTool';
   import { projectorStore } from '../../stores/projectorStore.svelte';
 
   // ── Types ──────────────────────────────────────────────────────────────────
@@ -81,6 +87,41 @@
   // Map scale adjustment
   let mapScale = $state<number>(1.0);
   let mapOffset = $state<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // ── Ruler & Measurement Engine State ─────────────────────────────────────────
+  let isRulerToolActive = $state(false);
+  let measurementRule = $state<'5e-alt' | 'euclidean'>('5e-alt');
+  let isMeasuring = $state(false);
+  let rulerStart = $state<{ x: number; y: number } | null>(null);
+  let rulerCurrent = $state<{ x: number; y: number } | null>(null);
+  let rulerWaypoints = $state<Array<{ x: number; y: number }>>([]);
+  let isCtrlPressed = $state(false);
+
+  // ── AoE Template State & Pixi Layers ────────────────────────────────────────
+  let aoeContainer: Container | null = null;
+  let rulerGraphics: Graphics | null = null;
+  let rulerBadgeContainer: Container | null = null;
+  let isDraggingAoe = $state(false);
+  let draggingAoeId = $state<string | null>(null);
+  let aoeDragOffset = { x: 0, y: 0 };
+
+  $effect(() => {
+    if (aoeContainer) {
+      const _ = canvasStore.aoeTemplates;
+      const __ = gridSize;
+      renderAoeTemplates();
+    }
+  });
+
+  $effect(() => {
+    if (rulerGraphics) {
+      const _ = canvasStore.ruler;
+      const __ = gridSize;
+      if (!isMeasuring) {
+        renderRuler();
+      }
+    }
+  });
 
   // UI status & toasts
   let toastMessage = $state<string | null>(null);
@@ -530,6 +571,286 @@
     const dx = wx - handleX;
     const dy = wy - handleY;
     return dx * dx + dy * dy <= 10 * 10;
+  // ── Distance & Movement Ruler Calculation & Rendering ─────────────────────
+  function calculateTotalRulerDistance(
+    start: { x: number; y: number },
+    waypoints: Array<{ x: number; y: number }>,
+    end: { x: number; y: number },
+    rule: '5e-alt' | 'euclidean' = '5e-alt'
+  ): { totalFeet: number; segmentDistances: number[] } {
+    const points = [start, ...waypoints, end];
+    let totalFeet = 0;
+    const segmentDistances: number[] = [];
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const g1 = { gx: p1.x / gridSize, gy: p1.y / gridSize };
+      const g2 = { gx: p2.x / gridSize, gy: p2.y / gridSize };
+      const seg = calculate5eDistanceFeet(g1, g2, rule, 5);
+      segmentDistances.push(seg.distanceFeet);
+      totalFeet += seg.distanceFeet;
+    }
+
+    return { totalFeet: Math.round(totalFeet * 10) / 10, segmentDistances };
+  }
+
+  function renderRuler() {
+    if (!rulerGraphics || !rulerBadgeContainer) return;
+    rulerGraphics.clear();
+    rulerBadgeContainer.removeChildren().forEach(c => c.destroy({ children: true }));
+
+    const rulerData = isMeasuring && rulerStart && rulerCurrent
+      ? {
+          start: rulerStart,
+          waypoints: rulerWaypoints,
+          end: rulerCurrent,
+          rule: measurementRule,
+          color: 0x38bdf8
+        }
+      : canvasStore.ruler
+        ? {
+            start: { x: (canvasStore.ruler.startX + 0.5) * gridSize, y: (canvasStore.ruler.startY + 0.5) * gridSize },
+            waypoints: (canvasStore.ruler.waypoints || []).map(w => ({ x: (w.x + 0.5) * gridSize, y: (w.y + 0.5) * gridSize })),
+            end: { x: (canvasStore.ruler.endX + 0.5) * gridSize, y: (canvasStore.ruler.endY + 0.5) * gridSize },
+            rule: canvasStore.ruler.rule || measurementRule,
+            color: parseHexColor(canvasStore.ruler.color || '#38bdf8')
+          }
+        : null;
+
+    if (!rulerData) return;
+
+    const points = [rulerData.start, ...rulerData.waypoints, rulerData.end];
+    if (points.length < 2) return;
+
+    const { totalFeet, segmentDistances } = calculateTotalRulerDistance(
+      rulerData.start,
+      rulerData.waypoints,
+      rulerData.end,
+      rulerData.rule
+    );
+
+    // 1. Outer halo glow line
+    rulerGraphics.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      rulerGraphics.lineTo(points[i].x, points[i].y);
+    }
+    rulerGraphics.stroke({ color: rulerData.color, width: 8, alpha: 0.25 });
+
+    // 2. Core high-contrast line
+    rulerGraphics.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      rulerGraphics.lineTo(points[i].x, points[i].y);
+    }
+    rulerGraphics.stroke({ color: 0xffffff, width: 2.5, alpha: 0.95 });
+
+    // 3. Waypoint & terminal nodes
+    for (let i = 0; i < points.length; i++) {
+      const pt = points[i];
+      const isEndpoint = i === 0 || i === points.length - 1;
+      const radius = isEndpoint ? 6 : 4.5;
+      rulerGraphics
+        .circle(pt.x, pt.y, radius + 2)
+        .fill({ color: rulerData.color, alpha: 0.9 })
+        .stroke({ color: 0xffffff, width: 1.5 });
+    }
+
+    // 4. Segment midpoint badges if multiple waypoints
+    if (points.length > 2) {
+      for (let i = 0; i < points.length - 1; i++) {
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+        const segDist = segmentDistances[i] ?? 0;
+
+        const segText = new Text({
+          text: `${segDist} ft`,
+          style: {
+            fontFamily: 'monospace',
+            fontSize: 10,
+            fontWeight: 'bold',
+            fill: 0xe2e8f0,
+            align: 'center'
+          }
+        });
+        segText.anchor.set(0.5);
+        segText.position.set(midX, midY);
+
+        const padX = 12;
+        const padY = 6;
+        const segBadge = new Graphics();
+        segBadge
+          .roundRect(midX - (segText.width + padX) / 2, midY - (segText.height + padY) / 2, segText.width + padX, segText.height + padY, 5)
+          .fill({ color: 0x090b10, alpha: 0.85 })
+          .stroke({ color: rulerData.color, width: 1, alpha: 0.7 });
+
+        rulerBadgeContainer.addChild(segBadge);
+        rulerBadgeContainer.addChild(segText);
+      }
+    }
+
+    // 5. Total Distance Badge at current cursor / endpoint
+    const lastPt = points[points.length - 1];
+    const totalLabel = points.length > 2
+      ? `${totalFeet} ft total`
+      : `${totalFeet} ft`;
+
+    const badgeText = new Text({
+      text: totalLabel,
+      style: {
+        fontFamily: 'monospace',
+        fontSize: 12,
+        fontWeight: 'bold',
+        fill: 0xffffff,
+        align: 'center'
+      }
+    });
+    badgeText.anchor.set(0.5);
+    const badgeY = lastPt.y - 22;
+    badgeText.position.set(lastPt.x, badgeY);
+
+    const badgeW = badgeText.width + 16;
+    const badgeH = badgeText.height + 8;
+    const mainBadgeBg = new Graphics();
+    mainBadgeBg
+      .roundRect(lastPt.x - badgeW / 2, badgeY - badgeH / 2, badgeW, badgeH, 6)
+      .fill({ color: 0x0f172a, alpha: 0.95 })
+      .stroke({ color: rulerData.color, width: 2, alpha: 0.95 });
+
+    rulerBadgeContainer.addChild(mainBadgeBg);
+    rulerBadgeContainer.addChild(badgeText);
+  }
+
+  // ── 5e Spell Area of Effect (AoE) Template Rendering ───────────────────────
+  function renderAoeTemplates() {
+    if (!aoeContainer) return;
+    aoeContainer.removeChildren().forEach(c => c.destroy({ children: true }));
+
+    const templates = canvasStore.aoeTemplates;
+    const pixelsPerFoot = gridSize / 5;
+
+    for (const t of templates) {
+      const templateNode = new Container();
+      const g = new Graphics();
+      templateNode.addChild(g);
+
+      const originPx = {
+        x: (t.originX + 0.5) * gridSize,
+        y: (t.originY + 0.5) * gridSize
+      };
+
+      const targetPx = {
+        x: ((t.targetX ?? t.originX + 1) + 0.5) * gridSize,
+        y: ((t.targetY ?? t.originY) + 0.5) * gridSize
+      };
+
+      const colorHex = parseHexColor(t.color || '#ef4444');
+      const radiusPx = t.sizeFeet * pixelsPerFoot;
+
+      switch (t.type) {
+        case 'circle': {
+          g.circle(originPx.x, originPx.y, radiusPx)
+            .fill({ color: colorHex, alpha: 0.35 })
+            .stroke({ color: colorHex, width: 2.5, alpha: 0.95 });
+
+          // Center crosshair
+          g.circle(originPx.x, originPx.y, 4).fill({ color: 0xffffff });
+          g.circle(originPx.x, originPx.y, 8).stroke({ color: colorHex, width: 1.5 });
+          break;
+        }
+
+        case 'cone': {
+          const cone = calculateConeVertices(originPx, targetPx, radiusPx);
+          const startAngle = Math.atan2(cone.p2.y - originPx.y, cone.p2.x - originPx.x);
+          const endAngle = Math.atan2(cone.p3.y - originPx.y, cone.p3.x - originPx.x);
+
+          g.moveTo(originPx.x, originPx.y)
+            .lineTo(cone.p2.x, cone.p2.y)
+            .arc(originPx.x, originPx.y, radiusPx, startAngle, endAngle)
+            .closePath()
+            .fill({ color: colorHex, alpha: 0.35 })
+            .stroke({ color: colorHex, width: 2.5, alpha: 0.95 });
+
+          g.circle(originPx.x, originPx.y, 4).fill({ color: 0xffffff });
+          break;
+        }
+
+        case 'cube': {
+          const sidePx = t.sizeFeet * pixelsPerFoot;
+          const x = originPx.x - sidePx / 2;
+          const y = originPx.y - sidePx / 2;
+          g.rect(x, y, sidePx, sidePx)
+            .fill({ color: colorHex, alpha: 0.35 })
+            .stroke({ color: colorHex, width: 2.5, alpha: 0.95 });
+
+          g.circle(originPx.x, originPx.y, 4).fill({ color: 0xffffff });
+          break;
+        }
+
+        case 'line': {
+          const widthPx = (t.widthFeet || 5) * pixelsPerFoot;
+          const poly = calculateLineVertices(originPx, targetPx, radiusPx, widthPx);
+          g.moveTo(poly[0].x, poly[0].y)
+            .lineTo(poly[1].x, poly[1].y)
+            .lineTo(poly[2].x, poly[2].y)
+            .lineTo(poly[3].x, poly[3].y)
+            .closePath()
+            .fill({ color: colorHex, alpha: 0.35 })
+            .stroke({ color: colorHex, width: 2.5, alpha: 0.95 });
+
+          g.circle(originPx.x, originPx.y, 4).fill({ color: 0xffffff });
+          break;
+        }
+      }
+
+      // Template Label Pill Badge
+      if (t.label) {
+        const labelText = new Text({
+          text: `${t.label} (${t.sizeFeet} ft)`,
+          style: {
+            fontFamily: 'sans-serif',
+            fontSize: 11,
+            fontWeight: 'bold',
+            fill: 0xffffff,
+            align: 'center'
+          }
+        });
+        labelText.anchor.set(0.5);
+        labelText.position.set(originPx.x, originPx.y - 14);
+
+        const labelBg = new Graphics();
+        const bgW = labelText.width + 12;
+        const bgH = labelText.height + 6;
+        labelBg
+          .roundRect(originPx.x - bgW / 2, originPx.y - 14 - bgH / 2, bgW, bgH, 5)
+          .fill({ color: 0x090b10, alpha: 0.85 })
+          .stroke({ color: colorHex, width: 1 });
+
+        templateNode.addChild(labelBg);
+        templateNode.addChild(labelText);
+      }
+
+      aoeContainer.addChild(templateNode);
+    }
+  }
+
+  function findAoeTemplateAt(wx: number, wy: number): SpellAoeTemplate | null {
+    const pixelsPerFoot = gridSize / 5;
+    for (let i = canvasStore.aoeTemplates.length - 1; i >= 0; i--) {
+      const t = canvasStore.aoeTemplates[i];
+      const originPx = {
+        x: (t.originX + 0.5) * gridSize,
+        y: (t.originY + 0.5) * gridSize
+      };
+      const radiusPx = t.sizeFeet * pixelsPerFoot;
+      const dx = wx - originPx.x;
+      const dy = wy - originPx.y;
+      if (dx * dx + dy * dy <= radiusPx * radiusPx) {
+        return t;
+      }
+    }
+    return null;
   }
 
   // ── 3x3 Calibration Ruler Tool ─────────────────────────────────────────────
@@ -734,9 +1055,19 @@
       return;
     }
 
-    const worldPos = screenToWorld(e.clientX, e.clientY);
+    // 2. Measurement Ruler Trigger (Ctrl + Left Click or Ruler Tool Active)
+    if ((e.ctrlKey || isCtrlPressed || isRulerToolActive) && e.button === 0) {
+      e.preventDefault();
+      isMeasuring = true;
+      rulerStart = worldPos;
+      rulerCurrent = worldPos;
+      rulerWaypoints = [];
+      renderRuler();
+      if (containerEl) containerEl.setPointerCapture(e.pointerId);
+      return;
+    }
 
-    // 2. 3x3 Calibration Drag with Left Click (0)
+    // 3. 3x3 Calibration Drag with Left Click (0)
     if (isCalibrating && e.button === 0) {
       e.preventDefault();
       calibStartWorld = worldPos;
@@ -746,7 +1077,7 @@
       return;
     }
 
-    // 3. Rotation Handle Drag
+    // 4. Rotation Handle Drag
     if (tokenStore.selectedToken && isOverRotationHandle(tokenStore.selectedToken, worldPos.x, worldPos.y)) {
       e.preventDefault();
       isRotatingToken = true;
@@ -755,7 +1086,7 @@
       return;
     }
 
-    // 4. Token Selection & Dragging
+    // 5. Token Selection & Dragging
     const clickedToken = findTokenAtWorldPos(worldPos.x, worldPos.y);
     if (clickedToken && e.button === 0) {
       e.preventDefault();
@@ -765,6 +1096,21 @@
       tokenDragOffset = { x: clickedToken.x - worldPos.x, y: clickedToken.y - worldPos.y };
       snapGhostPos = { x: clickedToken.x, y: clickedToken.y };
       renderSelectionAndSnap();
+      if (containerEl) containerEl.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    // 6. AoE Template Dragging
+    const clickedAoe = findAoeTemplateAt(worldPos.x, worldPos.y);
+    if (clickedAoe && e.button === 0) {
+      e.preventDefault();
+      isDraggingAoe = true;
+      draggingAoeId = clickedAoe.id;
+      const originPx = {
+        x: (clickedAoe.originX + 0.5) * gridSize,
+        y: (clickedAoe.originY + 0.5) * gridSize
+      };
+      aoeDragOffset = { x: originPx.x - worldPos.x, y: originPx.y - worldPos.y };
       if (containerEl) containerEl.setPointerCapture(e.pointerId);
       return;
     }
@@ -792,6 +1138,35 @@
     }
 
     const worldPos = screenToWorld(e.clientX, e.clientY);
+
+    // Handle active ruler measurement drag
+    if (isMeasuring && rulerStart) {
+      rulerCurrent = worldPos;
+      renderRuler();
+      return;
+    }
+
+    // Handle AoE template dragging
+    if (isDraggingAoe && draggingAoeId) {
+      const aoe = canvasStore.aoeTemplates.find(t => t.id === draggingAoeId);
+      if (aoe) {
+        const newOriginPxX = worldPos.x + aoeDragOffset.x;
+        const newOriginPxY = worldPos.y + aoeDragOffset.y;
+        const newCol = Math.round((newOriginPxX / gridSize) - 0.5);
+        const newRow = Math.round((newOriginPxY / gridSize) - 0.5);
+
+        if (aoe.originX !== newCol || aoe.originY !== newRow) {
+          const deltaCol = newCol - aoe.originX;
+          const deltaRow = newRow - aoe.originY;
+          aoe.originX = newCol;
+          aoe.originY = newRow;
+          if (aoe.targetX !== undefined) aoe.targetX += deltaCol;
+          if (aoe.targetY !== undefined) aoe.targetY += deltaRow;
+          renderAoeTemplates();
+        }
+      }
+      return;
+    }
 
     // Handle token rotation
     if (isRotatingToken && rotatingTokenId) {
@@ -851,6 +1226,57 @@
   }
 
   function handlePointerUp(e: PointerEvent) {
+    if (isMeasuring && rulerStart && rulerCurrent) {
+      const { totalFeet, segmentDistances } = calculateTotalRulerDistance(
+        rulerStart,
+        rulerWaypoints,
+        rulerCurrent,
+        measurementRule
+      );
+
+      const startCell = { x: Math.round(rulerStart.x / gridSize - 0.5), y: Math.round(rulerStart.y / gridSize - 0.5) };
+      const endCell = { x: Math.round(rulerCurrent.x / gridSize - 0.5), y: Math.round(rulerCurrent.y / gridSize - 0.5) };
+      const waypointsCells = rulerWaypoints.map(w => ({
+        x: Math.round(w.x / gridSize - 0.5),
+        y: Math.round(w.y / gridSize - 0.5)
+      }));
+
+      canvasStore.setRuler({
+        id: `ruler-${Date.now()}`,
+        startX: startCell.x,
+        startY: startCell.y,
+        endX: endCell.x,
+        endY: endCell.y,
+        distanceFeet: totalFeet,
+        waypoints: waypointsCells,
+        segmentDistances,
+        isPublic: true,
+        color: '#38bdf8',
+        rule: measurementRule,
+      });
+
+      isMeasuring = false;
+      renderRuler();
+      try {
+        if (containerEl?.hasPointerCapture(e.pointerId)) {
+          containerEl.releasePointerCapture(e.pointerId);
+        }
+      } catch {}
+      return;
+    }
+
+    if (isDraggingAoe) {
+      isDraggingAoe = false;
+      draggingAoeId = null;
+      renderAoeTemplates();
+      try {
+        if (containerEl?.hasPointerCapture(e.pointerId)) {
+          containerEl.releasePointerCapture(e.pointerId);
+        }
+      } catch {}
+      return;
+    }
+
     if (isPanning) {
       isPanning = false;
       try {
@@ -921,8 +1347,29 @@
       }
     }
 
+    if (e.key === 'Control') {
+      isCtrlPressed = true;
+    }
+
+    // Space or Shift while measuring drops a waypoint
+    if ((e.code === 'Space' || e.shiftKey) && isMeasuring && rulerCurrent) {
+      e.preventDefault();
+      rulerWaypoints = [...rulerWaypoints, { x: rulerCurrent.x, y: rulerCurrent.y }];
+      renderRuler();
+      return;
+    }
+
     if (e.key === 'Escape') {
-      if (isCalibrating) {
+      if (isMeasuring) {
+        isMeasuring = false;
+        rulerStart = null;
+        rulerCurrent = null;
+        rulerWaypoints = [];
+        renderRuler();
+      } else if (canvasStore.ruler) {
+        canvasStore.setRuler(null);
+        renderRuler();
+      } else if (isCalibrating) {
         cancelCalibration();
       } else if (tokenStore.selectedTokenId) {
         tokenStore.selectToken(null);
@@ -932,6 +1379,9 @@
   }
 
   function handleKeyUp(e: KeyboardEvent) {
+    if (e.key === 'Control') {
+      isCtrlPressed = false;
+    }
     if (e.code === 'Space') {
       isSpacePressed = false;
     }
@@ -973,6 +1423,9 @@
     gridGraphics = new Graphics();
     worldContainer.addChild(gridGraphics);
 
+    aoeContainer = new Container();
+    worldContainer.addChild(aoeContainer);
+
     tokenContainer = new Container();
     worldContainer.addChild(tokenContainer);
 
@@ -982,10 +1435,18 @@
     calibrationGraphics = new Graphics();
     worldContainer.addChild(calibrationGraphics);
 
+    rulerGraphics = new Graphics();
+    worldContainer.addChild(rulerGraphics);
+
+    rulerBadgeContainer = new Container();
+    worldContainer.addChild(rulerBadgeContainer);
+
     // Initial renders
     renderBackgroundMat();
     renderGrid();
+    renderAoeTemplates();
     renderTokens();
+    renderRuler();
 
     // 3. Load Map Image if provided
     const targetUrl = mapImageUrl || canvasStore.mapImageUrl;
@@ -1337,6 +1798,14 @@
       bind:isGmView={isGmFogView}
     />
   {/if}
+
+  <!-- ── Tabletop Measurement & 5e AoE Template HUD Layer ───────────────── -->
+  <RulerLayer
+    bind:isRulerToolActive={isRulerToolActive}
+    bind:measurementRule={measurementRule}
+    onSpawnTemplate={() => renderAoeTemplates()}
+    onClearAllTemplates={() => renderAoeTemplates()}
+  />
 
   <!-- ── Selected Token Inspector HUD Component ────────────────────────────── -->
   <TokenLayer gridSize={gridSize} />

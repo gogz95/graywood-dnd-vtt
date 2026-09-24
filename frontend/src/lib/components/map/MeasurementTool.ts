@@ -30,9 +30,40 @@ export function calculateGridDistanceFeet(
 }
 
 /**
+ * Calculates 5e distance with optional alternating diagonals (5/10/5/10 ft).
+ * D&D 5e Standard Optional Rule (DMG p. 252):
+ * 1st diagonal = 5 ft, 2nd diagonal = 10 ft, 3rd = 5 ft, 4th = 10 ft...
+ */
+export function calculate5eDistanceFeet(
+  start: GridPoint,
+  end: GridPoint,
+  rule: '5e-alt' | 'euclidean' = '5e-alt',
+  feetPerCell = 5
+): { distanceFeet: number; cells: number } {
+  const dx = Math.abs(end.gx - start.gx);
+  const dy = Math.abs(end.gy - start.gy);
+
+  if (rule === 'euclidean') {
+    const cells = Math.sqrt(dx * dx + dy * dy);
+    return {
+      distanceFeet: Math.round(cells * feetPerCell * 10) / 10,
+      cells: Math.round(cells * 10) / 10,
+    };
+  }
+
+  // 5e Alternating Diagonals (5/10/5/10)
+  const diagonals = Math.min(dx, dy);
+  const straights = Math.abs(dx - dy);
+  const distanceFeet = (straights * feetPerCell) + Math.floor(diagonals * 1.5) * feetPerCell;
+  const cells = straights + diagonals;
+
+  return { distanceFeet, cells };
+}
+
+/**
  * Standard 5e Cone geometry:
- * A cone's width at any point along its length is equal to its distance from the point of origin.
- * This corresponds to a 53.13° spread angle (half-angle = atan(0.5) ≈ 26.565°).
+ * A 60-degree arc spreading outward from the origin point.
+ * Half-spread angle = 30° (π/6 rad).
  */
 export function calculateConeVertices(
   originPx: PixelPoint,
@@ -42,7 +73,7 @@ export function calculateConeVertices(
   const dx = targetPx.x - originPx.x;
   const dy = targetPx.y - originPx.y;
   const angle = Math.atan2(dy, dx);
-  const halfSpread = Math.atan(0.5); // ~26.565°
+  const halfSpread = Math.PI / 6; // 30° (60° total cone)
 
   const leftAngle = angle - halfSpread;
   const rightAngle = angle + halfSpread;
@@ -61,7 +92,7 @@ export function calculateConeVertices(
 }
 
 /**
- * Calculates rectangular polygon vertices for a 5 ft wide Line spell template.
+ * Calculates rectangular polygon vertices for a Line spell template.
  */
 export function calculateLineVertices(
   originPx: PixelPoint,
@@ -160,7 +191,7 @@ export function renderAoeTemplateOnCanvas(
     }
 
     case 'line': {
-      const widthPx = 5 * pixelsPerFoot;
+      const widthPx = (template.widthFeet || 5) * pixelsPerFoot;
       const poly = calculateLineVertices(originPx, targetPx, radiusPx, widthPx);
       ctx.beginPath();
       ctx.moveTo(poly[0].x, poly[0].y);
@@ -199,44 +230,53 @@ export function renderAoeTemplateOnCanvas(
 }
 
 /**
- * Renders an active Euclidean distance ruler with footage badge onto an HTML5 2D Canvas context.
+ * Renders an active distance ruler with waypoint support onto an HTML5 2D Canvas context.
  */
 export function renderRulerOnCanvas(
   ctx: CanvasRenderingContext2D,
   ruler: RulerMeasurement,
   gridSize: number
 ): void {
-  const startPx = {
-    x: (ruler.startX + 0.5) * gridSize,
-    y: (ruler.startY + 0.5) * gridSize,
-  };
-  const endPx = {
-    x: (ruler.endX + 0.5) * gridSize,
-    y: (ruler.endY + 0.5) * gridSize,
-  };
+  // Collect all points: start -> waypoints -> end
+  const points: PixelPoint[] = [
+    { x: (ruler.startX + 0.5) * gridSize, y: (ruler.startY + 0.5) * gridSize },
+  ];
+
+  if (ruler.waypoints && ruler.waypoints.length > 0) {
+    for (const wp of ruler.waypoints) {
+      points.push({ x: (wp.x + 0.5) * gridSize, y: (wp.y + 0.5) * gridSize });
+    }
+  }
+
+  points.push({ x: (ruler.endX + 0.5) * gridSize, y: (ruler.endY + 0.5) * gridSize });
 
   ctx.save();
-
-  // Line
   ctx.strokeStyle = ruler.color || '#38bdf8';
   ctx.lineWidth = 3;
   ctx.setLineDash([6, 4]);
+
+  // Draw multi-segment path
   ctx.beginPath();
-  ctx.moveTo(startPx.x, startPx.y);
-  ctx.lineTo(endPx.x, endPx.y);
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // End nodes
+  // Draw nodes at each vertex
   ctx.fillStyle = ruler.color || '#38bdf8';
-  ctx.beginPath();
-  ctx.arc(startPx.x, startPx.y, 4, 0, Math.PI * 2);
-  ctx.arc(endPx.x, endPx.y, 4, 0, Math.PI * 2);
-  ctx.fill();
+  for (const pt of points) {
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
 
-  // Midpoint distance badge
-  const midX = (startPx.x + endPx.x) / 2;
-  const midY = (startPx.y + endPx.y) / 2;
+  // Floating badge at the endpoint or midpoint
+  const lastPt = points[points.length - 1];
   const label = `${ruler.distanceFeet} ft`;
 
   ctx.font = 'bold 12px monospace';
@@ -246,16 +286,19 @@ export function renderRulerOnCanvas(
   const badgeW = textWidth + 16;
   const badgeH = 22;
 
+  const badgeX = lastPt.x;
+  const badgeY = lastPt.y - 18;
+
   ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
   ctx.strokeStyle = ruler.color || '#38bdf8';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.roundRect(midX - badgeW / 2, midY - badgeH / 2, badgeW, badgeH, 6);
+  ctx.roundRect(badgeX - badgeW / 2, badgeY - badgeH / 2, badgeW, badgeH, 6);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(label, midX, midY);
+  ctx.fillText(label, badgeX, badgeY);
 
   ctx.restore();
 }

@@ -27,25 +27,35 @@ export type SpellAoeType = 'circle' | 'cone' | 'cube' | 'line';
 export interface SpellAoeTemplate {
   id: string;
   type: SpellAoeType;
-  originX: number; // grid col
-  originY: number; // grid row
-  targetX?: number; // grid col (direction/extent)
+  originX: number; // grid col or world x
+  originY: number; // grid row or world y
+  targetX?: number; // grid col or world x (direction/extent)
   targetY?: number;
-  sizeFeet: number; // e.g. 20 for 20ft radius / side
+  sizeFeet: number; // e.g. 20 for 20ft radius / side / length
+  widthFeet?: number; // width for line spells (default 5ft or 10ft)
   color: string;
   label: string;
-  isPublic: boolean; // if true, visible on /projector
+  isPublic: boolean; // if true, visible on /projector and companion
+}
+
+export interface RulerWaypoint {
+  x: number;
+  y: number;
+  distanceFeet?: number;
 }
 
 export interface RulerMeasurement {
   id: string;
-  startX: number; // grid coords
+  startX: number; // grid coords or world x
   startY: number;
   endX: number;
   endY: number;
   distanceFeet: number;
+  waypoints?: RulerWaypoint[];
+  segmentDistances?: number[];
   isPublic: boolean;
   color: string;
+  rule?: '5e-alt' | 'euclidean';
 }
 
 export interface ViewportTransform {
