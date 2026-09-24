@@ -3,6 +3,7 @@
 
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import MobileDiceTray, { type DiceResultItem } from '$lib/components/mobile/MobileDiceTray.svelte';
 
   // ── Svelte 5 Rune State ───────────────────────────────────────────────────
   let connectionStatus = $state<
@@ -14,6 +15,8 @@
     campaignName: string;
     characterName: string;
   } | null>(null);
+
+  let rollHistory = $state<DiceResultItem[]>([]);
 
   // Authentication & Form
   let pin = $state('');
@@ -38,7 +41,7 @@
   let calcMode = $state<'quick' | 'calculator'>('quick');
 
   // Network & Auto-Reconnect Engine
-  let socket: WebSocket | null = null;
+  let socket = $state<WebSocket | null>(null);
   let heartbeatTimer: any = null;
   let reconnectTimer: any = null;
   let reconnectAttempt = $state(0);
@@ -126,6 +129,16 @@
             disconnectSocket();
           } else if (msg.type === 'CombatantSync' && Array.isArray(msg.combatants)) {
             handleCombatantSync(msg.combatants);
+          } else if (msg.type === 'DiceResult') {
+            const rollItem: DiceResultItem = {
+              roll_id: msg.roll_id || `roll-${Date.now()}`,
+              roller: msg.roller || 'Player Companion',
+              expression: msg.expression || '',
+              total: typeof msg.total === 'number' ? msg.total : 0,
+              breakdown: msg.breakdown || '',
+              timestamp: Date.now(),
+            };
+            rollHistory = [rollItem, ...rollHistory.slice(0, 49)];
           }
         } catch {
           // Ignore invalid socket payloads
@@ -548,17 +561,12 @@
           </div>
         {/if}
 
-        <!-- Next Milestone Teaser (TKT-06 Quick Dice Roller) -->
-        <div class="p-4 rounded-xl bg-slate-900/50 border border-slate-800/80 flex items-center justify-between text-xs">
-          <div class="flex items-center gap-2.5">
-            <span class="text-xl">🎲</span>
-            <div>
-              <span class="font-bold text-slate-300 block">Mobile Quick Roller</span>
-              <span class="text-[10px] text-slate-500">Milestone 3 (TKT-06)</span>
-            </div>
-          </div>
-          <span class="px-2 py-0.5 rounded text-[9px] font-mono bg-slate-800 text-slate-400">Next</span>
-        </div>
+        <!-- ── QUICK DICE ROLLER & LIVE FEED (TKT-06) ───────────────────────── -->
+        <MobileDiceTray
+          characterName={session.characterName}
+          {socket}
+          bind:rollHistory
+        />
       </section>
     {:else}
       <!-- ═════════════════════════════════════════════════════════════════════════

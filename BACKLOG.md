@@ -15,7 +15,7 @@
   - Touch-friendly HP tracking card (+/- 1, +/- 5, damage/heal calculator mode).
   - Auto-reconnect with exponential backoff on screen sleep or Wi-Fi drops.
   - Periodic heartbeat ping every 15 seconds.
-- [ ] **TKT-06: Mobile Quick Dice Roller**:
+- [x] **TKT-06: Mobile Quick Dice Roller**:
   - Tap-to-roll dice tray (d4 through d20, advantage/disadvantage toggles).
   - Broadcast rolls to workstation via `RollDice` / `DiceResult`.
 
