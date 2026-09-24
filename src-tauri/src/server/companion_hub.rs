@@ -452,7 +452,8 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                 {
                                     let conn = db_clone.lock().await;
                                     // Check if target is in active_combatants
-                                    type CombatantRowTuple = (String, i32, i32, i32, i32, i32, bool, String);
+                                    type CombatantRowTuple =
+                                        (String, i32, i32, i32, i32, i32, bool, String);
                                     let combatant_row: Option<CombatantRowTuple> = conn
                                         .query_row(
                                             "SELECT name, hp_current, hp_max, temp_hp, ac, initiative, is_monster, conditions_json FROM active_combatants WHERE id = ?1 OR token_id = ?1",
@@ -461,14 +462,25 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                         )
                                         .ok();
 
-                                    if let Some((c_name, hp_curr, hp_max, temp_hp, ac, init, is_monster, cond_json)) = combatant_row {
+                                    if let Some((
+                                        c_name,
+                                        hp_curr,
+                                        hp_max,
+                                        temp_hp,
+                                        ac,
+                                        init,
+                                        is_monster,
+                                        cond_json,
+                                    )) = combatant_row
+                                    {
                                         final_name = c_name;
                                         final_max_hp = hp_max;
                                         final_temp_hp = temp_hp;
                                         final_ac = ac;
                                         final_init = init;
                                         final_is_player = !is_monster;
-                                        final_conditions = serde_json::from_str(&cond_json).unwrap_or_default();
+                                        final_conditions =
+                                            serde_json::from_str(&cond_json).unwrap_or_default();
                                         final_current_hp = (hp_curr + delta_hp).clamp(0, hp_max);
                                         let _ = conn.execute(
                                             "UPDATE active_combatants SET hp_current = ?1 WHERE id = ?2 OR token_id = ?2",
@@ -484,13 +496,16 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                             )
                                             .ok();
 
-                                        if let Some((ch_name, hp_curr, hp_max, temp_hp, base_ac)) = char_row {
+                                        if let Some((ch_name, hp_curr, hp_max, temp_hp, base_ac)) =
+                                            char_row
+                                        {
                                             final_name = ch_name;
                                             final_max_hp = hp_max;
                                             final_temp_hp = temp_hp;
                                             final_ac = base_ac;
                                             final_is_player = true;
-                                            final_current_hp = (hp_curr + delta_hp).clamp(0, hp_max);
+                                            final_current_hp =
+                                                (hp_curr + delta_hp).clamp(0, hp_max);
                                             let _ = conn.execute(
                                                 "UPDATE characters SET current_hp = ?1 WHERE id = ?2 OR name = ?2",
                                                 rusqlite::params![final_current_hp, target_entity_id],

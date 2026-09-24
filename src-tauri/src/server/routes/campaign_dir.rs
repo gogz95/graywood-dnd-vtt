@@ -494,8 +494,12 @@ pub async fn export_campaign_bundle(
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let file = File::create(&target_path_buf)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create export file: {}", e)))?;
+    let file = File::create(&target_path_buf).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create export file: {}", e),
+        )
+    })?;
 
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default()
@@ -549,7 +553,9 @@ pub async fn export_campaign_bundle(
 
     // Dump encounters
     let mut encounters_json = Vec::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT id, name, round, current_turn_index, is_active, created_at FROM encounters") {
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT id, name, round, current_turn_index, is_active, created_at FROM encounters",
+    ) {
         if let Ok(rows) = stmt.query_map([], |row| {
             let is_active: i32 = row.get(4)?;
             Ok(serde_json::json!({
@@ -596,13 +602,25 @@ pub async fn export_campaign_bundle(
         "campaign_state": campaign_state_json,
     });
 
-    let db_dump_bytes = serde_json::to_vec_pretty(&db_dump)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed serializing db_dump.json: {}", e)))?;
+    let db_dump_bytes = serde_json::to_vec_pretty(&db_dump).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed serializing db_dump.json: {}", e),
+        )
+    })?;
 
-    zip.start_file("db_dump.json", options)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Zip error starting db_dump.json: {}", e)))?;
-    zip.write_all(&db_dump_bytes)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Zip error writing db_dump.json: {}", e)))?;
+    zip.start_file("db_dump.json", options).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Zip error starting db_dump.json: {}", e),
+        )
+    })?;
+    zip.write_all(&db_dump_bytes).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Zip error writing db_dump.json: {}", e),
+        )
+    })?;
     total_files += 1;
 
     // 3. Write manifest.json
@@ -613,21 +631,40 @@ pub async fn export_campaign_bundle(
         "created_at": timestamp,
         "bundled_folders": folders_to_bundle,
     });
-    let manifest_bytes = serde_json::to_vec_pretty(&manifest)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed serializing manifest.json: {}", e)))?;
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed serializing manifest.json: {}", e),
+        )
+    })?;
 
-    zip.start_file("manifest.json", options)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Zip error starting manifest.json: {}", e)))?;
-    zip.write_all(&manifest_bytes)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Zip error writing manifest.json: {}", e)))?;
+    zip.start_file("manifest.json", options).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Zip error starting manifest.json: {}", e),
+        )
+    })?;
+    zip.write_all(&manifest_bytes).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Zip error writing manifest.json: {}", e),
+        )
+    })?;
     total_files += 1;
 
-    zip.finish()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to finalize .gvtt archive: {}", e)))?;
+    zip.finish().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to finalize .gvtt archive: {}", e),
+        )
+    })?;
 
     Ok(Json(ExportCampaignBundleResponse {
         success: true,
-        message: format!("Successfully bundled campaign into '{}'", target_path_buf.display()),
+        message: format!(
+            "Successfully bundled campaign into '{}'",
+            target_path_buf.display()
+        ),
         archive_path: target_path_buf.to_string_lossy().to_string(),
         file_count: total_files,
     }))
@@ -644,7 +681,10 @@ pub async fn import_campaign_bundle(
     let temp_archive_path = if let Some(ref archive_path) = payload.archive_path {
         let p = PathBuf::from(archive_path);
         if !p.exists() {
-            return Err((StatusCode::NOT_FOUND, format!("Archive file '{}' not found", archive_path)));
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("Archive file '{}' not found", archive_path),
+            ));
         }
         p
     } else if let Some(ref b64) = payload.archive_base64 {
@@ -653,28 +693,55 @@ pub async fn import_campaign_bundle(
         } else {
             b64
         };
-        let bytes = decode_base64(clean.trim())
-            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid base64 archive: {}", e)))?;
-        let temp_path = std::env::temp_dir().join(format!("import_{}_{}.gvtt", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
-        std::fs::write(&temp_path, bytes)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write temp archive: {}", e)))?;
+        let bytes = decode_base64(clean.trim()).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid base64 archive: {}", e),
+            )
+        })?;
+        let temp_path = std::env::temp_dir().join(format!(
+            "import_{}_{}.gvtt",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+        std::fs::write(&temp_path, bytes).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write temp archive: {}", e),
+            )
+        })?;
         temp_path
     } else {
-        return Err((StatusCode::BAD_REQUEST, "Must provide 'archive_path' or 'archive_base64'".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Must provide 'archive_path' or 'archive_base64'".to_string(),
+        ));
     };
 
-    let archive_file = File::open(&temp_archive_path)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed opening archive: {}", e)))?;
-    let mut zip = zip::ZipArchive::new(archive_file)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid zip archive: {}", e)))?;
+    let archive_file = File::open(&temp_archive_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed opening archive: {}", e),
+        )
+    })?;
+    let mut zip = zip::ZipArchive::new(archive_file).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid zip archive: {}", e),
+        )
+    })?;
 
     // 2. Resolve destination campaign directory
-    let campaign_name = payload.target_campaign_name
-        .clone()
-        .unwrap_or_else(|| {
-            let stem = temp_archive_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "imported_campaign".to_string());
-            stem.replace("campaign_backup_", "Campaign ")
-        });
+    let campaign_name = payload.target_campaign_name.clone().unwrap_or_else(|| {
+        let stem = temp_archive_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "imported_campaign".to_string());
+        stem.replace("campaign_backup_", "Campaign ")
+    });
 
     let target_dir = if let Some(ref dir) = payload.target_directory {
         PathBuf::from(dir)
@@ -683,31 +750,57 @@ pub async fn import_campaign_bundle(
         PathBuf::from("./campaigns").join(safe_name)
     };
 
-    std::fs::create_dir_all(&target_dir)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed creating campaign folder '{}': {}", target_dir.display(), e)))?;
+    std::fs::create_dir_all(&target_dir).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!(
+                "Failed creating campaign folder '{}': {}",
+                target_dir.display(),
+                e
+            ),
+        )
+    })?;
 
-    let canonical_target = target_dir.canonicalize()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to canonicalize target dir: {}", e)))?;
+    let canonical_target = target_dir.canonicalize().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to canonicalize target dir: {}", e),
+        )
+    })?;
 
     let mut files_extracted = 0;
     let mut db_dump_data: Option<serde_json::Value> = None;
 
     // 3. Extract all files with strict directory traversal prevention
     for i in 0..zip.len() {
-        let mut entry = zip.by_index(i)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Zip read error: {}", e)))?;
+        let mut entry = zip.by_index(i).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Zip read error: {}", e),
+            )
+        })?;
 
         let raw_name = entry.name().to_string();
 
         // Enforce anti-traversal check
         if raw_name.contains("..") || raw_name.starts_with('/') || raw_name.starts_with('\\') {
-            return Err((StatusCode::BAD_REQUEST, format!("Directory traversal attack detected in entry '{}'", raw_name)));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "Directory traversal attack detected in entry '{}'",
+                    raw_name
+                ),
+            ));
         }
 
         if raw_name == "db_dump.json" {
             let mut buf = Vec::new();
-            entry.read_to_end(&mut buf)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed reading db_dump.json: {}", e)))?;
+            entry.read_to_end(&mut buf).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed reading db_dump.json: {}", e),
+                )
+            })?;
             if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&buf) {
                 db_dump_data = Some(json);
             }
@@ -718,7 +811,10 @@ pub async fn import_campaign_bundle(
 
         // Double check out_path stays inside canonical_target
         if !out_path.starts_with(&canonical_target) {
-            return Err((StatusCode::BAD_REQUEST, format!("Invalid entry path escapes target: '{}'", raw_name)));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Invalid entry path escapes target: '{}'", raw_name),
+            ));
         }
 
         if entry.is_dir() {
@@ -727,10 +823,18 @@ pub async fn import_campaign_bundle(
             if let Some(parent) = out_path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let mut out_file = File::create(&out_path)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed creating extracted file: {}", e)))?;
-            std::io::copy(&mut entry, &mut out_file)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed extracting file '{}': {}", raw_name, e)))?;
+            let mut out_file = File::create(&out_path).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed creating extracted file: {}", e),
+                )
+            })?;
+            std::io::copy(&mut entry, &mut out_file).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed extracting file '{}': {}", raw_name, e),
+                )
+            })?;
             files_extracted += 1;
         }
     }
@@ -748,15 +852,39 @@ pub async fn import_campaign_bundle(
                 let current_hp = c.get("current_hp").and_then(|v| v.as_i64()).unwrap_or(10) as i32;
                 let max_hp = c.get("max_hp").and_then(|v| v.as_i64()).unwrap_or(10) as i32;
                 let temp_hp = c.get("temp_hp").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-                let hit_dice_current = c.get("hit_dice_current").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
-                let hit_dice_max = c.get("hit_dice_max").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+                let hit_dice_current = c
+                    .get("hit_dice_current")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(1) as i32;
+                let hit_dice_max =
+                    c.get("hit_dice_max").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
                 let base_ac = c.get("base_ac").and_then(|v| v.as_i64()).unwrap_or(10) as i32;
                 let speed = c.get("speed").and_then(|v| v.as_i64()).unwrap_or(30) as i32;
-                let passive_perception = c.get("passive_perception").and_then(|v| v.as_i64()).unwrap_or(10) as i32;
-                let spell_slots_json = c.get("spell_slots_json").and_then(|v| v.as_str()).unwrap_or("{}");
-                let inventory_json = c.get("inventory_json").and_then(|v| v.as_str()).unwrap_or("[]");
-                let is_orb_sealed = if c.get("is_orb_sealed").and_then(|v| v.as_bool()).unwrap_or(false) { 1 } else { 0 };
-                let resurrection_sickness = c.get("resurrection_sickness_penalty").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                let passive_perception = c
+                    .get("passive_perception")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(10) as i32;
+                let spell_slots_json = c
+                    .get("spell_slots_json")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("{}");
+                let inventory_json = c
+                    .get("inventory_json")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("[]");
+                let is_orb_sealed = if c
+                    .get("is_orb_sealed")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
+                    1
+                } else {
+                    0
+                };
+                let resurrection_sickness = c
+                    .get("resurrection_sickness_penalty")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0) as i32;
 
                 if !id.is_empty() && !name.is_empty() {
                     let _ = conn.execute(
@@ -781,10 +909,24 @@ pub async fn import_campaign_bundle(
         if let Some(encs) = dump.get("encounters").and_then(|e| e.as_array()) {
             for enc in encs {
                 let id = enc.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-                let name = enc.get("name").and_then(|v| v.as_str()).unwrap_or("Restored Encounter");
+                let name = enc
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Restored Encounter");
                 let round = enc.get("round").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
-                let turn = enc.get("current_turn_index").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-                let is_active = if enc.get("is_active").and_then(|v| v.as_bool()).unwrap_or(true) { 1 } else { 0 };
+                let turn = enc
+                    .get("current_turn_index")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0) as i32;
+                let is_active = if enc
+                    .get("is_active")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true)
+                {
+                    1
+                } else {
+                    0
+                };
                 let created_at = enc.get("created_at").and_then(|v| v.as_i64()).unwrap_or(0);
 
                 if !id.is_empty() {
@@ -799,7 +941,10 @@ pub async fn import_campaign_bundle(
 
         if let Some(cs) = dump.get("campaign_state").and_then(|v| v.as_object()) {
             let epoch_days = cs.get("epoch_days").and_then(|v| v.as_i64()).unwrap_or(0);
-            let epoch_secs = cs.get("current_epoch_seconds").and_then(|v| v.as_i64()).unwrap_or(0);
+            let epoch_secs = cs
+                .get("current_epoch_seconds")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
             let updated_at = cs.get("updated_at").and_then(|v| v.as_i64()).unwrap_or(0);
             let _ = conn.execute(
                 "INSERT OR REPLACE INTO campaign_state (id, epoch_days, current_epoch_seconds, updated_at)
@@ -820,10 +965,12 @@ pub async fn import_campaign_bundle(
 
     Ok(Json(ImportCampaignBundleResponse {
         success: true,
-        message: format!("Successfully imported campaign bundle into '{}'", target_dir.display()),
+        message: format!(
+            "Successfully imported campaign bundle into '{}'",
+            target_dir.display()
+        ),
         active_campaign_dir: target_dir.to_string_lossy().to_string(),
         files_extracted,
         characters_restored: restored_chars,
     }))
 }
-
