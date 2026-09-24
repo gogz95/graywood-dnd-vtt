@@ -14,16 +14,54 @@
   let {
     characterName = 'Player Companion',
     socket = null,
+    combatants = [],
+    selectedTargetId = $bindable(''),
     rollHistory = $bindable<DiceResultItem[]>([]),
     onRoll,
   }: {
     characterName?: string;
     socket?: WebSocket | null;
+    combatants?: Array<{ id?: string; name: string; hp?: number; max_hp?: number; ac?: number }>;
+    selectedTargetId?: string;
     rollHistory?: DiceResultItem[];
     onRoll?: (formula: string) => void;
   } = $props();
 
   // ── Svelte 5 Rune State ───────────────────────────────────────────────────
+  let activeTargetId = $state('');
+  let feedbackBanner = $state<string | null>(null);
+
+  $effect(() => {
+    if (!activeTargetId) {
+      activeTargetId = selectedTargetId || characterName;
+    }
+  });
+
+  function applyDamage(targetId: string, amount: number, modifier: 'full' | 'half' | 'double' | 'heal') {
+    if (!targetId) return;
+
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate?.(20);
+    }
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: 'ApplyDamage',
+          target_entity_id: targetId,
+          amount,
+          modifier,
+        })
+      );
+    }
+
+    const modLabel = modifier === 'double' ? 'CRIT' : modifier.toUpperCase();
+    feedbackBanner = `Dispatched ${modLabel} (${amount}) to ${targetId}`;
+    setTimeout(() => {
+      feedbackBanner = null;
+    }, 2500);
+  }
+
   // Pool of dice counts by sides
   let diceCounts = $state<{ [sides: number]: number }>({
     4: 0,
@@ -274,18 +312,43 @@
        2. SCROLLABLE LIVE ROLL HISTORY FEED
   ══════════════════════════════════════════════════════════════════════════ -->
   <div class="space-y-2">
-    <div class="flex items-center justify-between px-1">
+    <div class="flex items-center justify-between px-1 flex-wrap gap-1.5">
       <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Live Roll History</span>
-      {#if rollHistory.length > 0}
-        <button
-          type="button"
-          onclick={() => (rollHistory = [])}
-          class="text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+      
+      <div class="flex items-center gap-1.5">
+        <label for="mobile-target-select" class="text-[10px] text-slate-400 font-bold uppercase">Target:</label>
+        <select
+          id="mobile-target-select"
+          bind:value={activeTargetId}
+          class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-0.5 text-[11px] font-bold text-indigo-300 focus:outline-none focus:border-indigo-500 max-w-[130px] truncate"
         >
-          Clear Feed
-        </button>
-      {/if}
+          <option value={characterName}>Self ({characterName})</option>
+          {#each combatants as c}
+            {@const cId = c.id || c.name}
+            {#if c.name !== characterName}
+              <option value={cId}>{c.name} {c.hp !== undefined ? `(${c.hp} HP)` : ''}</option>
+            {/if}
+          {/each}
+        </select>
+
+        {#if rollHistory.length > 0}
+          <button
+            type="button"
+            onclick={() => (rollHistory = [])}
+            class="text-[10px] text-slate-500 hover:text-slate-300 transition-colors ml-1"
+          >
+            Clear
+          </button>
+        {/if}
+      </div>
     </div>
+
+    {#if feedbackBanner}
+      <div class="px-2.5 py-1 rounded-lg bg-indigo-950 border border-indigo-500 text-indigo-200 text-[11px] font-bold animate-in fade-in flex items-center justify-between">
+        <span>{feedbackBanner}</span>
+        <span class="text-[9px] opacity-75">SENT</span>
+      </div>
+    {/if}
 
     {#if rollHistory.length === 0}
       <div class="p-6 rounded-2xl bg-slate-900/40 border border-slate-800/80 text-center space-y-1">
@@ -332,6 +395,51 @@
             {#if roll.breakdown}
               <div class="text-[11px] font-mono text-slate-400 mt-1 truncate">
                 {roll.breakdown}
+              </div>
+            {/if}
+
+            <!-- 4 QUICK ACTION BUTTONS (WHEN TARGET IS SELECTED) -->
+            {#if activeTargetId}
+              <div class="flex items-center gap-1 pt-2 mt-1.5 border-t border-slate-800/80">
+                <!-- [Full] (Red) -->
+                <button
+                  type="button"
+                  onclick={() => applyDamage(activeTargetId, roll.total, 'full')}
+                  class="flex-1 py-1 px-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-black text-[11px] uppercase tracking-wider transition-all active:scale-95 shadow-sm text-center"
+                  title="Full Damage"
+                >
+                  Full
+                </button>
+
+                <!-- [Half] (Amber) -->
+                <button
+                  type="button"
+                  onclick={() => applyDamage(activeTargetId, roll.total, 'half')}
+                  class="flex-1 py-1 px-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 active:bg-amber-700 text-white font-black text-[11px] uppercase tracking-wider transition-all active:scale-95 shadow-sm text-center"
+                  title="Half Damage"
+                >
+                  Half
+                </button>
+
+                <!-- [Crit] (Purple) -->
+                <button
+                  type="button"
+                  onclick={() => applyDamage(activeTargetId, roll.total, 'double')}
+                  class="flex-1 py-1 px-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white font-black text-[11px] uppercase tracking-wider transition-all active:scale-95 shadow-sm text-center"
+                  title="Crit Damage"
+                >
+                  Crit
+                </button>
+
+                <!-- [Heal] (Emerald) -->
+                <button
+                  type="button"
+                  onclick={() => applyDamage(activeTargetId, roll.total, 'heal')}
+                  class="flex-1 py-1 px-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-black text-[11px] uppercase tracking-wider transition-all active:scale-95 shadow-sm text-center"
+                  title="Heal"
+                >
+                  Heal
+                </button>
               </div>
             {/if}
           </div>

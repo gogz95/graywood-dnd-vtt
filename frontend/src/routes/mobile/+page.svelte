@@ -6,7 +6,14 @@
   import MobileDiceTray, { type DiceResultItem } from '$lib/components/mobile/MobileDiceTray.svelte';
   import { broadcaster } from '$lib/services/broadcaster';
 
+  import MobileSpellbook from '$lib/components/mobile/MobileSpellbook.svelte';
+  import MobileInventory, { type InventoryItem, type Currency } from '$lib/components/mobile/MobileInventory.svelte';
+  import { compendiumDb } from '$lib/db/compendiumDb';
+
   // ── Svelte 5 Rune State ───────────────────────────────────────────────────
+  type MobileTab = 'core' | 'spells' | 'inventory' | 'dice';
+  let activeTab = $state<MobileTab>('core');
+
   let connectionStatus = $state<
     'disconnected' | 'connecting' | 'authenticating' | 'connected' | 'reconnecting' | 'error'
   >('disconnected');
@@ -18,6 +25,7 @@
   } | null>(null);
 
   let rollHistory = $state<DiceResultItem[]>([]);
+  let syncedCombatants = $state<any[]>([]);
   let activeHandout = $state<{
     id: string;
     title: string;
@@ -36,12 +44,176 @@
   let errorMessage = $state<string | null>(null);
   let userDisconnected = $state(false);
 
+  // Ping Map Radar Tool State
+  let isPingToolActive = $state(false);
+  let lastPingCoord = $state<{ px: number; py: number } | null>(null);
+
+  function handleMobilePingTap(e: MouseEvent) {
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const touchX = e.clientX - rect.left;
+    const touchY = e.clientY - rect.top;
+    const normX = Math.max(0, Math.min(1, touchX / rect.width));
+    const normY = Math.max(0, Math.min(1, touchY / rect.height));
+
+    lastPingCoord = {
+      px: Math.round(normX * 100),
+      py: Math.round(normY * 100),
+    };
+
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate?.([30, 20, 30]);
+    }
+
+    const mapW = 2400;
+    const mapH = 1800;
+    const worldX = Math.round(normX * mapW);
+    const worldY = Math.round(normY * mapH);
+    const sender = session?.characterName || characterName.trim() || 'Player Companion';
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: 'PingPoint',
+          x: worldX,
+          y: worldY,
+          color: '#38bdf8',
+          sender_name: sender,
+        })
+      );
+    }
+  }
+
   // Character Stats & HP State
   let currentHp = $state(28);
   let maxHp = $state(32);
   let tempHp = $state(0);
   let armorClass = $state(16);
   let conditions = $state<string[]>([]);
+
+  // Spell Slots State (Levels 1 to 9)
+  let spellSlots = $state<Record<number, { total: number; used: number }>>({
+    1: { total: 4, used: 1 },
+    2: { total: 3, used: 0 },
+    3: { total: 2, used: 1 },
+    4: { total: 0, used: 0 },
+    5: { total: 0, used: 0 },
+    6: { total: 0, used: 0 },
+    7: { total: 0, used: 0 },
+    8: { total: 0, used: 0 },
+    9: { total: 0, used: 0 },
+  });
+
+  // Inventory & Currency State
+  let inventoryItems = $state<InventoryItem[]>([
+    {
+      id: 'item-longsword',
+      name: 'Longsword +1',
+      type: 'weapon',
+      quantity: 1,
+      equipped: true,
+      damage: '1d8+3',
+      attackBonus: 5,
+      weight: 3,
+      rarity: 'Uncommon',
+    },
+    {
+      id: 'item-shortbow',
+      name: 'Shortbow',
+      type: 'weapon',
+      quantity: 1,
+      equipped: true,
+      damage: '1d6+2',
+      attackBonus: 4,
+      weight: 2,
+      rarity: 'Common',
+    },
+    {
+      id: 'item-chainmail',
+      name: 'Chain Mail',
+      type: 'armor',
+      quantity: 1,
+      equipped: true,
+      armorClass: 16,
+      weight: 55,
+      rarity: 'Common',
+    },
+    {
+      id: 'item-healing-potion',
+      name: 'Potion of Healing',
+      type: 'potion',
+      quantity: 3,
+      equipped: false,
+      damage: '2d4+2',
+      weight: 0.5,
+      rarity: 'Common',
+    },
+    {
+      id: 'item-torch',
+      name: 'Torch',
+      type: 'gear',
+      quantity: 5,
+      equipped: false,
+      weight: 1,
+    },
+    {
+      id: 'item-rope',
+      name: 'Hempen Rope (50 ft)',
+      type: 'gear',
+      quantity: 1,
+      equipped: false,
+      weight: 10,
+    },
+  ]);
+
+  let currency = $state<Currency>({
+    cp: 14,
+    sp: 25,
+    ep: 0,
+    gp: 120,
+    pp: 2,
+  });
+
+  // Dexie & WebSocket sync for character state
+  async function persistCharacterState() {
+    const charName = session?.characterName || characterName.trim() || 'Player Companion';
+    try {
+      await compendiumDb.characterState.put({
+        characterName: charName,
+        spellSlots: $state.snapshot(spellSlots),
+        inventory: $state.snapshot(inventoryItems),
+        currency: $state.snapshot(currency),
+        updatedAt: Date.now(),
+      });
+    } catch (e) {
+      console.warn('Dexie character state persist error:', e);
+    }
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: 'CharacterSync',
+          character_name: charName,
+          spell_slots: $state.snapshot(spellSlots),
+          inventory: $state.snapshot(inventoryItems),
+          currency: $state.snapshot(currency),
+        })
+      );
+    }
+  }
+
+  async function loadCharacterState(charName: string) {
+    try {
+      const record = await compendiumDb.characterState.get(charName);
+      if (record) {
+        if (record.spellSlots) spellSlots = record.spellSlots;
+        if (record.inventory) inventoryItems = record.inventory as any;
+        if (record.currency) currency = record.currency;
+      }
+    } catch (e) {
+      console.warn('Dexie character state load error:', e);
+    }
+  }
 
   // Calculator Mode
   let calcInput = $state('');
@@ -128,6 +300,9 @@
             errorMessage = null;
             reconnectAttempt = 0;
             startHeartbeat();
+            loadCharacterState(cleanCharName).then(() => {
+              persistCharacterState();
+            });
           } else if (msg.type === 'AuthError') {
             connectionStatus = 'error';
             errorMessage = msg.reason || 'Authentication failed. Please verify Table PIN.';
@@ -153,6 +328,10 @@
               content: msg.content || '',
               imageUrl: msg.image_url || null,
             };
+          } else if (msg.type === 'PingPoint' || msg.type === 'PING_POINT') {
+            if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+              navigator.vibrate?.(25);
+            }
           }
         } catch {
           // Ignore invalid socket payloads
@@ -249,6 +428,7 @@
 
   // ── Sync & HP Mutation Handlers ────────────────────────────────────────────
   function handleCombatantSync(combatants: any[]) {
+    syncedCombatants = combatants;
     const targetName = (characterName.trim() || 'Player Companion').toLowerCase();
     const found = combatants.find(
       (c) =>
@@ -368,6 +548,17 @@
           activeHandout = null;
         }
       });
+
+      // Zero-Configuration QR Code Auto-Pairing: parse ?pin= parameter
+      const params = new URLSearchParams(window.location.search);
+      const urlPin = params.get('pin');
+      if (urlPin && urlPin.trim().length === 4) {
+        pin = urlPin.trim();
+        activePin = pin;
+        userDisconnected = false;
+        reconnectAttempt = 0;
+        connectWebSocket();
+      }
     }
   });
 
@@ -447,19 +638,97 @@
          ACTIVE COMPANION DASHBOARD (CONNECTED / RECONNECTING)
     ══════════════════════════════════════════════════════════════════════════ -->
     {#if (connectionStatus === 'connected' || connectionStatus === 'reconnecting') && session}
-      <section class="flex-1 flex flex-col justify-start py-4 space-y-4 animate-in fade-in">
-        <!-- Character Identity & AC Bar -->
+      <section class="flex-1 flex flex-col justify-start py-4 space-y-4 animate-in fade-in pb-20">
+        <!-- ── TAB 1: CORE (HP, STATS & CONDITIONS) ────────────────────────── -->
+        {#if activeTab === 'core'}
+          <!-- Character Identity & AC Bar -->
         <div class="flex items-center justify-between px-1">
           <div>
             <span class="text-[10px] uppercase font-bold text-indigo-400 tracking-wider">Player Character</span>
             <h2 class="text-xl font-black text-slate-100">{session.characterName}</h2>
           </div>
-          <div class="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-xl shadow-sm">
-            <span class="text-xs">🛡️</span>
-            <span class="text-[10px] font-bold uppercase text-slate-400">AC</span>
-            <span class="text-base font-black text-slate-200 font-mono">{armorClass}</span>
+          <div class="flex items-center gap-2">
+            <!-- Ping Map Crosshair Toggle -->
+            <button
+              type="button"
+              onclick={() => (isPingToolActive = !isPingToolActive)}
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-sm {isPingToolActive
+                ? 'bg-amber-500/20 border-amber-400 text-amber-300 ring-2 ring-amber-400/50 animate-pulse'
+                : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:bg-slate-800'}"
+              title="Toggle Tap-to-Ping Map Radar"
+            >
+              <span>🎯</span>
+              <span>{isPingToolActive ? 'Pinging...' : 'Ping Map'}</span>
+            </button>
+
+            <!-- AC Bar -->
+            <div class="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-xl shadow-sm">
+              <span class="text-xs">🛡️</span>
+              <span class="text-[10px] font-bold uppercase text-slate-400">AC</span>
+              <span class="text-base font-black text-slate-200 font-mono">{armorClass}</span>
+            </div>
           </div>
         </div>
+
+        <!-- ── INTERACTIVE MOBILE PING RADAR TOUCHPAD ────────────────────────── -->
+        {#if isPingToolActive}
+          <div class="p-4 rounded-2xl bg-gradient-to-b from-slate-900 to-indigo-950/40 border border-amber-500/50 shadow-2xl space-y-3 animate-in fade-in slide-in-from-top-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-amber-400">🎯</span>
+                <div>
+                  <h4 class="text-xs font-black uppercase tracking-wider text-amber-300">Tactical Attention Radar</h4>
+                  <p class="text-[10px] text-slate-400">Tap anywhere on the tactical grid below to ping the tabletop</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onclick={() => (isPingToolActive = false)}
+                class="text-xs font-bold text-slate-400 hover:text-white px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-800"
+              >
+                Done
+              </button>
+            </div>
+
+            <!-- Interactive Touch Grid Pad -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="relative w-full h-40 rounded-xl bg-slate-950 border border-indigo-900/60 overflow-hidden cursor-crosshair select-none flex items-center justify-center"
+              style="background-image: radial-gradient(circle at center, #1e1b4b 1px, transparent 1px); background-size: 20px 20px;"
+              onclick={handleMobilePingTap}
+            >
+              <!-- Center Crosshair Reticle -->
+              <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-25">
+                <div class="w-full h-px bg-indigo-400"></div>
+                <div class="h-full w-px bg-indigo-400 absolute"></div>
+                <div class="w-20 h-20 rounded-full border border-indigo-400 absolute"></div>
+                <div class="w-32 h-32 rounded-full border border-indigo-400/50 absolute"></div>
+              </div>
+
+              {#if lastPingCoord}
+                <div
+                  class="absolute w-8 h-8 rounded-full border-2 border-amber-400 bg-amber-400/30 -translate-x-1/2 -translate-y-1/2 pointer-events-none animate-ping"
+                  style="left: {lastPingCoord.px}%; top: {lastPingCoord.py}%;"
+                ></div>
+                <div
+                  class="absolute px-2 py-0.5 rounded bg-slate-950/90 border border-amber-400 text-amber-300 font-mono text-[9px] font-bold pointer-events-none -translate-x-1/2"
+                  style="left: {lastPingCoord.px}%; top: calc({lastPingCoord.py}% - 22px);"
+                >
+                  {session.characterName}
+                </div>
+              {/if}
+
+              <div class="pointer-events-none text-center space-y-1 opacity-70">
+                <span class="text-xl">📍</span>
+                <p class="text-[11px] font-bold text-indigo-300">Tap to Ping Map</p>
+                {#if lastPingCoord}
+                  <p class="text-[10px] font-mono text-emerald-400">Ping sent to DM & Projector!</p>
+                {/if}
+              </div>
+            </div>
+          </div>
+        {/if}
 
         <!-- ── PROMINENT HP MANAGEMENT CARD ──────────────────────────────────── -->
         <div class="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-4">
@@ -591,13 +860,85 @@
           </div>
         {/if}
 
-        <!-- ── QUICK DICE ROLLER & LIVE FEED (TKT-06) ───────────────────────── -->
-        <MobileDiceTray
-          characterName={session.characterName}
-          {socket}
-          bind:rollHistory
-        />
+        {/if}
+
+        <!-- ── TAB 2: SPELLBOOK & SLOTS ────────────────────────────────────── -->
+        {#if activeTab === 'spells'}
+          <MobileSpellbook
+            characterName={session.characterName}
+            {socket}
+            bind:spellSlots
+            onSlotsChanged={() => persistCharacterState()}
+          />
+        {/if}
+
+        <!-- ── TAB 3: INVENTORY & EQUIPMENT ────────────────────────────────── -->
+        {#if activeTab === 'inventory'}
+          <MobileInventory
+            characterName={session.characterName}
+            {socket}
+            bind:items={inventoryItems}
+            bind:currency
+            onInventoryChanged={() => persistCharacterState()}
+          />
+        {/if}
+
+        <!-- ── TAB 4: QUICK DICE ROLLER & LIVE FEED ────────────────────────── -->
+        {#if activeTab === 'dice'}
+          <MobileDiceTray
+            characterName={session.characterName}
+            {socket}
+            combatants={syncedCombatants}
+            bind:rollHistory
+          />
+        {/if}
       </section>
+
+      <!-- ═════════════════════════════════════════════════════════════════════════
+           FIXED BOTTOM NAVIGATION & TAB BAR (TOUCH ERGONOMICS & PB-SAFE)
+      ══════════════════════════════════════════════════════════════════════════ -->
+      <nav
+        class="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-md border-t border-slate-800/90 px-3 pt-2 pb-[max(0.6rem,env(safe-area-inset-bottom))] shadow-2xl"
+        aria-label="Companion Tabs Navigation"
+      >
+        <div class="max-w-md mx-auto grid grid-cols-4 gap-1">
+          <button
+            type="button"
+            onclick={() => activeTab = 'core'}
+            class="flex flex-col items-center justify-center py-1.5 rounded-xl transition-all {activeTab === 'core' ? 'bg-indigo-950/70 text-indigo-300 border border-indigo-700/50 shadow-sm' : 'text-slate-400 hover:text-slate-200'}"
+          >
+            <span class="text-base">❤️</span>
+            <span class="text-[10px] font-bold mt-0.5 tracking-tight">Core HP</span>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => activeTab = 'spells'}
+            class="flex flex-col items-center justify-center py-1.5 rounded-xl transition-all {activeTab === 'spells' ? 'bg-indigo-950/70 text-indigo-300 border border-indigo-700/50 shadow-sm' : 'text-slate-400 hover:text-slate-200'}"
+          >
+            <span class="text-base">✨</span>
+            <span class="text-[10px] font-bold mt-0.5 tracking-tight">Spells</span>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => activeTab = 'inventory'}
+            class="flex flex-col items-center justify-center py-1.5 rounded-xl transition-all {activeTab === 'inventory' ? 'bg-indigo-950/70 text-indigo-300 border border-indigo-700/50 shadow-sm' : 'text-slate-400 hover:text-slate-200'}"
+          >
+            <span class="text-base">🎒</span>
+            <span class="text-[10px] font-bold mt-0.5 tracking-tight">Inventory</span>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => activeTab = 'dice'}
+            class="flex flex-col items-center justify-center py-1.5 rounded-xl transition-all {activeTab === 'dice' ? 'bg-indigo-950/70 text-indigo-300 border border-indigo-700/50 shadow-sm' : 'text-slate-400 hover:text-slate-200'}"
+          >
+            <span class="text-base">🎲</span>
+            <span class="text-[10px] font-bold mt-0.5 tracking-tight">Dice Log</span>
+          </button>
+        </div>
+      </nav>
     {:else}
       <!-- ═════════════════════════════════════════════════════════════════════════
            AUTHENTICATION PIN & KEYPAD VIEW

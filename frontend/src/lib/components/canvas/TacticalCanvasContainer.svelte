@@ -592,12 +592,25 @@
       if (hoveredCell) {
         targetTok = tokenAt(hoveredCell.gx, hoveredCell.gy);
       }
-      if (!targetTok && canvasStore.activeTokenId) {
-        targetTok = tokens.find(t => t.id === canvasStore.activeTokenId);
-      }
-
       if (targetTok) {
         targetingStore.toggleTarget(targetTok.id);
+      }
+    }
+
+    // Delete / Backspace: Remove selected or hovered token
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      const tokIdToDelete = canvasStore.activeTokenId || (hoveredCell ? tokenAt(hoveredCell.gx, hoveredCell.gy)?.id : null);
+      if (tokIdToDelete) {
+        e.preventDefault();
+        tokens = tokens.filter(t => t.id !== tokIdToDelete);
+        canvasStore.tokens = canvasStore.tokens.filter(t => t.id !== tokIdToDelete);
+        if (canvasStore.activeTokenId === tokIdToDelete) {
+          canvasStore.setActiveToken(null);
+        }
+        broadcastBattlematUpdate({
+          type: 'SYNC_FULL_STATE',
+          payload: canvasStore.getSnapshot(),
+        });
       }
     }
   }

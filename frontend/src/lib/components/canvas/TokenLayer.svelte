@@ -1,6 +1,6 @@
 <!-- TokenLayer.svelte — Modular Token Management Overlay & Inspector -->
 <script lang="ts">
-  import { tokenStore, type VttToken, parseSizeToCells } from '../../stores/tokenStore.svelte';
+  import { tokenStore, type VttToken, parseSizeToCells, type VisionType, type LightEmission } from '../../stores/tokenStore.svelte';
 
   interface Props {
     gridSize?: number;
@@ -37,7 +37,62 @@
   function handleElevationStep(delta: number) {
     if (!selectedToken) return;
     const current = selectedToken.elevation || 0;
-    tokenStore.setElevation(selectedToken.id, Math.max(0, current + delta));
+    tokenStore.setElevation(selectedToken.id, current + delta);
+  }
+
+  function handleVisionChange(visionType: VisionType) {
+    if (!selectedToken) return;
+    const defaultRange = visionType === 'darkvision' ? 60 : visionType === 'blind' ? 0 : 60;
+    tokenStore.setVision(selectedToken.id, visionType, selectedToken.visionRange ?? defaultRange);
+  }
+
+  function handleVisionRangeChange(range: number) {
+    if (!selectedToken) return;
+    tokenStore.setVision(selectedToken.id, selectedToken.visionType ?? 'normal', range);
+  }
+
+  function toggleLightEmission() {
+    if (!selectedToken) return;
+    const current = selectedToken.lightEmission;
+    if (current && current.enabled) {
+      tokenStore.setLightEmission(selectedToken.id, { enabled: false });
+    } else {
+      // Default torch: 20ft bright, 20ft dim
+      tokenStore.setLightEmission(selectedToken.id, {
+        brightRadius: current?.brightRadius || 20,
+        dimRadius: current?.dimRadius || 20,
+        color: current?.color || '#ffaa44',
+        enabled: true,
+      });
+    }
+  }
+
+  function setLightPreset(preset: 'torch' | 'lantern' | 'cantrip' | 'off') {
+    if (!selectedToken) return;
+    if (preset === 'off') {
+      tokenStore.setLightEmission(selectedToken.id, { enabled: false });
+    } else if (preset === 'torch') {
+      tokenStore.setLightEmission(selectedToken.id, {
+        brightRadius: 20,
+        dimRadius: 20,
+        color: '#ff9900',
+        enabled: true,
+      });
+    } else if (preset === 'lantern') {
+      tokenStore.setLightEmission(selectedToken.id, {
+        brightRadius: 30,
+        dimRadius: 30,
+        color: '#ffbb44',
+        enabled: true,
+      });
+    } else if (preset === 'cantrip') {
+      tokenStore.setLightEmission(selectedToken.id, {
+        brightRadius: 20,
+        dimRadius: 20,
+        color: '#60a5fa',
+        enabled: true,
+      });
+    }
   }
 </script>
 
@@ -148,6 +203,72 @@
             onclick={() => handleElevationStep(5)}
           >
             +
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5e Vision & Lighting -->
+    <div class="py-2 border-b border-slate-800 text-[11px] space-y-2">
+      <!-- Vision Sensory Type -->
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-slate-400">Vision Mode</span>
+          <span class="font-mono text-cyan-300 font-bold">{selectedToken.visionRange ?? 60} ft</span>
+        </div>
+        <div class="grid grid-cols-3 gap-1">
+          {#each ['normal', 'darkvision', 'blind'] as vType}
+            {@const isSelected = (selectedToken.visionType ?? 'normal') === vType}
+            <button
+              type="button"
+              class="py-1 px-1.5 rounded text-[10px] font-medium capitalize transition-all border {isSelected ? 'bg-cyan-950/80 text-cyan-300 border-cyan-700/80' : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200'}"
+              onclick={() => handleVisionChange(vType as VisionType)}
+            >
+              {vType}
+            </button>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Light Emission Presets -->
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-slate-400">Light Emission</span>
+          <span class="font-mono text-amber-300 font-bold">
+            {selectedToken.lightEmission?.enabled ? `${selectedToken.lightEmission.brightRadius}/${selectedToken.lightEmission.dimRadius} ft` : 'Off'}
+          </span>
+        </div>
+        <div class="grid grid-cols-4 gap-1">
+          <button
+            type="button"
+            class="py-1 rounded text-[10px] font-medium transition-all border {!selectedToken.lightEmission?.enabled ? 'bg-slate-800 text-white border-slate-600' : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200'}"
+            onclick={() => setLightPreset('off')}
+          >
+            None
+          </button>
+          <button
+            type="button"
+            class="py-1 rounded text-[10px] font-medium transition-all border {selectedToken.lightEmission?.enabled && selectedToken.lightEmission.brightRadius === 20 && selectedToken.lightEmission.color === '#ff9900' ? 'bg-amber-950/90 text-amber-300 border-amber-600' : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-amber-200'}"
+            onclick={() => setLightPreset('torch')}
+            title="Torch: 20ft bright / 20ft dim"
+          >
+            🔥 Torch
+          </button>
+          <button
+            type="button"
+            class="py-1 rounded text-[10px] font-medium transition-all border {selectedToken.lightEmission?.enabled && selectedToken.lightEmission.brightRadius === 30 ? 'bg-amber-950/90 text-amber-300 border-amber-600' : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-amber-200'}"
+            onclick={() => setLightPreset('lantern')}
+            title="Bullseye / Hooded Lantern: 30ft bright / 30ft dim"
+          >
+            🏮 Lantern
+          </button>
+          <button
+            type="button"
+            class="py-1 rounded text-[10px] font-medium transition-all border {selectedToken.lightEmission?.enabled && selectedToken.lightEmission.color === '#60a5fa' ? 'bg-blue-950/90 text-blue-300 border-blue-600' : 'bg-slate-950/80 text-slate-400 border-slate-800 hover:text-blue-200'}"
+            onclick={() => setLightPreset('cantrip')}
+            title="Light Cantrip: 20ft bright / 20ft dim (Blue)"
+          >
+            ✨ Cantrip
           </button>
         </div>
       </div>

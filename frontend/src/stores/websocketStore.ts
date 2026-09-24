@@ -259,6 +259,13 @@ function handleIncomingWsEvent(event: WsEvent): void {
       }
       break;
 
+    case 'PING_POINT':
+    case 'PingPoint':
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:ping-point', { detail: event }));
+      }
+      break;
+
     case 'TOKEN_MOVE':
     case 'SYSTEM_MESSAGE':
     case 'AUTH_REQUEST':

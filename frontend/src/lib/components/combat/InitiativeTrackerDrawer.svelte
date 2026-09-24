@@ -4,6 +4,7 @@
   import { combatStore, type Combatant } from '../../stores/combatStore.svelte';
   import { tokenStore } from '../../stores/tokenStore.svelte';
   import { audioEngine } from '../../audio/AudioEngine';
+  import DiceResultFeed from './DiceResultFeed.svelte';
 
   interface Props {
     isOpen?: boolean;
@@ -203,9 +204,10 @@
 
 {#if isOpen}
   <!-- ── Slide-Over Initiative Tracker Drawer ───────────────────────────────── -->
-  <aside
+  <div
     class="fixed top-0 right-0 z-50 h-full w-96 bg-slate-900/95 border-l border-slate-700/80 shadow-2xl backdrop-blur-md flex flex-col font-sans text-xs text-slate-100 animate-slide-left select-none"
     role="dialog"
+    tabindex="-1"
     aria-label="Encounter Initiative Tracker"
   >
     <!-- Drawer Header -->
@@ -454,7 +456,15 @@
         {/each}
       {/if}
     </div>
-  </aside>
+
+    <!-- Live Assisted Damage Feed -->
+    <div class="p-3 border-t border-slate-800 bg-slate-950/70">
+      <DiceResultFeed
+        compact={true}
+        selectedTargetId={combatStore.activeCombatant?.tokenId ?? ''}
+      />
+    </div>
+  </div>
 {/if}
 
 <style>

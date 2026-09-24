@@ -629,6 +629,23 @@ export interface CampaignFlag {
   value: any;
 }
 
+export interface CompanionCharacterState {
+  characterName: string;
+  spellSlots: Record<number, { total: number; used: number }>;
+  inventory: Array<{
+    id: string;
+    name: string;
+    type: string;
+    quantity: number;
+    equipped?: boolean;
+    damage?: string;
+    attackBonus?: number;
+    weight?: number;
+  }>;
+  currency: { cp: number; sp: number; ep: number; gp: number; pp: number };
+  updatedAt: number;
+}
+
 export class CompendiumDatabase extends Dexie {
   spells!: Table<CompendiumSpell, string>;
   subclasses!: Table<CompendiumSubclass, string>;
@@ -640,6 +657,7 @@ export class CompendiumDatabase extends Dexie {
   items!: Table<CompendiumItem, string>;
   journal!: Table<CompendiumJournal, string>;
   rules!: Table<CompendiumRule, string>;
+  characterState!: Table<CompanionCharacterState, string>;
 
   constructor() {
     super('vtt_compendium_database');
@@ -670,6 +688,10 @@ export class CompendiumDatabase extends Dexie {
       monsters: 'id, name, cr, size, type, alignment, ac, hp, packageId, origin, [type+cr], [cr+name]',
       items: 'id, name, type, rarity, cost, weight, packageId, origin, [type+rarity]',
       rules: 'id, title, category, slug, origin, packageId, [category+title]',
+    });
+
+    this.version(6).stores({
+      characterState: 'characterName, updatedAt',
     });
 
     this.on('populate', () => {

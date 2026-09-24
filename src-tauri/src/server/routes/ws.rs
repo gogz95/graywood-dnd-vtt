@@ -84,6 +84,14 @@ pub enum WsEvent {
         content: String,
         image_url: Option<String>,
     },
+
+    #[serde(rename = "PING_POINT", alias = "PingPoint", alias = "ping_point")]
+    PingPoint {
+        x: f32,
+        y: f32,
+        color: String,
+        sender_name: String,
+    },
 }
 
 pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
@@ -142,13 +150,35 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                     ],
                                 );
                             }
-                            WsEvent::Handout { id, title, content, image_url } => {
-                                companion_hub.broadcast(crate::server::companion_hub::CompanionServerMsg::Handout {
-                                    id: id.clone(),
-                                    title: title.clone(),
-                                    content: content.clone(),
-                                    image_url: image_url.clone(),
-                                });
+                            WsEvent::Handout {
+                                id,
+                                title,
+                                content,
+                                image_url,
+                            } => {
+                                companion_hub.broadcast(
+                                    crate::server::companion_hub::CompanionServerMsg::Handout {
+                                        id: id.clone(),
+                                        title: title.clone(),
+                                        content: content.clone(),
+                                        image_url: image_url.clone(),
+                                    },
+                                );
+                            }
+                            WsEvent::PingPoint {
+                                x,
+                                y,
+                                color,
+                                sender_name,
+                            } => {
+                                companion_hub.broadcast(
+                                    crate::server::companion_hub::CompanionServerMsg::PingPoint {
+                                        x: *x,
+                                        y: *y,
+                                        color: color.clone(),
+                                        sender_name: sender_name.clone(),
+                                    },
+                                );
                             }
                             _ => {}
                         }

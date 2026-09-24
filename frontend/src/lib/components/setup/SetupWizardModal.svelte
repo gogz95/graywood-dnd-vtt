@@ -10,7 +10,17 @@
   import { ingestUniversalFile } from '../../importers/universalIngestionEngine';
   import { importUniversalMap } from '../../services/mapImporter';
   import { campaignDirectoryStore } from '../../stores/campaignDirectoryStore.svelte';
+  import { mapsDb } from '../../db/mapsDb';
+  import { canvasStore } from '../../../stores/canvasStore.svelte';
   import Step2Scaffolding from './Step2Scaffolding.svelte';
+  import {
+    SUNKEN_CRYPT_BATTLEMAP,
+    SUNKEN_CRYPT_MAP_ID,
+    STARTER_CHARACTERS,
+    STARTER_MONSTERS,
+    STARTER_JOURNAL_NOTE,
+    STARTER_CANVAS_TOKENS,
+  } from '../../data/starterCampaignSeed';
 
   let {
     isOpen = $bindable(false),
@@ -69,12 +79,14 @@
     try {
       const info = await campaignDirectoryStore.selectDirectory();
       if (info) {
-        selectedDirectory = info.root_path;
-        if (info.name) campaignName = info.name;
+        const rootPath = typeof info === 'string' ? info : info.root_path;
+        const dirName = typeof info === 'string' ? info.split(/[/\\]/).pop() || 'Campaign' : info.name;
+        selectedDirectory = rootPath;
+        if (dirName) campaignName = dirName;
         if (compendiumDb.campaignFlags) {
           await compendiumDb.campaignFlags.bulkPut([
-            { key: 'campaignRootDir', value: info.root_path },
-            { key: 'activeCampaignProfile', value: info.name }
+            { key: 'campaignRootDir', value: rootPath },
+            { key: 'activeCampaignProfile', value: dirName }
           ]);
         }
       }
@@ -97,6 +109,74 @@
     await campaignStore.completeWizard();
     isOpen = false;
     onComplete?.();
+  }
+
+  let isSeedingDemo = $state(false);
+
+  async function loadSampleOneShot(): Promise<void> {
+    isSeedingDemo = true;
+    try {
+      campaignName = 'The Sunken Crypt';
+      dmName = 'Dungeon Master';
+      tablePin = '1337';
+      await syncInputsToStore();
+
+      // 1. Seed Battlemap to Dexie mapsDb
+      await mapsDb.tacticalMaps.put(SUNKEN_CRYPT_BATTLEMAP);
+
+      // 2. Seed Monsters & Journal Note to compendiumDb
+      for (const mob of STARTER_MONSTERS) {
+        await compendiumDb.monsters.put(mob);
+      }
+      await compendiumDb.journal.put(STARTER_JOURNAL_NOTE);
+
+      // 3. Populate 4 Player Characters in localStorage roster
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('vtt_party_roster', JSON.stringify(STARTER_CHARACTERS));
+        localStorage.setItem('vtt_campaign_name', 'The Sunken Crypt');
+      }
+
+      // 4. Activate The Sunken Crypt on Canvas
+      canvasStore.setGridSize(60);
+      canvasStore.setGridColor('#38bdf8');
+      canvasStore.setWallsAndDoors(
+        SUNKEN_CRYPT_BATTLEMAP.walls.filter(w => w.type === 'wall').map(w => ({
+          id: w.id,
+          x1: w.p1.x,
+          y1: w.p1.y,
+          x2: w.p2.x,
+          y2: w.p2.y,
+        })),
+        SUNKEN_CRYPT_BATTLEMAP.walls.filter(w => w.type.startsWith('door')).map(d => ({
+          id: d.id,
+          x1: d.p1.x,
+          y1: d.p1.y,
+          x2: d.p2.x,
+          y2: d.p2.y,
+          state: d.type === 'door_open' ? 'OPEN' : 'CLOSED',
+          doorType: 'STANDARD',
+          portalType: 'door',
+          portalState: d.type === 'door_open' ? 'open' : 'closed',
+        }))
+      );
+      canvasStore.setTokens(STARTER_CANVAS_TOKENS);
+      canvasStore.revealAllFog(20, 20);
+
+      projectorStore.activeMapId = SUNKEN_CRYPT_MAP_ID;
+
+      // 5. Complete wizard and launch workstation immediately
+      await campaignStore.completeWizard();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:roster-updated'));
+        window.dispatchEvent(new CustomEvent('vtt:switch-tab', { detail: { tab: 'battlemat', view: 'canvas' } }));
+      }
+      isOpen = false;
+      onComplete?.();
+    } catch (err) {
+      console.error('Failed to seed starter campaign:', err);
+    } finally {
+      isSeedingDemo = false;
+    }
   }
 
   async function handleNextStep(): Promise<void> {
@@ -238,6 +318,30 @@
                 class="w-36 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono font-bold text-center tracking-widest text-sm"
               />
               <span class="text-[10px] text-slate-500 block">Default companion login code for local Wi-Fi devices.</span>
+            </div>
+
+            <!-- Alternative Action: Bundled Starter One-Shot -->
+            <div class="pt-2 border-t border-slate-800/80">
+              <div class="bg-gradient-to-r from-indigo-950/70 to-slate-950 border border-indigo-700/60 rounded-xl p-3.5 flex items-center justify-between gap-3">
+                <div>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-sm">⚔️</span>
+                    <span class="font-black text-xs text-indigo-300">New to Graywood?</span>
+                  </div>
+                  <p class="text-[11px] text-slate-400 mt-0.5">
+                    Launch immediately with "The Sunken Crypt" battlemap, 4 pre-gen heroes, 3 monsters, and notes.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onclick={loadSampleOneShot}
+                  disabled={isSeedingDemo}
+                  class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg font-bold text-xs shadow-md shadow-indigo-600/30 transition-all shrink-0 flex items-center gap-1.5"
+                >
+                  <span>{isSeedingDemo ? '⏳' : '🚀'}</span>
+                  <span>{isSeedingDemo ? 'Loading…' : 'Load Sample One-Shot'}</span>
+                </button>
+              </div>
             </div>
           </div>
         {:else if step === 2}

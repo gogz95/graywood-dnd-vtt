@@ -2,7 +2,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { Application, Container, Graphics, Sprite, Assets, Text } from 'pixi.js';
-  import { canvasStore } from '../../../stores/canvasStore.svelte';
+  import { canvasStore, type SpellAoeTemplate } from '../../../stores/canvasStore.svelte';
   import { tokenStore, type VttToken, parseSizeToCells } from '../../stores/tokenStore.svelte';
   import { pixiLifecycle } from '../../services/pixiLifecycle';
   import TokenLayer from './TokenLayer.svelte';
@@ -14,6 +14,8 @@
     calculateLineVertices,
   } from '../map/MeasurementTool';
   import { projectorStore } from '../../stores/projectorStore.svelte';
+  import { combatTurnStore } from '../../../stores/websocketStore';
+  import PingLayer, { broadcastPingPoint } from './PingLayer.svelte';
 
   // ── Types ──────────────────────────────────────────────────────────────────
   export type GridMode = 'square' | 'hexagonal' | 'off';
@@ -56,6 +58,19 @@
   let gridColor = $state<string>(initialGridColor);
   let gridOpacity = $state<number>(initialGridOpacity);
 
+  $effect(() => {
+    gridMode = initialGridMode;
+  });
+  $effect(() => {
+    gridSize = initialGridSize;
+  });
+  $effect(() => {
+    gridColor = initialGridColor;
+  });
+  $effect(() => {
+    gridOpacity = initialGridOpacity;
+  });
+
   // Calibration state
   let isCalibrating = $state<boolean>(false);
   let isDraggingCalibration = $state<boolean>(false);
@@ -79,6 +94,13 @@
 
   let isRotatingToken = $state<boolean>(false);
   let rotatingTokenId = $state<string | null>(null);
+
+  // Multi-Token Stack Disambiguation Popover state
+  let tokenStackPopover = $state<{
+    screenX: number;
+    screenY: number;
+    tokens: VttToken[];
+  } | null>(null);
 
   // Fog of war state
   let enableFog = $state<boolean>(true);
@@ -114,12 +136,9 @@
   });
 
   $effect(() => {
-    if (rulerGraphics) {
-      const _ = canvasStore.ruler;
-      const __ = gridSize;
-      if (!isMeasuring) {
-        renderRuler();
-      }
+    if (doorContainer) {
+      const _ = canvasStore.doors;
+      renderDoors();
     }
   });
 
@@ -128,18 +147,19 @@
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── PixiJS Engine References ───────────────────────────────────────────────
-  let pixiApp: Application | null = null;
-  let worldContainer: Container | null = null;
+  let pixiApp = $state<Application | null>(null);
+  let worldContainer = $state<Container | null>(null);
   let bgGraphics: Graphics | null = null;
   let mapContainer: Container | null = null;
   let mapSprite: Sprite | null = null;
   let gridGraphics: Graphics | null = null;
+  let doorContainer: Container | null = null;
   let tokenContainer: Container | null = null;
   let selectionGraphics: Graphics | null = null;
   let calibrationGraphics: Graphics | null = null;
 
   // Pan interaction tracking
-  let isPanning = false;
+  let isPanning = $state(false);
   let panStartScreen = { x: 0, y: 0 };
   let initialPan = { x: 0, y: 0 };
   let isSpacePressed = false;
@@ -315,9 +335,88 @@
     bgGraphics.rect(0, 0, w, h).stroke({ color: 0x334155, width: 3 });
   }
 
+  // ── Scene & Texture Disposal Engine ─────────────────────────────────────────
+  let activeMapUrl: string | null = null;
+
+  export function disposeActiveMap() {
+    // 1. Destroy active map sprites with explicit GPU VRAM release
+    if (mapSprite) {
+      if (mapContainer && mapSprite.parent === mapContainer) {
+        mapContainer.removeChild(mapSprite);
+      }
+      try {
+        mapSprite.destroy({ children: true, texture: true, textureSource: true });
+      } catch (err) {
+        console.warn('BattlemapCanvas: Error destroying mapSprite:', err);
+      }
+      mapSprite = null;
+    }
+
+    if (mapContainer) {
+      mapContainer.removeChildren().forEach((child) => {
+        try {
+          child.destroy({ children: true, texture: true, textureSource: true });
+        } catch {}
+      });
+    }
+
+    // 2. Clear all PixiJS Graphics objects representing grids, fog polygons, and token HUD layers
+    if (gridGraphics) gridGraphics.clear();
+    if (bgGraphics) bgGraphics.clear();
+    if (selectionGraphics) selectionGraphics.clear();
+    if (calibrationGraphics) calibrationGraphics.clear();
+    if (rulerGraphics) rulerGraphics.clear();
+
+    if (aoeContainer) {
+      aoeContainer.removeChildren().forEach((c) => {
+        try {
+          c.destroy({ children: true });
+        } catch {}
+      });
+    }
+
+    if (doorContainer) {
+      doorContainer.removeChildren().forEach((c) => {
+        try {
+          c.destroy({ children: true });
+        } catch {}
+      });
+    }
+
+    if (tokenContainer) {
+      tokenContainer.removeChildren().forEach((c) => {
+        try {
+          c.destroy({ children: true });
+        } catch {}
+      });
+    }
+
+    if (rulerBadgeContainer) {
+      rulerBadgeContainer.removeChildren().forEach((c) => {
+        try {
+          c.destroy({ children: true });
+        } catch {}
+      });
+    }
+
+    // 3. Call Assets.unload(activeMapUrl) to purge decoded textures from the internal PixiJS asset cache
+    if (activeMapUrl) {
+      try {
+        Assets.unload(activeMapUrl);
+      } catch (err) {
+        console.warn('BattlemapCanvas: Assets.unload failed for', activeMapUrl, err);
+      }
+      activeMapUrl = null;
+    }
+  }
+
   // ── Map Texture Loading ────────────────────────────────────────────────────
   async function loadMapImage(url: string) {
     if (!url || !mapContainer) return;
+    if (activeMapUrl && activeMapUrl !== url) {
+      disposeActiveMap();
+    }
+    activeMapUrl = url;
     try {
       const texture = await Assets.load(url);
       if (!texture) return;
@@ -355,11 +454,14 @@
     // Purge children safely
     tokenContainer.removeChildren().forEach((child) => child.destroy({ children: true }));
 
-    const tokens = tokenStore.tokens;
-    for (const tok of tokens) {
+    // Sort tokens by elevation for proper visual stacking
+    const sortedTokens = [...tokenStore.tokens].sort((a, b) => (a.elevation || 0) - (b.elevation || 0));
+
+    for (const tok of sortedTokens) {
       const tokNode = new Container();
       tokNode.position.set(tok.x, tok.y);
       tokNode.rotation = ((tok.rotation || 0) * Math.PI) / 180;
+      tokNode.zIndex = 1000 + (tok.elevation || 0);
 
       const footprintPx = tok.size * gridSize;
       const radius = (footprintPx * 0.88) / 2;
@@ -410,8 +512,8 @@
       // Linear Health Bar (fixed orientation: child of separate counter-rotated container)
       const overheadNode = new Container();
       overheadNode.position.set(tok.x, tok.y);
-      // Counter-rotate overhead HUD so it remains upright regardless of token rotation
       overheadNode.rotation = 0;
+      overheadNode.zIndex = 1000 + (tok.elevation || 0);
 
       const hudG = new Graphics();
       overheadNode.addChild(hudG);
@@ -456,24 +558,29 @@
         });
       }
 
-      // 5. Elevation / Flight Marker Tag
-      if (tok.elevation && tok.elevation > 0) {
-        const elevX = radius * 0.7;
-        const elevY = -radius - 8;
-        const elevW = 38;
-        const elevH = 14;
+      // 5. Elevation Badge: Flying (>0) Dark Blue (+{elevation}ft), Burrowed (<0) Dark Red ({elevation}ft)
+      if (tok.elevation !== undefined && tok.elevation !== 0) {
+        const isFlying = tok.elevation > 0;
+        const elevX = radius * 0.65;
+        const elevY = -radius - 10;
+        const elevW = 44;
+        const elevH = 15;
+        const bgColor = isFlying ? 0x082f49 : 0x450a0a; // Dark blue vs Dark red
+        const borderColor = isFlying ? 0x0284c7 : 0xdc2626;
+        const textColor = isFlying ? 0x38bdf8 : 0xf87171;
+        const sign = isFlying ? '+' : '';
 
         hudG
-          .rect(elevX, elevY, elevW, elevH)
-          .fill({ color: 0x082f49, alpha: 0.9 })
-          .stroke({ color: 0x0284c7, width: 1.5 });
+          .roundRect(elevX, elevY, elevW, elevH, 4)
+          .fill({ color: bgColor, alpha: 0.95 })
+          .stroke({ color: borderColor, width: 1.5 });
 
         const elevText = new Text({
-          text: `▲${tok.elevation}ft`,
+          text: `${sign}${tok.elevation}ft`,
           style: {
             fontSize: 9,
             fontWeight: 'bold',
-            fill: 0x38bdf8,
+            fill: textColor,
           },
         });
         elevText.anchor.set(0.5);
@@ -571,6 +678,127 @@
     const dx = wx - handleX;
     const dy = wy - handleY;
     return dx * dx + dy * dy <= 10 * 10;
+  }
+
+  function findAllTokensAtWorldPos(wx: number, wy: number): VttToken[] {
+    const matched: VttToken[] = [];
+    for (let i = tokenStore.tokens.length - 1; i >= 0; i--) {
+      const tok = tokenStore.tokens[i];
+      const footprintPx = tok.size * gridSize;
+      const radius = (footprintPx * 0.88) / 2;
+      const dx = wx - tok.x;
+      const dy = wy - tok.y;
+      if (dx * dx + dy * dy <= radius * radius) {
+        matched.push(tok);
+      }
+    }
+    // Sort descending by elevation so highest elevation is first in popover
+    return matched.sort((a, b) => (b.elevation || 0) - (a.elevation || 0));
+  }
+
+  // ── Multi-State Portal (Door/Window/Secret Door) Rendering & Hit Testing ──
+  function getPortalGlyphConfig(door: any): { color: number; label: string; textFill: number; isSecret: boolean } {
+    const typeStr = (door.portalType || door.doorType || '').toLowerCase();
+    const stateStr = (door.portalState || door.state || 'closed').toLowerCase();
+    const isSecret = typeStr.includes('secret');
+
+    if (isSecret && stateStr !== 'open') {
+      // Secret door: Purple glyph on DM workstation
+      return { color: 0xa855f7, label: 'S', textFill: 0xffffff, isSecret: true };
+    }
+
+    if (stateStr === 'open') {
+      // Open: Green / Emerald
+      return { color: 0x10b981, label: 'O', textFill: 0xffffff, isSecret };
+    }
+
+    if (stateStr === 'locked') {
+      // Locked: Red
+      return { color: 0xef4444, label: 'L', textFill: 0xffffff, isSecret };
+    }
+
+    // Closed: Yellow / Amber
+    return { color: 0xf59e0b, label: 'C', textFill: 0x0f172a, isSecret };
+  }
+
+  function renderDoors() {
+    if (!doorContainer) return;
+    doorContainer.removeChildren().forEach(c => c.destroy({ children: true }));
+
+    const doors = canvasStore.doors;
+    if (!doors || doors.length === 0) return;
+
+    for (const d of doors) {
+      const node = new Container();
+      const g = new Graphics();
+      node.addChild(g);
+
+      const x1 = Number(d.x1 || 0);
+      const y1 = Number(d.y1 || 0);
+      const x2 = Number(d.x2 || 0);
+      const y2 = Number(d.y2 || 0);
+      const midX = (x1 + x2) / 2;
+      const midY = (y1 + y2) / 2;
+
+      const conf = getPortalGlyphConfig(d);
+      const stateStr = (d.portalState || d.state || 'closed').toLowerCase();
+      const isOpen = stateStr === 'open';
+
+      // 1. Render Portal Line
+      if (isOpen) {
+        // Render perpendicular swing tick
+        const angle = Math.atan2(y2 - y1, x2 - x1) + Math.PI / 2;
+        const len = Math.hypot(x2 - x1, y2 - y1) / 2;
+        g.moveTo(x1, y1)
+          .lineTo(x1 + Math.cos(angle) * len, y1 + Math.sin(angle) * len)
+          .stroke({ color: conf.color, width: 3.5, alpha: 0.9 });
+      } else {
+        g.moveTo(x1, y1)
+          .lineTo(x2, y2)
+          .stroke({ color: conf.color, width: 3.5, alpha: 0.9 });
+      }
+
+      // 2. Interactive Portal Glyph Button at Midpoint
+      const glyphRadius = 10;
+      g.circle(midX, midY, glyphRadius + 2)
+        .fill({ color: 0x090b10, alpha: 0.85 })
+        .stroke({ color: conf.color, width: 2 });
+
+      g.circle(midX, midY, glyphRadius - 1)
+        .fill({ color: conf.color, alpha: 0.95 });
+
+      const glyphText = new Text({
+        text: conf.label,
+        style: {
+          fontSize: 10,
+          fontWeight: '900',
+          fill: conf.textFill,
+          align: 'center',
+        },
+      });
+      glyphText.anchor.set(0.5);
+      glyphText.position.set(midX, midY);
+      node.addChild(glyphText);
+
+      doorContainer.addChild(node);
+    }
+  }
+
+  function findDoorAtWorldPos(wx: number, wy: number): any | null {
+    const doors = canvasStore.doors;
+    if (!doors) return null;
+    const hitRadiusSq = 16 * 16;
+    for (const d of doors) {
+      const midX = (Number(d.x1 || 0) + Number(d.x2 || 0)) / 2;
+      const midY = (Number(d.y1 || 0) + Number(d.y2 || 0)) / 2;
+      const dx = wx - midX;
+      const dy = wy - midY;
+      if (dx * dx + dy * dy <= hitRadiusSq) {
+        return d;
+      }
+    }
+    return null;
+  }
   // ── Distance & Movement Ruler Calculation & Rendering ─────────────────────
   function calculateTotalRulerDistance(
     start: { x: number; y: number },
@@ -1045,8 +1273,21 @@
 
   // ── Pointer Event Handlers ─────────────────────────────────────────────────
   function handlePointerDown(e: PointerEvent) {
-    // 1. Pan with Middle Mouse (1), Right Click (2), or Space + Left Click (0)
-    if (e.button === 1 || e.button === 2 || (isSpacePressed && e.button === 0)) {
+    // 0. Synchronized Map Ping (Alt + Left Click or Middle Click)
+    if ((e.altKey && e.button === 0) || e.button === 1) {
+      e.preventDefault();
+      const worldPos = screenToWorld(e.clientX, e.clientY);
+      broadcastPingPoint({
+        x: worldPos.x,
+        y: worldPos.y,
+        color: '#f59e0b',
+        sender_name: 'Dungeon Master',
+      });
+      return;
+    }
+
+    // 1. Pan with Right Click (2) or Space + Left Click (0)
+    if (e.button === 2 || (isSpacePressed && e.button === 0)) {
       e.preventDefault();
       isPanning = true;
       panStartScreen = { x: e.clientX, y: e.clientY };
@@ -1054,6 +1295,8 @@
       if (containerEl) containerEl.setPointerCapture(e.pointerId);
       return;
     }
+
+    const worldPos = screenToWorld(e.clientX, e.clientY);
 
     // 2. Measurement Ruler Trigger (Ctrl + Left Click or Ruler Tool Active)
     if ((e.ctrlKey || isCtrlPressed || isRulerToolActive) && e.button === 0) {
@@ -1086,9 +1329,28 @@
       return;
     }
 
-    // 5. Token Selection & Dragging
-    const clickedToken = findTokenAtWorldPos(worldPos.x, worldPos.y);
-    if (clickedToken && e.button === 0) {
+    // 5. Token Selection & Multi-Token Stack Disambiguation
+    const allTokensAtPoint = findAllTokensAtWorldPos(worldPos.x, worldPos.y);
+
+    if (allTokensAtPoint.length > 1 && e.button === 0) {
+      e.preventDefault();
+      // Calculate screen position for disambiguation popover
+      const rect = containerEl?.getBoundingClientRect();
+      const popX = e.clientX - (rect?.left || 0);
+      const popY = e.clientY - (rect?.top || 0);
+      tokenStackPopover = {
+        screenX: Math.min(window.innerWidth - 220, Math.max(10, popX)),
+        screenY: Math.min(window.innerHeight - 200, Math.max(10, popY)),
+        tokens: allTokensAtPoint,
+      };
+      return;
+    }
+
+    // Dismiss stack popover if clicking elsewhere
+    tokenStackPopover = null;
+
+    if (allTokensAtPoint.length === 1 && e.button === 0) {
+      const clickedToken = allTokensAtPoint[0];
       e.preventDefault();
       tokenStore.selectToken(clickedToken.id);
       isDraggingToken = true;
@@ -1115,7 +1377,19 @@
       return;
     }
 
-    // 5. Click on Empty Canvas: Deselect Token
+    // 7. Multi-State Portal (Door / Window / Secret Door) Click Toggle
+    const clickedDoor = findDoorAtWorldPos(worldPos.x, worldPos.y);
+    if (clickedDoor && e.button === 0) {
+      e.preventDefault();
+      canvasStore.toggleDoor(clickedDoor.id);
+      const conf = getPortalGlyphConfig(clickedDoor);
+      const nextDesc = clickedDoor.state === 'OPEN' ? 'CLOSED' : 'OPEN';
+      showToast(`Portal "${clickedDoor.name || 'Door'}" toggled: ${nextDesc}`, 2500);
+      renderDoors();
+      return;
+    }
+
+    // 7. Click on Empty Canvas: Deselect Token
     if (e.button === 0 && !isCalibrating) {
       tokenStore.selectToken(null);
       renderSelectionAndSnap();
@@ -1426,6 +1700,9 @@
     aoeContainer = new Container();
     worldContainer.addChild(aoeContainer);
 
+    doorContainer = new Container();
+    worldContainer.addChild(doorContainer);
+
     tokenContainer = new Container();
     worldContainer.addChild(tokenContainer);
 
@@ -1444,6 +1721,7 @@
     // Initial renders
     renderBackgroundMat();
     renderGrid();
+    renderDoors();
     renderAoeTemplates();
     renderTokens();
     renderRuler();
@@ -1474,6 +1752,7 @@
   });
 
   onDestroy(() => {
+    disposeActiveMap();
     if (toastTimer) clearTimeout(toastTimer);
     if (resizeObserver) {
       resizeObserver.disconnect();
@@ -1529,8 +1808,39 @@
   });
 
   $effect(() => {
-    if (mapImageUrl && mapImageUrl !== '') {
-      loadMapImage(mapImageUrl);
+    const currentTarget = mapImageUrl || canvasStore.mapImageUrl;
+    if (currentTarget && currentTarget !== activeMapUrl) {
+      disposeActiveMap();
+      loadMapImage(currentTarget);
+    } else if (!currentTarget && activeMapUrl) {
+      disposeActiveMap();
+    }
+  });
+
+  // ── Auto-Camera Tracking on Combat Turn or Token Focus ─────────────────────
+  $effect(() => {
+    const turn = $combatTurnStore;
+    if (!turn || canvasStore.lockProjectorPan || !containerEl) return;
+
+    const activeCombatant = turn.combatants?.find((c) => c.is_active);
+    if (!activeCombatant) return;
+
+    const tok = tokenStore.tokens.find(
+      (t) => t.id === activeCombatant.id || t.name.toLowerCase() === activeCombatant.name.toLowerCase()
+    );
+
+    if (tok) {
+      const cw = containerEl.clientWidth || 1200;
+      const ch = containerEl.clientHeight || 800;
+      const targetPanX = Math.round(cw / 2 - tok.x * zoom);
+      const targetPanY = Math.round(ch / 2 - tok.y * zoom);
+
+      panX = targetPanX;
+      panY = targetPanY;
+      if (worldContainer) {
+        worldContainer.position.set(panX, panY);
+      }
+      canvasStore.setDmViewport({ x: panX, y: panY, zoom });
     }
   });
 </script>
@@ -1549,6 +1859,8 @@
   role="region"
   aria-label="Interactive Battlemap Canvas"
 >
+  <!-- Synchronized Map Ping Animation Layer -->
+  <PingLayer {pixiApp} {worldContainer} />
   <!-- ── Top Floating Glassmorphic DM Toolbar ──────────────────────────────── -->
   <div class="absolute top-4 left-4 z-30 flex items-center gap-2 pointer-events-auto">
     <!-- Grid Settings Toggle / Collapsible Tray -->
@@ -1712,6 +2024,24 @@
         </button>
       </div>
 
+      <!-- Sync Projector Viewport Toggle -->
+      <div class="px-2 border-l border-slate-800">
+        <button
+          type="button"
+          class="px-2.5 py-1 rounded-lg font-semibold text-xs transition-all flex items-center gap-1.5 {!canvasStore.lockProjectorPan ? 'bg-emerald-700 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}"
+          onclick={() => {
+            canvasStore.toggleLockProjectorPan();
+            if (!canvasStore.lockProjectorPan) {
+              canvasStore.setProjectorViewport({ x: panX, y: panY, zoom });
+            }
+            showToast(!canvasStore.lockProjectorPan ? 'Sync Projector Viewport: ACTIVE' : 'Sync Projector Viewport: UNCOUPLED (Locked)');
+          }}
+          title="Toggle camera follow: synchronize projector screen with DM viewport and active turn"
+        >
+          <span>{!canvasStore.lockProjectorPan ? '🎥 Sync Projector' : '🔒 Projector Locked'}</span>
+        </button>
+      </div>
+
       <!-- Projector Window Launch Button -->
       <div class="px-2 border-l border-slate-800">
         <button
@@ -1809,6 +2139,63 @@
 
   <!-- ── Selected Token Inspector HUD Component ────────────────────────────── -->
   <TokenLayer gridSize={gridSize} />
+
+  <!-- ── Multi-Token Stack Disambiguation Popover ─────────────────────────── -->
+  {#if tokenStackPopover}
+    <div
+      class="absolute z-50 bg-slate-900/95 border border-indigo-500/80 rounded-2xl shadow-2xl p-2.5 flex flex-col gap-1 min-w-[210px] backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+      style="left: {tokenStackPopover.screenX}px; top: {tokenStackPopover.screenY}px;"
+    >
+      <div class="flex items-center justify-between px-1.5 pb-1 border-b border-slate-800 text-[10px] uppercase font-bold text-indigo-400 tracking-wider">
+        <span>Stacked Tokens ({tokenStackPopover.tokens.length})</span>
+        <button
+          type="button"
+          class="text-slate-400 hover:text-white p-0.5 rounded"
+          onclick={() => tokenStackPopover = null}
+          aria-label="Close Stack Menu"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="flex flex-col gap-1 max-h-56 overflow-y-auto pt-1">
+        {#each tokenStackPopover.tokens as tok}
+          {@const isSelected = tokenStore.selectedTokenId === tok.id}
+          {@const isFlying = (tok.elevation || 0) > 0}
+          {@const isBurrowed = (tok.elevation || 0) < 0}
+          <button
+            type="button"
+            class="flex items-center justify-between gap-2.5 px-2.5 py-1.5 rounded-xl text-left transition-all {isSelected ? 'bg-indigo-600/90 text-white font-bold shadow-md' : 'bg-slate-950/70 hover:bg-slate-800 text-slate-200'}"
+            onclick={() => {
+              tokenStore.selectToken(tok.id);
+              renderSelectionAndSnap();
+              tokenStackPopover = null;
+            }}
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <!-- Token Initial / Color Pip -->
+              <div
+                class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 border"
+                style="background-color: {tok.color || (tok.isPlayer ? '#3b82f6' : '#ef4444')}; border-color: {tok.isPlayer ? '#fbbf24' : '#ef4444'};"
+              >
+                {(tok.name || 'T').slice(0, 1).toUpperCase()}
+              </div>
+              <span class="text-xs truncate">{tok.name}</span>
+            </div>
+
+            <!-- Elevation Badge -->
+            {#if tok.elevation !== undefined && tok.elevation !== 0}
+              <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0 {isFlying ? 'bg-sky-950 text-sky-300 border border-sky-600/60' : 'bg-rose-950 text-rose-300 border border-rose-600/60'}">
+                {isFlying ? '+' : ''}{tok.elevation}ft
+              </span>
+            {:else}
+              <span class="text-[9px] font-mono text-slate-500 shrink-0">0ft</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
 
   <!-- ── Feedback Toast Notification ────────────────────────────────────────── -->
   {#if toastMessage}

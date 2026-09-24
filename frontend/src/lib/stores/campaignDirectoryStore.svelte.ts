@@ -354,6 +354,64 @@ class CampaignDirectoryStore {
       return { success: false, error: err?.message || 'Failed to save asset' };
     }
   }
+
+  async exportCampaignBundle(outputPath?: string): Promise<{ success: boolean; message: string; archive_path?: string; error?: string }> {
+    this.isLoading = true;
+    try {
+      const res = await fetch('/api/campaign/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ output_path: outputPath || null }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || res.statusText);
+      }
+
+      const data = await res.json();
+      return { success: true, message: data.message, archive_path: data.archive_path };
+    } catch (err: any) {
+      return { success: false, message: 'Export failed', error: err?.message || 'Export error' };
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  async importCampaignBundle(
+    opts: { archivePath?: string; archiveBase64?: string; targetCampaignName?: string; targetDirectory?: string }
+  ): Promise<{ success: boolean; message: string; active_campaign_dir?: string; error?: string }> {
+    this.isLoading = true;
+    try {
+      const res = await fetch('/api/campaign/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          archive_path: opts.archivePath || null,
+          archive_base64: opts.archiveBase64 || null,
+          target_campaign_name: opts.targetCampaignName || null,
+          target_directory: opts.targetDirectory || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || res.statusText);
+      }
+
+      const data = await res.json();
+      if (data.active_campaign_dir) {
+        this.directoryPath = data.active_campaign_dir;
+        this.persist();
+      }
+      await this.refresh();
+      return { success: true, message: data.message, active_campaign_dir: data.active_campaign_dir };
+    } catch (err: any) {
+      return { success: false, message: 'Import failed', error: err?.message || 'Import error' };
+    } finally {
+      this.isLoading = false;
+    }
+  }
 }
 
 export const campaignDirectoryStore = new CampaignDirectoryStore();

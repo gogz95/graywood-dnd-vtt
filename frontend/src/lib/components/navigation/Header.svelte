@@ -13,6 +13,7 @@
     campaignName = 'Default Campaign',
     onOpenSettings = () => { uiStore.isSettingsOpen = true; },
     onOpenPlayerPortal = () => {},
+    onOpenPairing = () => {},
     onToggleCombat = () => {},
     onToggleCompendium = () => {},
     onOpenIngest = () => {},
@@ -21,6 +22,7 @@
     campaignName?: string;
     onOpenSettings?: () => void;
     onOpenPlayerPortal?: () => void;
+    onOpenPairing?: () => void;
     onToggleCombat?: () => void;
     onToggleCompendium?: () => void;
     onOpenIngest?: () => void;
@@ -235,6 +237,17 @@
     >
       <span>📱</span>
       <span class="hidden md:inline">Portal</span>
+    </button>
+
+    <!-- Connect Phones QR Pairing Button -->
+    <button
+      type="button"
+      onclick={onOpenPairing}
+      class="px-2.5 py-1 text-xs font-bold rounded-lg border transition-all flex items-center gap-1.5 bg-sky-950/80 hover:bg-sky-900/90 text-sky-300 border-sky-700/80 shadow-sm shadow-sky-950/40"
+      title="Zero-Configuration Mobile LAN Pairing & Dynamic QR Code"
+    >
+      <span>📶</span>
+      <span class="hidden sm:inline">Connect Phones</span>
     </button>
 
     <!-- Universal Dice Tray & Session Chat Toggle -->

@@ -8,10 +8,14 @@
   // ── Types ──────────────────────────────────────────────────────────────────
   export type FogTool = 'auto_vision' | 'reveal_brush' | 'hide_brush' | 'polygon_reveal';
 
-  export interface Point2D {
-    x: number;
-    y: number;
-  }
+  import {
+    computeCollectiveVision,
+    extractVisionObstacles,
+    type Point2D,
+    type LineSegment,
+  } from '../../services/visionRaycaster';
+
+  export type { Point2D };
 
   interface Props {
     mapWidth?: number;
@@ -76,137 +80,6 @@
     };
   }
 
-  // ── 2D Raycasting Line-of-Sight Algorithm ───────────────────────────────────
-  interface LineSegment {
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-  }
-
-  function getActiveVisionWalls(): LineSegment[] {
-    const segments: LineSegment[] = [];
-
-    // 1. Map walls
-    const walls = canvasStore.walls || [];
-    for (const w of walls) {
-      if (w.x1 !== undefined && w.y1 !== undefined && w.x2 !== undefined && w.y2 !== undefined) {
-        segments.push({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 });
-      }
-    }
-
-    // 2. Closed doors act as vision blockers
-    const doors = canvasStore.doors || [];
-    for (const d of doors) {
-      if (d.state !== 'OPEN') {
-        segments.push({ x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2 });
-      }
-    }
-
-    return segments;
-  }
-
-  function raySegmentIntersect(
-    ox: number,
-    oy: number,
-    dx: number,
-    dy: number,
-    x1: number,
-    y1: number,
-    x2: number,
-    y2: number
-  ): { x: number; y: number; t: number } | null {
-    const sx = x2 - x1;
-    const sy = y2 - y1;
-    const det = dx * sy - dy * sx;
-    if (Math.abs(det) < 1e-9) return null;
-
-    const qx = x1 - ox;
-    const qy = y1 - oy;
-    const t = (qx * sy - qy * sx) / det;
-    const u = (qx * dy - qy * dx) / det;
-
-    if (t >= 0 && u >= 0 && u <= 1) {
-      return {
-        x: ox + t * dx,
-        y: oy + t * dy,
-        t,
-      };
-    }
-    return null;
-  }
-
-  function computeVisionPolygon(
-    originX: number,
-    originY: number,
-    radiusPx: number,
-    walls: LineSegment[]
-  ): Point2D[] {
-    if (radiusPx <= 0) return [];
-
-    const rawAngles = new Set<number>();
-    const epsilon = 0.0001; // Angular offset for vertex corner penetration
-
-    // Circular perimeter samples
-    const numSamples = 24;
-    for (let i = 0; i < numSamples; i++) {
-      rawAngles.add((i / numSamples) * Math.PI * 2 - Math.PI);
-    }
-
-    // Endpoint rays with ±epsilon offsets
-    const rSq = radiusPx * radiusPx;
-    for (const w of walls) {
-      const d1 = (w.x1 - originX) ** 2 + (w.y1 - originY) ** 2;
-      const d2 = (w.x2 - originX) ** 2 + (w.y2 - originY) ** 2;
-
-      if (d1 <= rSq * 1.5 || d2 <= rSq * 1.5) {
-        const a1 = Math.atan2(w.y1 - originY, w.x1 - originX);
-        const a2 = Math.atan2(w.y2 - originY, w.x2 - originX);
-
-        rawAngles.add(a1);
-        rawAngles.add(a1 - epsilon);
-        rawAngles.add(a1 + epsilon);
-
-        rawAngles.add(a2);
-        rawAngles.add(a2 - epsilon);
-        rawAngles.add(a2 + epsilon);
-      }
-    }
-
-    interface HitPoint {
-      x: number;
-      y: number;
-      angle: number;
-    }
-
-    const hits: HitPoint[] = [];
-
-    for (const angle of rawAngles) {
-      const dx = Math.cos(angle);
-      const dy = Math.sin(angle);
-
-      let closestT = radiusPx;
-      let hitX = originX + dx * radiusPx;
-      let hitY = originY + dy * radiusPx;
-
-      for (const w of walls) {
-        const hit = raySegmentIntersect(originX, originY, dx, dy, w.x1, w.y1, w.x2, w.y2);
-        if (hit && hit.t < closestT) {
-          closestT = hit.t;
-          hitX = hit.x;
-          hitY = hit.y;
-        }
-      }
-
-      hits.push({ x: hitX, y: hitY, angle });
-    }
-
-    // Sort counter-clockwise to form a closed convex/concave polygon
-    hits.sort((a, b) => a.angle - b.angle);
-
-    return hits.map((h) => ({ x: h.x, y: h.y }));
-  }
-
   // ── Persistent Explored Canvas Management ──────────────────────────────────
   function initExploredCanvas() {
     if (typeof document === 'undefined') return;
@@ -250,49 +123,50 @@
 
     ctx.clearRect(0, 0, mapWidth, mapHeight);
 
-    // 1. Gather active player tokens for dynamic vision
-    const playerTokens = tokenStore.tokens.filter((t) => t.isPlayer && t.isRevealed !== false);
-    const activeVisionTokens = playerTokens.length > 0 ? playerTokens : tokenStore.tokens.filter((t) => t.isRevealed !== false);
+    // 1. Extract Line of Sight obstacles (open portals allow rays; closed portals block)
+    const obstacles = extractVisionObstacles(canvasStore.walls || [], canvasStore.doors || []);
 
-    const walls = getActiveVisionWalls();
-    const activePolygons: Point2D[][] = [];
+    // 2. Compute Collective Vision and Light Emission Polygons
+    const collective = computeCollectiveVision(tokenStore.tokens, obstacles, gridSize);
 
-    // 2. Compute 2D Raycast Vision Polygons & Carve into Explored Memory
-    for (const tok of activeVisionTokens) {
-      const radiusPx = ((tok as any).sightRadiusFeet || 60) * (gridSize / 5);
-      const poly = computeVisionPolygon(tok.x, tok.y, radiusPx, walls);
-      if (poly.length >= 3) {
-        activePolygons.push(poly);
+    // 3. Permanently carve active vision into explored memory shroud
+    const allActiveVisiblePolygons = [
+      ...collective.visionPolygons,
+      ...collective.brightPolygons,
+      ...collective.dimPolygons,
+    ];
 
-        // Permanently carve into explored memory
-        exploredCtx.save();
-        exploredCtx.globalCompositeOperation = 'destination-out';
-        exploredCtx.beginPath();
-        exploredCtx.moveTo(poly[0].x, poly[0].y);
-        for (let i = 1; i < poly.length; i++) {
-          exploredCtx.lineTo(poly[i].x, poly[i].y);
-        }
-        exploredCtx.closePath();
-        exploredCtx.fill();
-        exploredCtx.restore();
+    for (const poly of allActiveVisiblePolygons) {
+      if (poly.length < 3) continue;
+      exploredCtx.save();
+      exploredCtx.globalCompositeOperation = 'destination-out';
+      exploredCtx.beginPath();
+      exploredCtx.moveTo(poly[0].x, poly[0].y);
+      for (let i = 1; i < poly.length; i++) {
+        exploredCtx.lineTo(poly[i].x, poly[i].y);
       }
+      exploredCtx.closePath();
+      exploredCtx.fill();
+      exploredCtx.restore();
     }
 
-    // 3. Render Shroud Layers on displayCanvas
-    // Base Dimmed Shroud for Explored Areas (alpha 0.45, or 0.25 in GM View)
+    // 4. Render Multi-Layer Shroud Compositing:
+    // Layer A: Explored / Memory Shroud — Areas tokens have seen but cannot currently perceive (alpha: 0.65, or 0.35 in GM view)
     ctx.save();
     ctx.fillStyle = '#000000';
-    ctx.globalAlpha = isGmView ? 0.25 : 0.45;
+    ctx.globalAlpha = isGmView ? 0.35 : 0.65;
     ctx.fillRect(0, 0, mapWidth, mapHeight);
 
-    // Unexplored Shroud overlay (brings unexplored areas to alpha 0.85, or 0.5 in GM View)
-    ctx.globalAlpha = isGmView ? 0.25 : 0.4;
+    // Layer B: Unexplored Shroud — Unvisited areas remain shrouded in darkness (alpha: 0.85, or 0.425 in GM view)
+    ctx.globalAlpha = isGmView ? 0.425 : 0.85;
     ctx.drawImage(exploredCanvas, 0, 0);
 
-    // 4. Punch 100% Transparent Hole for Active Player Line of Sight (alpha 0.0)
+    // Layer C: Fully Visible Area — Bright/dim light & active perception render at full opacity (alpha: 0.0 shroud cutout)
     ctx.globalCompositeOperation = 'destination-out';
     ctx.globalAlpha = 1.0;
-    for (const poly of activePolygons) {
+
+    for (const poly of allActiveVisiblePolygons) {
+      if (poly.length < 3) continue;
       ctx.beginPath();
       ctx.moveTo(poly[0].x, poly[0].y);
       for (let i = 1; i < poly.length; i++) {

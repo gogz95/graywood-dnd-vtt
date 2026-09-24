@@ -28,6 +28,7 @@
   import HomebrewSettingsTab from './HomebrewSettingsTab.svelte';
   import AutomationSettingsTab from './AutomationSettingsTab.svelte';
   import StorageStatusWidget from '../dm/StorageStatusWidget.svelte';
+  import { campaignDirectoryStore } from '../../stores/campaignDirectoryStore.svelte';
 
   let { isOpen = $bindable(false) }: { isOpen?: boolean } = $props();
   let showKbModal = $state(false);
@@ -119,6 +120,60 @@
   });
 
   // ── Campaign Handlers ──────────────────────────────────────────────────────
+  async function handleExportGvtt() {
+    isProcessingFile = true;
+    fileOpStatus = null;
+    try {
+      const res = await campaignDirectoryStore.exportCampaignBundle();
+      if (res.success) {
+        lastSavedTime = Date.now();
+        fileOpStatus = { type: 'success', message: res.message || 'Campaign bundle (.gvtt) exported successfully!' };
+      } else {
+        fileOpStatus = { type: 'error', message: res.error || 'Failed to export campaign bundle.' };
+      }
+    } catch (err) {
+      fileOpStatus = { type: 'error', message: err instanceof Error ? err.message : 'Export failed.' };
+    } finally {
+      isProcessingFile = false;
+    }
+  }
+
+  async function handleImportGvtt(e: Event) {
+    const input = e.target as HTMLInputElement;
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    input.value = '';
+
+    isProcessingFile = true;
+    fileOpStatus = null;
+
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const archiveBase64 = await base64Promise;
+
+      const res = await campaignDirectoryStore.importCampaignBundle({
+        archiveBase64,
+        targetCampaignName: file.name.replace(/\.gvtt$/i, ''),
+      });
+
+      if (res.success) {
+        refreshState();
+        fileOpStatus = { type: 'success', message: res.message || `Campaign restored from "${file.name}"!` };
+      } else {
+        fileOpStatus = { type: 'error', message: res.error || 'Failed to restore campaign bundle.' };
+      }
+    } catch (err) {
+      fileOpStatus = { type: 'error', message: err instanceof Error ? err.message : 'Import failed.' };
+    } finally {
+      isProcessingFile = false;
+    }
+  }
+
   async function handleExport() {
     isProcessingFile = true;
     fileOpStatus = null;
@@ -147,6 +202,27 @@
     fileOpStatus = null;
 
     try {
+      if (file.name.toLowerCase().endsWith('.gvtt')) {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+        const archiveBase64 = await base64Promise;
+        const res = await campaignDirectoryStore.importCampaignBundle({
+          archiveBase64,
+          targetCampaignName: file.name.replace(/\.gvtt$/i, ''),
+        });
+        if (res.success) {
+          refreshState();
+          fileOpStatus = { type: 'success', message: res.message || `Campaign restored from "${file.name}"!` };
+        } else {
+          fileOpStatus = { type: 'error', message: res.error || 'Failed to restore campaign bundle.' };
+        }
+        return;
+      }
+
       const res = await loadCampaignFromFile(file);
       if (res.success) {
         refreshState();
@@ -380,32 +456,71 @@
             </div>
           </div>
 
-          <!-- Save / Load Action Buttons -->
+          <!-- Full Campaign Bundle (.gvtt) Archival Actions -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onclick={handleExportGvtt}
+              disabled={isProcessingFile}
+              class="p-4 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl text-left transition-all shadow-md shadow-emerald-700/20 group flex flex-col justify-between"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-2xl">{isProcessingFile ? '⏳' : '📦'}</span>
+                <span class="text-[10px] font-mono bg-emerald-800 px-2 py-0.5 rounded text-emerald-100 uppercase font-black">
+                  {isProcessingFile ? 'Bundling…' : 'GVTT Bundle'}
+                </span>
+              </div>
+              <div>
+                <span class="text-sm font-black block">Export Campaign (.gvtt)</span>
+                <span class="text-[11px] text-emerald-100">
+                  Full archive with maps, tokens, audio, journal, & SQLite database
+                </span>
+              </div>
+            </button>
+
+            <label class="p-4 bg-slate-800 hover:bg-slate-700/80 border border-emerald-600/50 text-slate-200 rounded-xl text-left transition-all cursor-pointer group flex flex-col justify-between">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-2xl">{isProcessingFile ? '⏳' : '📥'}</span>
+                <span class="text-[10px] font-mono bg-slate-900 border border-emerald-600/40 px-2 py-0.5 rounded text-emerald-300 uppercase font-black">
+                  {isProcessingFile ? 'Unpacking…' : 'Restore GVTT'}
+                </span>
+              </div>
+              <div>
+                <span class="text-sm font-black block">Import Campaign (.gvtt)</span>
+                <span class="text-[11px] text-slate-400">
+                  Unpack and rehydrate maps, assets, and database into active state
+                </span>
+              </div>
+              <input type="file" accept=".gvtt,.zip" class="hidden" onchange={handleImportGvtt} disabled={isProcessingFile} />
+            </label>
+          </div>
+
+          <!-- Legacy / Snapshot JSON Save & Load Action Buttons -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <button
               type="button"
               onclick={handleExport}
               disabled={isProcessingFile}
-              class="p-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-left transition-all shadow-md shadow-indigo-600/20 group flex flex-col justify-between"
+              class="p-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 disabled:opacity-50 text-slate-200 rounded-xl text-left transition-all group flex flex-col justify-between"
             >
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-2xl">💾</span>
-                <span class="text-[10px] font-mono bg-indigo-700 px-2 py-0.5 rounded text-indigo-200 uppercase">Export</span>
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-xl">💾</span>
+                <span class="text-[9px] font-mono bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 uppercase">JSON</span>
               </div>
               <div>
-                <span class="text-sm font-bold block">Save Campaign to File</span>
-                <span class="text-[11px] text-indigo-200">Export complete party, combat, map, and AI history to .json</span>
+                <span class="text-xs font-bold block text-slate-200">Export State Snapshot</span>
+                <span class="text-[10px] text-slate-400">Export roster and combat state to .json</span>
               </div>
             </button>
 
-            <label class="p-4 bg-slate-800 hover:bg-slate-700/80 border border-slate-700/60 text-slate-200 rounded-xl text-left transition-all cursor-pointer group flex flex-col justify-between">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-2xl">📂</span>
-                <span class="text-[10px] font-mono bg-slate-900 px-2 py-0.5 rounded text-slate-400 uppercase">Import</span>
+            <label class="p-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 rounded-xl text-left transition-all cursor-pointer group flex flex-col justify-between">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-xl">📂</span>
+                <span class="text-[9px] font-mono bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 uppercase">JSON</span>
               </div>
               <div>
-                <span class="text-sm font-bold block">Load Campaign from File</span>
-                <span class="text-[11px] text-slate-400">Restore all states from an exported campaign bundle</span>
+                <span class="text-xs font-bold block text-slate-200">Import State Snapshot</span>
+                <span class="text-[10px] text-slate-400">Restore roster from .json file</span>
               </div>
               <input type="file" accept=".json" class="hidden" onchange={handleImportFile} disabled={isProcessingFile} />
             </label>

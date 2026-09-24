@@ -60,6 +60,13 @@ export type WsEvent =
       handout_id?: string;
     }
   | {
+      type: 'PING_POINT' | 'PingPoint';
+      x: number;
+      y: number;
+      color: string;
+      sender_name: string;
+    }
+  | {
       type: 'DM_WHISPER';
       id: string;
       target_character_id?: string;

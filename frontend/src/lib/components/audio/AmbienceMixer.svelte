@@ -367,6 +367,32 @@
     playSfx(id);
   }
 
+  onMount(() => {
+    const handlePlayPreset = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string }>).detail;
+      if (detail?.id) {
+        const trk = looperTracks.find(t => t.id === detail.id);
+        if (trk) {
+          startLooperTrack(trk);
+        }
+      }
+    };
+
+    const handleStopAll = () => {
+      looperTracks.forEach(t => {
+        if (t.isPlaying) stopLooperTrack(t);
+      });
+    };
+
+    window.addEventListener('vtt:play-preset-ambience', handlePlayPreset);
+    window.addEventListener('vtt:stop-all-ambience', handleStopAll);
+
+    return () => {
+      window.removeEventListener('vtt:play-preset-ambience', handlePlayPreset);
+      window.removeEventListener('vtt:stop-all-ambience', handleStopAll);
+    };
+  });
+
   onDestroy(() => {
     looperTracks.forEach(t => {
       if (t.isPlaying) stopLooperTrack(t);

@@ -24,12 +24,12 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' asset: https://asset.localhost http://localhost:5174 ws://localhost:5174 http://127.0.0.1:5174 ws://127.0.0.1:5174 blob: data:; img-src 'self' asset: https://asset.localhost blob: data:; media-src 'self' asset: https://asset.localhost blob: data:; connect-src 'self' ws: http: asset:;"
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' asset: https://asset.localhost http: ws: blob: data:; img-src 'self' asset: https://asset.localhost http: blob: data:; media-src 'self' asset: https://asset.localhost http: blob: data:; connect-src 'self' ws: http: asset: blob: data:;"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "msi", "appimage", "deb"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -41,8 +41,19 @@
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
       "timestampUrl": "",
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
       "nsis": {
         "installMode": "currentUser"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      },
+      "appimage": {
+        "bundleMediaFramework": true
       }
     }
   }

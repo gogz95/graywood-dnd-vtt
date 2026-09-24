@@ -61,7 +61,11 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/api/campaign/export",
-            post(routes::campaign::export_archive),
+            post(routes::campaign_dir::export_campaign_bundle),
+        )
+        .route(
+            "/api/campaign/import",
+            post(routes::campaign_dir::import_campaign_bundle),
         )
         .route(
             "/api/system/network-info",
@@ -166,6 +170,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/companion/config",
             post(companion_hub::set_companion_config),
+        )
+        .route(
+            "/api/companion/network-info",
+            get(companion_hub::get_companion_network_info),
         )
         .route("/ws/companion", get(companion_hub::companion_ws_handler))
         // Catch-all fallback for client-side routing

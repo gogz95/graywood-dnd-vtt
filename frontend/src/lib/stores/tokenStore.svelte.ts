@@ -12,26 +12,8 @@ async function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>):
   return undefined;
 }
 
-export interface VttToken {
-  id: string;
-  name: string;
-  x: number; // world x (center or top-left)
-  y: number; // world y
-  hp: number;
-  maxHp: number;
-  tempHp?: number;
-  ac?: number;
-  size: number; // grid cell footprint: 1=Med/Small, 2=Large, 3=Huge, 4=Gargantuan
-  sizeCategory?: 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan';
-  conditions: string[];
-  isRevealed: boolean;
-  isGmOnly: boolean;
-  imageUrl?: string;
-  color?: string;
-  elevation?: number; // In feet, e.g. 0, 10, 20
-  rotation?: number; // In degrees, 0-360
-  isPlayer?: boolean;
-}
+import type { VisionType, LightEmission, VttToken } from '../types/token';
+export type { VisionType, LightEmission, VttToken };
 
 export function parseSizeToCells(size?: string | number): number {
   if (typeof size === 'number') return Math.max(1, Math.min(6, size));
@@ -106,7 +88,7 @@ class TokenStore {
   setElevation(id: string, elevation: number) {
     const token = this.tokens.find((t) => t.id === id);
     if (token) {
-      token.elevation = Math.max(0, elevation);
+      token.elevation = Math.round(elevation);
       this.persist();
       this.broadcastTokens();
     }
@@ -136,6 +118,32 @@ class TokenStore {
       const idx = token.conditions.indexOf(condition);
       if (idx >= 0) token.conditions.splice(idx, 1);
       else token.conditions.push(condition);
+      this.persist();
+      this.broadcastTokens();
+    }
+  }
+
+  setVision(id: string, visionType: VisionType, visionRange?: number) {
+    const token = this.tokens.find((t) => t.id === id);
+    if (token) {
+      token.visionType = visionType;
+      if (visionRange !== undefined) {
+        token.visionRange = Math.max(0, visionRange);
+      }
+      this.persist();
+      this.broadcastTokens();
+    }
+  }
+
+  setLightEmission(id: string, emission: Partial<LightEmission>) {
+    const token = this.tokens.find((t) => t.id === id);
+    if (token) {
+      token.lightEmission = {
+        brightRadius: emission.brightRadius ?? token.lightEmission?.brightRadius ?? 20,
+        dimRadius: emission.dimRadius ?? token.lightEmission?.dimRadius ?? 20,
+        color: emission.color ?? token.lightEmission?.color ?? '#ffaa44',
+        enabled: emission.enabled ?? token.lightEmission?.enabled ?? true,
+      };
       this.persist();
       this.broadcastTokens();
     }

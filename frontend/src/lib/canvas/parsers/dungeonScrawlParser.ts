@@ -11,7 +11,7 @@ export interface WallSegment {
   color?: string;
 }
 
-export type DoorState = 'OPEN' | 'CLOSED';
+export type DoorState = 'OPEN' | 'CLOSED' | 'LOCKED';
 
 export interface DoorPrimitive {
   id: string;
@@ -23,6 +23,8 @@ export interface DoorPrimitive {
   width?: number;
   name?: string;
   doorType?: 'STANDARD' | 'SECRET' | 'PORTCULLIS';
+  portalType?: 'door' | 'secret' | 'window';
+  portalState?: 'open' | 'closed' | 'locked';
   type?: string;
 }
 

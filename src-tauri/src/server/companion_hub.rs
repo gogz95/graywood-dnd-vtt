@@ -52,6 +52,33 @@ pub enum CompanionClientMsg {
         content: String,
         image_url: Option<String>,
     },
+
+    #[serde(
+        rename = "CharacterSync",
+        alias = "character_sync",
+        alias = "CHARACTER_SYNC"
+    )]
+    CharacterSync {
+        character_name: String,
+        spell_slots: Option<serde_json::Value>,
+        inventory: Option<serde_json::Value>,
+        currency: Option<serde_json::Value>,
+    },
+
+    #[serde(rename = "ApplyDamage", alias = "apply_damage", alias = "APPLY_DAMAGE")]
+    ApplyDamage {
+        target_entity_id: String,
+        amount: i32,
+        modifier: String, // "full" | "half" | "double" | "heal"
+    },
+
+    #[serde(rename = "PingPoint", alias = "ping_point", alias = "PING_POINT")]
+    PingPoint {
+        x: f32,
+        y: f32,
+        color: String,
+        sender_name: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +115,14 @@ pub enum CompanionServerMsg {
         content: String,
         image_url: Option<String>,
     },
+
+    #[serde(rename = "PingPoint", alias = "ping_point", alias = "PING_POINT")]
+    PingPoint {
+        x: f32,
+        y: f32,
+        color: String,
+        sender_name: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,10 +153,18 @@ pub struct CompanionStatusResponse {
     pub active_sessions: usize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CompanionConfigPayload {
     pub pin: Option<String>,
     pub campaign_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CompanionNetworkInfoResponse {
+    pub host_ip: String,
+    pub port: u16,
+    pub active_pin: String,
+    pub connection_url: String,
 }
 
 // ── 2. Centralized Companion State & Broadcast Hub ──────────────────────────
@@ -295,6 +338,7 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
     // Inbound client message loop
     let hub_clone = state.companion_hub.clone();
     let ws_sender_clone = state.ws_sender.clone();
+    let db_clone = state.db.clone();
     let session_id_clone = session_id.clone();
 
     let mut recv_task = tokio::spawn(async move {
@@ -339,7 +383,12 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     temp_hp: 0,
                                 });
                             }
-                            CompanionClientMsg::Handout { id, title, content, image_url } => {
+                            CompanionClientMsg::Handout {
+                                id,
+                                title,
+                                content,
+                                image_url,
+                            } => {
                                 hub_clone.broadcast(CompanionServerMsg::Handout {
                                     id: id.clone(),
                                     title: title.clone(),
@@ -351,6 +400,143 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     title,
                                     content,
                                     image_url,
+                                });
+                            }
+                            CompanionClientMsg::CharacterSync {
+                                character_name,
+                                spell_slots: _,
+                                inventory: _,
+                                currency: _,
+                            } => {
+                                let now_ms = SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .map(|d| d.as_millis() as i64)
+                                    .unwrap_or(0);
+                                let _ = ws_sender_clone.send(WsEvent::SystemMessage {
+                                    message: format!("CharacterSync from {character_name}"),
+                                    timestamp: now_ms,
+                                });
+                            }
+                            CompanionClientMsg::ApplyDamage {
+                                target_entity_id,
+                                amount,
+                                modifier,
+                            } => {
+                                // 1. Calculate effective delta HP based on modifier
+                                // "half": reduces HP by amount / 2
+                                // "double": reduces HP by amount * 2
+                                // "heal": increases HP by amount
+                                // "full": reduces HP by amount
+                                let mod_str = modifier.to_lowercase();
+                                let delta_hp = if mod_str == "heal" {
+                                    amount.abs()
+                                } else if mod_str == "half" {
+                                    -(amount.abs() / 2)
+                                } else if mod_str == "double" || mod_str == "crit" {
+                                    -(amount.abs() * 2)
+                                } else {
+                                    // "full" or default
+                                    -amount.abs()
+                                };
+
+                                // 2. Mutate HP in database (characters or active_combatants)
+                                let mut final_name = target_entity_id.clone();
+                                let mut final_current_hp = 0;
+                                let mut final_max_hp = 100;
+                                let mut final_temp_hp = 0;
+                                let mut final_ac = 10;
+                                let mut final_init = 10;
+                                let mut final_is_player = true;
+                                let mut final_conditions: Vec<String> = Vec::new();
+
+                                {
+                                    let conn = db_clone.lock().await;
+                                    // Check if target is in active_combatants
+                                    type CombatantRowTuple = (String, i32, i32, i32, i32, i32, bool, String);
+                                    let combatant_row: Option<CombatantRowTuple> = conn
+                                        .query_row(
+                                            "SELECT name, hp_current, hp_max, temp_hp, ac, initiative, is_monster, conditions_json FROM active_combatants WHERE id = ?1 OR token_id = ?1",
+                                            rusqlite::params![target_entity_id],
+                                            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)),
+                                        )
+                                        .ok();
+
+                                    if let Some((c_name, hp_curr, hp_max, temp_hp, ac, init, is_monster, cond_json)) = combatant_row {
+                                        final_name = c_name;
+                                        final_max_hp = hp_max;
+                                        final_temp_hp = temp_hp;
+                                        final_ac = ac;
+                                        final_init = init;
+                                        final_is_player = !is_monster;
+                                        final_conditions = serde_json::from_str(&cond_json).unwrap_or_default();
+                                        final_current_hp = (hp_curr + delta_hp).clamp(0, hp_max);
+                                        let _ = conn.execute(
+                                            "UPDATE active_combatants SET hp_current = ?1 WHERE id = ?2 OR token_id = ?2",
+                                            rusqlite::params![final_current_hp, target_entity_id],
+                                        );
+                                    } else {
+                                        // Check if target is a character
+                                        let char_row: Option<(String, i32, i32, i32, i32)> = conn
+                                            .query_row(
+                                                "SELECT name, current_hp, max_hp, temp_hp, base_ac FROM characters WHERE id = ?1 OR name = ?1",
+                                                rusqlite::params![target_entity_id],
+                                                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                                            )
+                                            .ok();
+
+                                        if let Some((ch_name, hp_curr, hp_max, temp_hp, base_ac)) = char_row {
+                                            final_name = ch_name;
+                                            final_max_hp = hp_max;
+                                            final_temp_hp = temp_hp;
+                                            final_ac = base_ac;
+                                            final_is_player = true;
+                                            final_current_hp = (hp_curr + delta_hp).clamp(0, hp_max);
+                                            let _ = conn.execute(
+                                                "UPDATE characters SET current_hp = ?1 WHERE id = ?2 OR name = ?2",
+                                                rusqlite::params![final_current_hp, target_entity_id],
+                                            );
+                                        }
+                                    }
+                                }
+
+                                // 3. Broadcast updated state to desktop VTT
+                                let _ = ws_sender_clone.send(WsEvent::HpUpdate {
+                                    character_id: target_entity_id.clone(),
+                                    current_hp: final_current_hp,
+                                    temp_hp: final_temp_hp,
+                                });
+
+                                // 4. Broadcast updated combatant state via CompanionServerMsg::CombatantSync
+                                hub_clone.broadcast(CompanionServerMsg::CombatantSync {
+                                    combatants: vec![CombatantSummary {
+                                        id: target_entity_id,
+                                        name: final_name,
+                                        hp: final_current_hp,
+                                        max_hp: final_max_hp,
+                                        ac: final_ac,
+                                        initiative: final_init,
+                                        is_player: final_is_player,
+                                        conditions: final_conditions,
+                                    }],
+                                });
+                            }
+                            CompanionClientMsg::PingPoint {
+                                x,
+                                y,
+                                color,
+                                sender_name,
+                            } => {
+                                hub_clone.broadcast(CompanionServerMsg::PingPoint {
+                                    x,
+                                    y,
+                                    color: color.clone(),
+                                    sender_name: sender_name.clone(),
+                                });
+                                let _ = ws_sender_clone.send(WsEvent::PingPoint {
+                                    x,
+                                    y,
+                                    color,
+                                    sender_name,
                                 });
                             }
                             CompanionClientMsg::Auth { .. } => {
@@ -407,6 +593,37 @@ pub async fn set_companion_config(
         *state.companion_hub.campaign_name.write().await = name;
     }
     Json(serde_json::json!({ "success": true }))
+}
+
+/// Discover the host machine's primary non-loopback local IPv4 address.
+pub fn get_local_ip() -> String {
+    match std::net::UdpSocket::bind("0.0.0.0:0") {
+        Ok(socket) => match socket.connect("8.8.8.8:80") {
+            Ok(()) => socket
+                .local_addr()
+                .map(|a| a.ip().to_string())
+                .unwrap_or_else(|_| "127.0.0.1".to_string()),
+            Err(_) => "127.0.0.1".to_string(),
+        },
+        Err(_) => "127.0.0.1".to_string(),
+    }
+}
+
+/// GET /api/companion/network-info
+pub async fn get_companion_network_info(
+    State(state): State<AppState>,
+) -> Json<CompanionNetworkInfoResponse> {
+    let host_ip = get_local_ip();
+    let port = 5174;
+    let active_pin = state.companion_hub.table_pin.read().await.clone();
+    let connection_url = format!("http://{}:{}/mobile?pin={}", host_ip, port, active_pin);
+
+    Json(CompanionNetworkInfoResponse {
+        host_ip,
+        port,
+        active_pin,
+        connection_url,
+    })
 }
 
 // ── Utilities & Dice Expression Evaluator ───────────────────────────────────

@@ -32,6 +32,51 @@
   import AtlasMapView from '../../lib/components/map/AtlasMapView.svelte';
   import { broadcaster, type HandoutPayload } from '../../lib/services/broadcaster';
 
+  import TabletopCalibrationOverlay, { type ScreenRotation } from '../../lib/components/projector/TabletopCalibrationOverlay.svelte';
+  import { broadcastPingPoint, type PingPayload } from '../../lib/components/canvas/PingLayer.svelte';
+
+  interface ProjectorPing {
+    x: number;
+    y: number;
+    color: string;
+    sender_name: string;
+    startTime: number;
+  }
+  let activePings = $state<ProjectorPing[]>([]);
+
+  function triggerLocalPing(p: { x: number; y: number; color?: string; sender_name?: string }) {
+    activePings = [
+      ...activePings,
+      {
+        x: p.x,
+        y: p.y,
+        color: p.color || '#38bdf8',
+        sender_name: p.sender_name || 'Player',
+        startTime: performance.now(),
+      },
+    ];
+  }
+
+  function handleProjectorPointerDown(e: PointerEvent) {
+    if ((e.altKey && e.button === 0) || e.button === 1) {
+      e.preventDefault();
+      const rect = canvasEl?.getBoundingClientRect();
+      if (!rect) return;
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      const vp = canvasStore.projectorViewport;
+      const worldX = (sx - vp.x) / vp.zoom;
+      const worldY = (sy - vp.y) / vp.zoom;
+
+      broadcastPingPoint({
+        x: worldX,
+        y: worldY,
+        color: '#38bdf8',
+        sender_name: 'Tabletop',
+      });
+    }
+  }
+
   let canvasEl = $state<HTMLCanvasElement | null>(null);
   let ctx: CanvasRenderingContext2D | null = null;
   let rafId = 0;
@@ -40,9 +85,18 @@
   let cleanupSync: (() => void) | null = null;
   let activeHandout = $state<HandoutPayload | null>(null);
 
-  // Tabletop 1-inch physical calibration
+  // Tabletop 1-inch physical calibration & TV orientation
   let showPhysicalCalibration = $state(false);
-  let physicalPpi = $state(96);
+  let projectorRotation = $state<ScreenRotation>(
+    typeof localStorage !== 'undefined'
+      ? (Number(localStorage.getItem('vtt_projector_rotation')) as ScreenRotation) || 0
+      : 0
+  );
+  let physicalPpi = $state(
+    typeof localStorage !== 'undefined'
+      ? Number(localStorage.getItem('vtt_projector_physical_ppi')) || 96
+      : 96
+  );
 
   function applyPhysicalScale(ppi: number) {
     physicalPpi = ppi;
@@ -74,14 +128,79 @@
     canvasStore.ruler?.isPublic ? canvasStore.ruler : null
   );
 
-  // Map image loader
-  let mapImg: HTMLImageElement | null = null;
-  $effect(() => {
-    if (canvasStore.mapImageUrl) {
+  // Map image loader & Preload Buffer for Tabletop Projector
+  let mapImg = $state<HTMLImageElement | null>(null);
+  let isPreloadingMap = $state(false);
+
+  async function preloadAndTransitionMap(url: string, width?: number, height?: number) {
+    if (!url) {
+      mapImg = null;
+      return;
+    }
+    if (mapImg && mapImg.src === url && canvasStore.mapImageUrl === url) {
+      return;
+    }
+
+    // 1. Keep blackout curtain engaged to prevent asset popping or frame drops
+    isPreloadingMap = true;
+
+    try {
+      // 2. Preload incoming texture in the background
       const img = new Image();
-      img.src = canvasStore.mapImageUrl;
-      img.onload = () => { mapImg = img; };
-    } else {
+      img.crossOrigin = 'anonymous';
+
+      await new Promise<void>((resolve, reject) => {
+        img.onload = async () => {
+          if ('decode' in img) {
+            try {
+              await img.decode();
+            } catch {
+              // fallback if decode() rejects
+            }
+          }
+          resolve();
+        };
+        img.onerror = reject;
+        img.src = url;
+      });
+
+      // 3. Force GPU texture upload via offscreen canvas render
+      const offscreen = document.createElement('canvas');
+      offscreen.width = Math.min(img.naturalWidth || width || 1920, 4096);
+      offscreen.height = Math.min(img.naturalHeight || height || 1080, 4096);
+      const octx = offscreen.getContext('2d');
+      if (octx) {
+        octx.drawImage(img, 0, 0, offscreen.width, offscreen.height);
+      }
+
+      // 4. Assign new texture to active rendering
+      mapImg = img;
+      canvasStore.setBackgroundTexture({
+        url,
+        width: width || img.naturalWidth || 1920,
+        height: height || img.naturalHeight || 1080,
+      });
+
+      // 5. Allow 1 frame buffer to ensure GPU upload commit
+      await new Promise((r) => requestAnimationFrame(r));
+    } catch (err) {
+      console.warn('Projector: Failed to preload map texture:', err);
+      canvasStore.setBackgroundTexture({
+        url,
+        width: width || 1920,
+        height: height || 1080,
+      });
+    } finally {
+      // 6. Disengage blackout curtain
+      isPreloadingMap = false;
+    }
+  }
+
+  $effect(() => {
+    const targetUrl = canvasStore.mapImageUrl;
+    if (targetUrl && (!mapImg || mapImg.src !== targetUrl) && !isPreloadingMap) {
+      preloadAndTransitionMap(targetUrl, canvasStore.mapWidth, canvasStore.mapHeight);
+    } else if (!targetUrl) {
       mapImg = null;
     }
   });
@@ -113,11 +232,11 @@
         case 'SYNC_FULL_STATE': {
           const snapshot = msg.payload;
           if (snapshot.mapImageUrl) {
-            canvasStore.setBackgroundTexture({
-              url: snapshot.mapImageUrl,
-              width: snapshot.mapWidth || 1920,
-              height: snapshot.mapHeight || 1080
-            });
+            preloadAndTransitionMap(
+              snapshot.mapImageUrl,
+              snapshot.mapWidth || 1920,
+              snapshot.mapHeight || 1080
+            );
           }
           if (snapshot.gridSize) {
             canvasStore.setGridSize(snapshot.gridSize);
@@ -166,15 +285,23 @@
           break;
         }
         case 'MAP_TEXTURE_UPDATE': {
-          canvasStore.setBackgroundTexture({
-            url: msg.url,
-            width: msg.width,
-            height: msg.height
-          });
+          preloadAndTransitionMap(msg.url, msg.width, msg.height);
+          break;
+        }
+        case 'PING_POINT': {
+          triggerLocalPing(msg);
           break;
         }
       }
     });
+
+    const onPingEvent = (e: Event) => {
+      const custom = e as CustomEvent<PingPayload>;
+      if (custom.detail) {
+        triggerLocalPing(custom.detail);
+      }
+    };
+    window.addEventListener('vtt:ping-point', onPingEvent);
 
     window.addEventListener('resize', syncCanvasDimensions);
 
@@ -210,6 +337,7 @@
 
     return () => {
       window.removeEventListener('resize', syncCanvasDimensions);
+      window.removeEventListener('vtt:ping-point', onPingEvent);
       cleanupSync?.();
       channel?.close();
       unsubBroadcaster();
@@ -253,8 +381,16 @@
       renderWallSegments(ctx, canvasStore.walls, vp.zoom);
     }
 
-    // 5. Doors (Secret doors are stripped unless opened)
-    const publicDoors = canvasStore.doors.filter(d => d.type !== 'SECRET' || d.state === 'OPEN');
+    // 5. Doors (Secret doors are stripped unless explicitly opened)
+    const publicDoors = canvasStore.doors.filter(d => {
+      const typeStr = (d.portalType || d.doorType || d.type || '').toLowerCase();
+      const stateStr = (d.portalState || d.state || 'closed').toLowerCase();
+      const isSecret = typeStr.includes('secret');
+      if (isSecret) {
+        return stateStr === 'open';
+      }
+      return true;
+    });
     if (publicDoors.length > 0) {
       renderDoors(ctx, publicDoors, vp.zoom);
     }
@@ -367,6 +503,71 @@
       drawProjectorToken(ctx, tok, gridSize, vp.zoom);
     }
 
+    // 12. Synchronized Map Pings & Attention Radar Rings
+    const now = performance.now();
+    const livePings: ProjectorPing[] = [];
+    for (const ping of activePings) {
+      const elapsed = now - ping.startTime;
+      if (elapsed < 1200) {
+        livePings.push(ping);
+        const progress = elapsed / 1200;
+        const radius = progress * 50;
+        const alpha = Math.max(0, 1.0 - progress);
+
+        ctx.save();
+        // Expanding ring
+        ctx.beginPath();
+        ctx.arc(ping.x, ping.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = ping.color;
+        ctx.lineWidth = Math.max(1, 3 * (1 - progress));
+        ctx.globalAlpha = alpha;
+        ctx.stroke();
+
+        // Secondary ring
+        if (progress > 0.3) {
+          const p2 = (progress - 0.3) / 0.7;
+          ctx.beginPath();
+          ctx.arc(ping.x, ping.y, p2 * 50, 0, Math.PI * 2);
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.5;
+          ctx.globalAlpha = (1.0 - p2) * 0.6;
+          ctx.stroke();
+        }
+
+        // Center dot
+        ctx.beginPath();
+        ctx.arc(ping.x, ping.y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = ping.color;
+        ctx.globalAlpha = alpha;
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Floating Tag
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const tagText = ping.sender_name;
+        const tagW = ctx.measureText(tagText).width + 12;
+        const tagH = 16;
+        const tagX = ping.x - tagW / 2;
+        const tagY = ping.y - 22;
+
+        ctx.fillStyle = 'rgba(9, 11, 16, 0.85)';
+        ctx.fillRect(tagX, tagY, tagW, tagH);
+        ctx.strokeStyle = ping.color;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(tagX, tagY, tagW, tagH);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(tagText, ping.x, tagY + tagH / 2);
+
+        ctx.restore();
+      }
+    }
+    activePings = livePings;
+
     ctx.restore();
   }
 
@@ -461,15 +662,19 @@
   <title>Projector Battle Mat — Graywood 5e VTT</title>
 </svelte:head>
 
-{#if projectorStore.castSource === 'blackout'}
-  <!-- Blackout Mode: Atmospheric DM setup shroud -->
+{#if projectorStore.castSource === 'blackout' || isPreloadingMap}
+  <!-- Blackout Mode / Preload Buffer Shroud -->
   <div class="fixed inset-0 bg-black z-50 flex flex-col items-center justify-center select-none cursor-none p-8" aria-label="Projector Blackout">
     <div class="text-center opacity-30 animate-pulse flex flex-col items-center gap-3">
       <svg class="w-12 h-12 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
       </svg>
-      <span class="text-sm font-serif tracking-widest text-slate-400 uppercase">The Scene Fades to Darkness</span>
-      <span class="text-[11px] font-mono text-slate-600">Awaiting the Dungeon Master</span>
+      <span class="text-sm font-serif tracking-widest text-slate-400 uppercase">
+        {isPreloadingMap ? 'Buffering Next Encounter...' : 'The Scene Fades to Darkness'}
+      </span>
+      <span class="text-[11px] font-mono text-slate-600">
+        {isPreloadingMap ? 'Uploading Texture to GPU VRAM' : 'Awaiting the Dungeon Master'}
+      </span>
     </div>
   </div>
 {:else if projectorStore.castSource === 'atlas'}
@@ -596,12 +801,21 @@
     {/if}
 
     <!-- ═════════════════════════════════════════════════════════════════════════
-         FULLSCREEN BATTLE MAT CANVAS
+         FULLSCREEN BATTLE MAT CANVAS (TOUCH/GESTURE GUARDED & TV ROTATED)
     ══════════════════════════════════════════════════════════════════════════ -->
-    <div class="relative flex-1 w-full h-full">
+    <div
+      class="relative flex-1 w-full h-full overflow-hidden select-none"
+      style="touch-action: none; -webkit-touch-callout: none;"
+      oncontextmenu={(e) => e.preventDefault()}
+      role="region"
+      aria-label="Battle Mat Canvas Viewport"
+    >
       <canvas
         bind:this={canvasEl}
-        class="block w-full h-full cursor-default"
+        class="block w-full h-full cursor-default transition-transform duration-200"
+        style="touch-action: none; transform: rotate({projectorRotation}deg); transform-origin: center center;"
+        onpointerdown={handleProjectorPointerDown}
+        oncontextmenu={(e) => e.preventDefault()}
       ></canvas>
     </div>
 
@@ -612,6 +826,9 @@
         <span class="text-amber-500/80">🔒 CAMERA LOCKED</span>
       {:else}
         <span class="text-emerald-500/80">🎥 SYNCED TO DM</span>
+      {/if}
+      {#if projectorRotation > 0}
+        <span class="text-indigo-400/80">🔄 {projectorRotation}°</span>
       {/if}
     </div>
 
@@ -627,88 +844,12 @@
       </button>
     </div>
 
-    <!-- ── Physical 1-Inch Calibration Modal Drawer ────────────────────────── -->
-    {#if showPhysicalCalibration}
-      <div class="absolute bottom-12 right-4 z-40 w-80 bg-slate-900/95 border border-indigo-500/50 rounded-2xl p-4 shadow-2xl backdrop-blur-md text-xs font-sans animate-fade-in pointer-events-auto">
-        <div class="flex items-center justify-between pb-2 border-b border-slate-800 mb-3">
-          <div class="flex items-center gap-1.5 font-bold text-white text-sm">
-            <span>📏</span>
-            <span>1-Inch Physical Calibration</span>
-          </div>
-          <button
-            type="button"
-            class="text-slate-400 hover:text-white text-base leading-none p-1"
-            onclick={() => showPhysicalCalibration = false}
-          >
-            ✕
-          </button>
-        </div>
-
-        <p class="text-[11px] text-slate-400 mb-3 leading-relaxed">
-          Place a physical D&D miniature or 1-inch ruler on your TV glass. Adjust the slider until the dashed box matches 1 physical inch exactly.
-        </p>
-
-        <!-- On-Screen 1-Inch Box Preview (Physical PPI size) -->
-        <div class="flex flex-col items-center justify-center my-3 py-2 bg-slate-950/80 border border-slate-800 rounded-xl">
-          <div
-            class="flex items-center justify-center border-2 border-dashed border-cyan-400 bg-cyan-950/20 text-cyan-300 font-mono text-[10px] font-bold text-center select-none"
-            style="width: {physicalPpi}px; height: {physicalPpi}px;"
-          >
-            1.0 INCH
-          </div>
-          <span class="text-[10px] font-mono text-slate-500 mt-2">{physicalPpi} px = 1 inch</span>
-        </div>
-
-        <!-- PPI Slider -->
-        <div class="mb-3">
-          <div class="flex justify-between text-[11px] text-slate-300 mb-1">
-            <span>Target Screen PPI</span>
-            <span class="font-mono font-bold text-cyan-400">{physicalPpi} PPI</span>
-          </div>
-          <input
-            type="range"
-            min="50"
-            max="160"
-            step="1"
-            bind:value={physicalPpi}
-            oninput={() => applyPhysicalScale(physicalPpi)}
-            class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-400"
-          />
-        </div>
-
-        <!-- Quick Presets -->
-        <div class="grid grid-cols-2 gap-1.5 pt-2 border-t border-slate-800">
-          <button
-            type="button"
-            class="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-medium"
-            onclick={() => applyPhysicalScale(96)}
-          >
-            Monitor (96 PPI)
-          </button>
-          <button
-            type="button"
-            class="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-medium"
-            onclick={() => applyPhysicalScale(69)}
-          >
-            32" 1080p (~69 PPI)
-          </button>
-          <button
-            type="button"
-            class="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-medium"
-            onclick={() => applyPhysicalScale(102)}
-          >
-            43" 4K (~102 PPI)
-          </button>
-          <button
-            type="button"
-            class="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-medium"
-            onclick={() => applyPhysicalScale(80)}
-          >
-            55" 4K (~80 PPI)
-          </button>
-        </div>
-      </div>
-    {/if}
+    <!-- ── Tabletop Hardware Calibration & TV Orientation Wizard ────────── -->
+    <TabletopCalibrationOverlay
+      bind:isOpen={showPhysicalCalibration}
+      bind:rotation={projectorRotation}
+      onClose={() => showPhysicalCalibration = false}
+    />
 
   </div>
 {/if}

@@ -12,7 +12,8 @@
     "build": "npm --prefix frontend run build",
     "check": "npm --prefix frontend run check",
     "lint": "npm --prefix frontend run lint",
-    "tauri": "npx @tauri-apps/cli"
+    "tauri": "npx @tauri-apps/cli",
+    "build:dist": "npm --prefix frontend run build && cargo tauri build"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"

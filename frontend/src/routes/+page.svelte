@@ -18,7 +18,6 @@
   import SoundboardDrawer from '../lib/components/audio/SoundboardDrawer.svelte';
   import SettingsModal from '../lib/components/settings/SettingsModal.svelte';
   import FirstRunWizardModal from '../lib/components/modals/FirstRunWizardModal.svelte';
-  import OmnibarPalette from '../lib/components/navigation/OmnibarPalette.svelte';
   import BestiaryDrawer from '../lib/components/bestiary/BestiaryDrawer.svelte';
   import CalendarDisplayWidget from '../lib/components/navigation/CalendarDisplayWidget.svelte';
   import Header from '../lib/components/navigation/Header.svelte';
@@ -37,6 +36,11 @@
   import type { UniversalIngestionReport } from '../lib/importers/universalIngestionEngine';
   import { importUniversalMap } from '../lib/services/mapImporter';
 
+  import CommandPalette from '../lib/components/navigation/CommandPalette.svelte';
+  import CheatSheetModal from '../lib/components/modals/CheatSheetModal.svelte';
+  import { hotkeyManager } from '../lib/services/hotkeyManager';
+  import { projectorStore } from '../lib/stores/projectorStore.svelte';
+
   // Aleamos Downtime, Logistics & Crafting
   import AlchemyWorkbench from '../lib/components/crafting/AlchemyWorkbench.svelte';
   import GuildNoticeBoard from '../lib/components/guild/GuildNoticeBoard.svelte';
@@ -54,6 +58,7 @@
   import { floatingWindowsStore } from '../lib/stores/floatingWindowsStore.svelte';
 
   import PlayerCompanionPortalModal from '../lib/components/player/PlayerCompanionPortalModal.svelte';
+  import PairingModal from '../lib/components/setup/PairingModal.svelte';
   import { getLanIp, getLanPort } from '../lib/services/networkDiscovery';
 
   // Utilities
@@ -68,11 +73,14 @@
   // Modals & Popovers
   let isSettingsOpen = $state(false);
   let isPlayerPortalOpen = $state(false);
+  let isPairingModalOpen = $state(false);
   let isBestiaryOpen = $state(false);
   let isMapManagerOpen = $state(false);
   let isIngestModalOpen = $state(false);
   let isCompendiumTrayOpen = $state(false);
   let isQuickIngestOpen = $state(false);
+  let isCommandPaletteOpen = $state(false);
+  let isCheatSheetOpen = $state(false);
   let quickIngestToast = $state<string | null>(null);
 
   async function handleQuickIngestComplete(report: UniversalIngestionReport) {
@@ -129,23 +137,88 @@
       isQuickIngestOpen = true;
     };
 
-    const handleGlobalKeydown = (e: KeyboardEvent) => {
-      // Ctrl+B / Cmd+B: Toggle Compendium Tray
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
-        e.preventDefault();
+    // Register Tactical DM Shortcuts via HotkeyManager
+    hotkeyManager.register({
+      id: 'toggle-compendium',
+      key: 'b',
+      ctrlOrMeta: true,
+      description: 'Toggle Compendium Browser Drawer',
+      category: 'navigation',
+      action: () => {
         isCompendiumTrayOpen = !isCompendiumTrayOpen;
       }
-      // Ctrl+I / Cmd+I: Toggle Quick Ingest Tray
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
-        e.preventDefault();
+    });
+
+    hotkeyManager.register({
+      id: 'toggle-projector-blackout',
+      key: 'b',
+      ctrlOrMeta: true,
+      shift: true,
+      description: 'Instant Blackout Curtain toggle on /projector',
+      category: 'screen' as any,
+      action: () => {
+        projectorStore.toggleBlackout();
+      }
+    });
+
+    hotkeyManager.register({
+      id: 'toggle-journal',
+      key: 'j',
+      ctrlOrMeta: true,
+      description: 'Toggle Campaign Journal Drawer',
+      category: 'navigation',
+      action: () => {
+        activeTab = activeTab === 'lore' ? 'party' : 'lore';
+      }
+    });
+
+    hotkeyManager.register({
+      id: 'open-command-palette',
+      key: 'k',
+      ctrlOrMeta: true,
+      description: 'Open Quick Command Palette / Search',
+      category: 'navigation',
+      action: () => {
+        isCommandPaletteOpen = !isCommandPaletteOpen;
+      }
+    });
+
+    hotkeyManager.register({
+      id: 'toggle-cheat-sheet-f1',
+      key: 'F1',
+      description: 'Open Keyboard Shortcuts & Cheat Sheet Modal',
+      category: 'general',
+      action: () => {
+        isCheatSheetOpen = !isCheatSheetOpen;
+      }
+    });
+
+    hotkeyManager.register({
+      id: 'toggle-cheat-sheet-question',
+      key: '?',
+      description: 'Open Keyboard Shortcuts & Cheat Sheet Modal',
+      category: 'general',
+      action: () => {
+        isCheatSheetOpen = !isCheatSheetOpen;
+      }
+    });
+
+    hotkeyManager.register({
+      id: 'toggle-ingest',
+      key: 'i',
+      ctrlOrMeta: true,
+      description: 'Toggle Quick Asset Ingest Tray',
+      category: 'general',
+      action: () => {
         isQuickIngestOpen = !isQuickIngestOpen;
       }
-    };
+    });
+
+    const unbindHotkeys = hotkeyManager.init();
 
     window.addEventListener('vtt:switch-tab', handleSwitchTab);
     window.addEventListener('vtt:toggle-audio', handleToggleAudio);
     window.addEventListener('vtt:open-ingest-modal', handleOpenIngest);
-    window.addEventListener('keydown', handleGlobalKeydown);
 
     const handleToast = (e: Event) => {
       const detail = (e as CustomEvent<{ message: string }>).detail;
@@ -177,10 +250,10 @@
     return () => {
       stopAutoSaver?.();
       dropCleanup?.();
+      unbindHotkeys();
       window.removeEventListener('vtt:switch-tab', handleSwitchTab);
       window.removeEventListener('vtt:toggle-audio', handleToggleAudio);
       window.removeEventListener('vtt:open-ingest-modal', handleOpenIngest);
-      window.removeEventListener('keydown', handleGlobalKeydown);
       window.removeEventListener('vtt:toast', handleToast);
     };
   });
@@ -195,6 +268,7 @@
     {campaignName}
     onOpenSettings={() => uiStore.isSettingsOpen = true}
     onOpenPlayerPortal={() => isPlayerPortalOpen = true}
+    onOpenPairing={() => isPairingModalOpen = true}
     onToggleCombat={() => activeTab = activeTab === 'encounter' ? 'battlemat' : 'encounter'}
     onToggleCompendium={() => isCompendiumTrayOpen = !isCompendiumTrayOpen}
     onOpenIngest={() => isQuickIngestOpen = true}
@@ -268,6 +342,7 @@
   <BestiaryDrawer bind:isOpen={isBestiaryOpen} />
   <SettingsModal bind:isOpen={uiStore.isSettingsOpen} />
   <PlayerCompanionPortalModal bind:isOpen={isPlayerPortalOpen} />
+  <PairingModal bind:isOpen={isPairingModalOpen} />
   <PlayerHandoutModal />
 
   <FloatingPanel id="sources" title="Local Source Engine & Rulebook Explorer" icon="📚">
@@ -288,8 +363,11 @@
   <!-- Global Physical Tabletop Dice Manual Input Modal -->
   <PhysicalDicePromptModal />
 
-  <!-- Global Omnibar Search & Command Palette (Ctrl+K) -->
-  <OmnibarPalette />
+  <!-- Global Tactical Command Palette (Ctrl+K) -->
+  <CommandPalette bind:isOpen={isCommandPaletteOpen} />
+
+  <!-- Tactical DM Cheat Sheet & Shortcuts Modal (F1 / ?) -->
+  <CheatSheetModal bind:isOpen={isCheatSheetOpen} />
 
   <!-- Initial Setup Wizard Modal -->
   <FirstRunWizardModal />

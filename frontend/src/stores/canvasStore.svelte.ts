@@ -414,9 +414,34 @@ class CanvasStoreClass {
   toggleDoor(doorId: string) {
     const door = this.doors.find(d => d.id === doorId);
     if (!door) return;
-    const nextState = door.state === 'OPEN' ? 'CLOSED' : 'OPEN';
-    this.doors = this.doors.map(d => d.id === doorId ? { ...d, state: nextState } : d);
-    this.broadcast('DOOR_TOGGLE', { id: doorId, state: nextState });
+    const current = (door.portalState || (door.state ? door.state.toLowerCase() : 'closed')) as 'open' | 'closed' | 'locked';
+    // Cycle: closed -> open -> locked -> closed (or if secret, closed -> open -> closed)
+    let nextState: 'open' | 'closed' | 'locked' = 'open';
+    if (current === 'open') {
+      nextState = 'closed';
+    } else if (current === 'closed') {
+      nextState = door.portalType === 'secret' ? 'open' : 'open';
+    } else if (current === 'locked') {
+      nextState = 'open';
+    }
+
+    const nextDoorState = (nextState.toUpperCase()) as 'OPEN' | 'CLOSED' | 'LOCKED';
+    this.doors = this.doors.map(d => d.id === doorId ? {
+      ...d,
+      state: nextDoorState,
+      portalState: nextState,
+    } : d);
+    this.broadcast('DOOR_TOGGLE', { id: doorId, state: nextDoorState, portalState: nextState });
+  }
+
+  setPortalState(doorId: string, state: 'open' | 'closed' | 'locked') {
+    const doorState = state.toUpperCase() as 'OPEN' | 'CLOSED' | 'LOCKED';
+    this.doors = this.doors.map(d => d.id === doorId ? {
+      ...d,
+      state: doorState,
+      portalState: state,
+    } : d);
+    this.broadcast('DOOR_TOGGLE', { id: doorId, state: doorState, portalState: state });
   }
 
   addAoeTemplate(template: SpellAoeTemplate) {
