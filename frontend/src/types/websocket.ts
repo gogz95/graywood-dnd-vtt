@@ -194,6 +194,22 @@ export type WsEvent =
       action: 'upsert' | 'delete';
       prop?: import('../lib/types/prop').CanvasProp;
       prop_id?: string;
+    }
+  | {
+      type:
+        | 'TOKEN_SPAWNED'
+        | 'TOKEN_UPDATED'
+        | 'TOKEN_REMOVED'
+        | 'STATE_SNAPSHOT'
+        | 'TokenMoved'
+        | 'TokenSpawned'
+        | 'TokenUpdated'
+        | 'TokenRemoved'
+        | 'StateSnapshot'
+        | 'STAGING_CURTAIN'
+        | 'staging_curtain'
+        | 'StagingCurtain';
+      [key: string]: any;
     };
 
 

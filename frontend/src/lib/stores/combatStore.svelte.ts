@@ -53,15 +53,15 @@ class CombatStore {
 
   startCombat() {
     const participants: Combatant[] = tokenStore.tokens
-      .filter((t) => !t.isGmOnly && t.hp > 0)
+      .filter((t) => !t.isGmOnly && (t.hp ?? 0) > 0)
       .map((t) => ({
         tokenId: t.id,
         name: t.name,
         initiative: Math.floor(Math.random() * 20) + 1,
         dexModifier: 0,
-        hp: t.hp,
-        maxHp: t.maxHp,
-        conditions: t.conditions,
+        hp: t.hp ?? 0,
+        maxHp: t.maxHp ?? t.hp ?? 0,
+        conditions: t.conditions ?? [],
         isDefeated: false
       }));
 
@@ -172,7 +172,7 @@ class CombatStore {
     // Remove from tokenStore conditions
     const token = tokenStore.tokens.find((t) => t.id === id);
     if (token) {
-      token.conditions = token.conditions.filter(
+      token.conditions = (token.conditions ?? []).filter(
         (c) => c.toLowerCase() !== 'concentrating'
       );
     }
@@ -210,7 +210,7 @@ class CombatStore {
       !combatant &&
       token &&
       actualDamage > 0 &&
-      token.conditions.some((c) => c.toLowerCase() === 'concentrating')
+      (token.conditions ?? []).some((c) => c.toLowerCase() === 'concentrating')
     ) {
       this.triggerConcentrationCheck(token.id, token.name, actualDamage, conModifier);
     }

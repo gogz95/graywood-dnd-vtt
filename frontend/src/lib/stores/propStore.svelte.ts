@@ -2,7 +2,7 @@
 // Persists to maps/<mapId>.props.json via the Axum campaign-dir asset server.
 
 import type { CanvasProp, PropLayer } from '../types/prop';
-import { sendWsEvent } from '../../../stores/websocketStore';
+import { sendWsEvent } from '../../stores/websocketStore';
 
 const DEFAULT_PROP_SIZE = 120; // 2 grid cells @ 60px default
 
