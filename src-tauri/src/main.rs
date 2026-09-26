@@ -40,10 +40,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let secret_key = b"graywood_vtt_dm_workstation_secret_key_9876543210".to_vec();
     let app_state = AppState::new(conn, secret_key, assets_dir);
 
-    println!(
-        "Starting embedded Axum server on http://{}",
-        DEFAULT_SERVER_ADDR
-    );
     run_server(app_state, DEFAULT_SERVER_ADDR).await?;
 
     Ok(())

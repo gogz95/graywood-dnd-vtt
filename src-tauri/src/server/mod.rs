@@ -266,7 +266,7 @@ pub async fn run_server(
     let port_file = std::env::temp_dir().join("graywood.port");
     let _ = std::fs::write(&port_file, port.to_string());
     println!(
-        "[server] Axum server bound dynamically to port {} (recorded at {:?})",
+        "Starting embedded Axum server on http://0.0.0.0:{} (recorded at {:?})",
         port, port_file
     );
 
