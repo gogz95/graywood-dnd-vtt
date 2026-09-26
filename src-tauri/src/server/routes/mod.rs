@@ -8,3 +8,5 @@ pub mod crafting;
 pub mod encounter;
 pub mod settlement;
 pub mod ws;
+pub mod plugins;
+

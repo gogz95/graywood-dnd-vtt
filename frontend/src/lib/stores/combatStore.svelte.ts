@@ -25,15 +25,31 @@ export interface Combatant {
   isDefeated: boolean;
 }
 
+export interface ConcentrationPrompt {
+  id: string;
+  entityId: string;
+  entityName: string;
+  dc: number;
+  damageTaken: number;
+  conModifier: number;
+  rollResult?: {
+    d20: number;
+    total: number;
+    success: boolean;
+  };
+}
+
 class CombatStore {
   isActive = $state(false);
   round = $state(1);
   turnIndex = $state(0);
   combatants = $state<Combatant[]>([]);
+  activeConcentrationPrompt = $state<ConcentrationPrompt | null>(null);
 
   activeCombatant = $derived(
     this.combatants.length > 0 ? this.combatants[this.turnIndex] ?? null : null
   );
+
 
   startCombat() {
     const participants: Combatant[] = tokenStore.tokens
@@ -113,8 +129,95 @@ class CombatStore {
     this.combatants = [];
     this.round = 1;
     this.turnIndex = 0;
+    this.activeConcentrationPrompt = null;
     this.broadcastCombat();
   }
+
+  triggerConcentrationCheck(entityId: string, entityName: string, damageTaken: number, conModifier: number = 0) {
+    if (damageTaken <= 0) return;
+    const dc = Math.max(10, Math.floor(damageTaken / 2));
+    this.activeConcentrationPrompt = {
+      id: `conc-${Date.now()}`,
+      entityId,
+      entityName,
+      dc,
+      damageTaken,
+      conModifier,
+    };
+  }
+
+  rollConcentrationSave(conModifier?: number): { d20: number; total: number; success: boolean } | null {
+    if (!this.activeConcentrationPrompt) return null;
+    const mod = conModifier !== undefined ? conModifier : this.activeConcentrationPrompt.conModifier;
+    const d20 = Math.floor(Math.random() * 20) + 1;
+    const total = d20 + mod;
+    const success = total >= this.activeConcentrationPrompt.dc;
+    const result = { d20, total, success };
+    this.activeConcentrationPrompt.rollResult = result;
+    return result;
+  }
+
+  dropConcentration(entityId?: string) {
+    const id = entityId || this.activeConcentrationPrompt?.entityId;
+    if (!id) return;
+
+    // Remove from combatant conditions
+    const combatant = this.combatants.find((c) => c.tokenId === id);
+    if (combatant) {
+      combatant.conditions = combatant.conditions.filter(
+        (c) => c.toLowerCase() !== 'concentrating'
+      );
+    }
+
+    // Remove from tokenStore conditions
+    const token = tokenStore.tokens.find((t) => t.id === id);
+    if (token) {
+      token.conditions = token.conditions.filter(
+        (c) => c.toLowerCase() !== 'concentrating'
+      );
+    }
+
+    // Clear prompt if matching
+    if (this.activeConcentrationPrompt?.entityId === id) {
+      this.activeConcentrationPrompt = null;
+    }
+
+    this.broadcastCombat();
+  }
+
+  dismissConcentrationPrompt() {
+    this.activeConcentrationPrompt = null;
+  }
+
+  applyDamage(tokenId: string, damage: number, conModifier: number = 0) {
+    const combatant = this.combatants.find((c) => c.tokenId === tokenId);
+    const actualDamage = Math.max(0, damage);
+    if (combatant) {
+      combatant.hp = Math.max(0, combatant.hp - actualDamage);
+      if (combatant.hp <= 0) combatant.isDefeated = true;
+      if (
+        actualDamage > 0 &&
+        combatant.conditions.some((c) => c.toLowerCase() === 'concentrating')
+      ) {
+        this.triggerConcentrationCheck(combatant.tokenId, combatant.name, actualDamage, conModifier);
+      }
+    }
+
+    // Also sync to tokenStore
+    tokenStore.updateHp(tokenId, -actualDamage);
+    const token = tokenStore.tokens.find((t) => t.id === tokenId);
+    if (
+      !combatant &&
+      token &&
+      actualDamage > 0 &&
+      token.conditions.some((c) => c.toLowerCase() === 'concentrating')
+    ) {
+      this.triggerConcentrationCheck(token.id, token.name, actualDamage, conModifier);
+    }
+
+    this.broadcastCombat();
+  }
+
 
   private sortCombatants(list: Combatant[]) {
     list.sort((a, b) => {

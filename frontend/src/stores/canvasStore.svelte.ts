@@ -3,6 +3,9 @@
 
 import type { WallSegment, DoorPrimitive } from '../lib/canvas/parsers/dungeonScrawlParser';
 import type { WatabouCityMap } from '../lib/canvas/parsers/watabouParser';
+import type { OverheadTile } from '../lib/types/map';
+import type { TriggerZone } from '../lib/types/trigger';
+
 
 export interface CanvasToken {
   id: string;
@@ -64,6 +67,21 @@ export interface ViewportTransform {
   zoom: number;
 }
 
+export interface VisualEffectOverlay {
+  id: string;
+  url: string;
+  name: string;
+  x: number; // world x
+  y: number; // world y
+  gridX: number; // grid col (0-indexed)
+  gridY: number; // grid row (0-indexed)
+  scale: number; // default 1.0
+  rotation: number; // in radians
+  opacity: number; // 0.0 - 1.0
+  loop?: boolean; // default true
+  playbackRate?: number; // default 1.0
+}
+
 export interface CanvasStateSnapshot {
   mapImageUrl: string;
   mapWidth?: number;
@@ -81,7 +99,11 @@ export interface CanvasStateSnapshot {
   projectorViewport: ViewportTransform;
   dynamicLightingEnabled: boolean;
   wallVisibilityEnabled: boolean;
+  effects?: VisualEffectOverlay[];
+  overheadTiles?: OverheadTile[];
+  triggerZones?: TriggerZone[];
 }
+
 
 export interface BattleMatState {
   tokens: CanvasToken[];
@@ -103,6 +125,9 @@ export interface BattleMatState {
   fogExplored: string[]; // Set serialized as array of 'gx,gy'
   dynamicLightingEnabled: boolean;
   wallVisibilityEnabled: boolean;
+  effects?: VisualEffectOverlay[];
+  overheadTiles?: OverheadTile[];
+  triggerZones?: TriggerZone[];
 }
 
 const STORAGE_KEY = 'vtt_battlemat_state';
@@ -129,6 +154,9 @@ function loadInitialState(): BattleMatState {
     fogExplored: [],
     dynamicLightingEnabled: true,
     wallVisibilityEnabled: true,
+    effects: [],
+    overheadTiles: [],
+    triggerZones: [],
   };
 
   if (typeof localStorage === 'undefined') return fallback;
@@ -163,6 +191,9 @@ class CanvasStoreClass {
   fogExplored = $state<string[]>([]);
   dynamicLightingEnabled = $state<boolean>(true);
   wallVisibilityEnabled = $state<boolean>(true);
+  effects = $state<VisualEffectOverlay[]>([]);
+  overheadTiles = $state<OverheadTile[]>([]);
+  triggerZones = $state<TriggerZone[]>([]);
 
   private channel: BroadcastChannel | null = null;
   private isBroadcasting = false;
@@ -185,6 +216,10 @@ class CanvasStoreClass {
     this.fogExplored = initial.fogExplored;
     this.dynamicLightingEnabled = initial.dynamicLightingEnabled;
     this.wallVisibilityEnabled = initial.wallVisibilityEnabled;
+    this.effects = initial.effects || [];
+    this.overheadTiles = initial.overheadTiles || [];
+    this.triggerZones = initial.triggerZones || [];
+
 
     if (typeof window !== 'undefined') {
       if ('BroadcastChannel' in window) {
@@ -244,6 +279,9 @@ class CanvasStoreClass {
         fogExplored: this.fogExplored,
         dynamicLightingEnabled: this.dynamicLightingEnabled,
         wallVisibilityEnabled: this.wallVisibilityEnabled,
+        effects: this.effects,
+        overheadTiles: this.overheadTiles,
+        triggerZones: this.triggerZones,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     } catch {
@@ -291,6 +329,24 @@ class CanvasStoreClass {
         break;
       case 'FOG_EXPLORED_SYNC':
         this.fogExplored = payload;
+        break;
+      case 'EFFECTS_SYNC':
+        this.effects = payload || [];
+        break;
+      case 'EFFECT_UPDATE':
+        this.effects = this.effects.map(e => e.id === payload.id ? { ...e, ...payload } : e);
+        break;
+      case 'OVERHEAD_TILES_SYNC':
+        this.overheadTiles = payload || [];
+        break;
+      case 'OVERHEAD_TILE_UPDATE':
+        this.overheadTiles = this.overheadTiles.map(t => t.id === payload.id ? { ...t, ...payload } : t);
+        break;
+      case 'TRIGGER_ZONES_SYNC':
+        this.triggerZones = payload || [];
+        break;
+      case 'TRIGGER_ZONE_UPDATE':
+        this.triggerZones = this.triggerZones.map(z => z.id === payload.id ? { ...z, ...payload } : z);
         break;
       case 'FULL_STATE_SYNC':
         Object.assign(this, payload);
@@ -578,6 +634,76 @@ class CanvasStoreClass {
     this.broadcast('WALLS_DOORS_SYNC', { walls: this.walls, doors: this.doors });
   }
 
+  addEffect(effect: VisualEffectOverlay) {
+    this.effects = [...this.effects, effect];
+    this.broadcast('EFFECTS_SYNC', this.effects);
+  }
+
+  updateEffect(id: string, patch: Partial<VisualEffectOverlay>) {
+    this.effects = this.effects.map(e => e.id === id ? { ...e, ...patch } : e);
+    this.broadcast('EFFECT_UPDATE', { id, ...patch });
+  }
+
+  removeEffect(id: string) {
+    this.effects = this.effects.filter(e => e.id !== id);
+    this.broadcast('EFFECTS_SYNC', this.effects);
+  }
+
+  clearEffects() {
+    this.effects = [];
+    this.broadcast('EFFECTS_SYNC', []);
+  }
+
+  setOverheadTiles(tiles: OverheadTile[]) {
+    this.overheadTiles = tiles;
+    this.broadcast('OVERHEAD_TILES_SYNC', tiles);
+  }
+
+  addOverheadTile(tile: OverheadTile) {
+    this.overheadTiles = [...this.overheadTiles, tile];
+    this.broadcast('OVERHEAD_TILES_SYNC', this.overheadTiles);
+  }
+
+  updateOverheadTile(id: string, patch: Partial<OverheadTile>) {
+    this.overheadTiles = this.overheadTiles.map(t => t.id === id ? { ...t, ...patch } : t);
+    this.broadcast('OVERHEAD_TILE_UPDATE', { id, ...patch });
+  }
+
+  removeOverheadTile(id: string) {
+    this.overheadTiles = this.overheadTiles.filter(t => t.id !== id);
+    this.broadcast('OVERHEAD_TILES_SYNC', this.overheadTiles);
+  }
+
+  clearOverheadTiles() {
+    this.overheadTiles = [];
+    this.broadcast('OVERHEAD_TILES_SYNC', []);
+  }
+
+  setTriggerZones(zones: TriggerZone[]) {
+    this.triggerZones = zones;
+    this.broadcast('TRIGGER_ZONES_SYNC', zones);
+  }
+
+  addTriggerZone(zone: TriggerZone) {
+    this.triggerZones = [...this.triggerZones, zone];
+    this.broadcast('TRIGGER_ZONES_SYNC', this.triggerZones);
+  }
+
+  updateTriggerZone(id: string, patch: Partial<TriggerZone>) {
+    this.triggerZones = this.triggerZones.map(z => z.id === id ? { ...z, ...patch } : z);
+    this.broadcast('TRIGGER_ZONE_UPDATE', { id, ...patch });
+  }
+
+  removeTriggerZone(id: string) {
+    this.triggerZones = this.triggerZones.filter(z => z.id !== id);
+    this.broadcast('TRIGGER_ZONES_SYNC', this.triggerZones);
+  }
+
+  clearTriggerZones() {
+    this.triggerZones = [];
+    this.broadcast('TRIGGER_ZONES_SYNC', []);
+  }
+
   getSnapshot(): CanvasStateSnapshot {
     return {
       mapImageUrl: this.mapImageUrl,
@@ -596,6 +722,9 @@ class CanvasStoreClass {
       projectorViewport: { ...this.projectorViewport },
       dynamicLightingEnabled: this.dynamicLightingEnabled,
       wallVisibilityEnabled: this.wallVisibilityEnabled,
+      effects: $state.snapshot(this.effects),
+      overheadTiles: $state.snapshot(this.overheadTiles),
+      triggerZones: $state.snapshot(this.triggerZones),
     };
   }
 
@@ -605,3 +734,4 @@ class CanvasStoreClass {
 }
 
 export const canvasStore = new CanvasStoreClass();
+

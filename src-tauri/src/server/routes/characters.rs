@@ -43,6 +43,13 @@ pub enum CharacterAction {
     ToggleBlackOrb { is_orb_sealed: bool },
     #[serde(rename = "TOGGLE_INVENTORY_PRESERVED")]
     ToggleInventoryPreserved { item_id: String, is_preserved: bool },
+    #[serde(rename = "SHORT_REST")]
+    ShortRest {
+        hp_recovered: i32,
+        hit_dice_spent: i32,
+    },
+    #[serde(rename = "LONG_REST")]
+    LongRest,
 }
 
 #[derive(Debug, Serialize)]
@@ -251,6 +258,65 @@ pub async fn execute_character_action(
                 "UPDATE inventory_items SET is_preserved = ?1 WHERE id = ?2",
                 params![if is_preserved { 1 } else { 0 }, item_id],
             )?;
+        }
+        CharacterAction::ShortRest {
+            hp_recovered,
+            hit_dice_spent,
+        } => {
+            character.current_hp = (character.current_hp + hp_recovered).min(character.max_hp);
+            character.hit_dice_current = (character.hit_dice_current - hit_dice_spent).max(0);
+
+            conn.execute(
+                "UPDATE characters SET current_hp = ?1, hit_dice_current = ?2 WHERE id = ?3",
+                params![character.current_hp, character.hit_dice_current, character.id],
+            )?;
+
+            let _ = state.ws_sender.send(WsEvent::HpUpdate {
+                character_id: character.id.clone(),
+                current_hp: character.current_hp,
+                temp_hp: character.temp_hp,
+            });
+        }
+        CharacterAction::LongRest => {
+            character.current_hp = character.max_hp;
+            character.temp_hp = 0;
+            let restored_hd = (character.hit_dice_max / 2).max(1);
+            character.hit_dice_current = (character.hit_dice_current + restored_hd).min(character.hit_dice_max);
+            character.resurrection_sickness_penalty = (character.resurrection_sickness_penalty - 1).max(0);
+
+            // Reset spell slots
+            if let Ok(mut slots) = character.parse_spell_slots() {
+                slots.level_1.used = 0;
+                slots.level_2.used = 0;
+                slots.level_3.used = 0;
+                slots.level_4.used = 0;
+                slots.level_5.used = 0;
+                slots.level_6.used = 0;
+                slots.level_7.used = 0;
+                slots.level_8.used = 0;
+                slots.level_9.used = 0;
+                if let Ok(serialized) = serde_json::to_string(&slots) {
+                    character.spell_slots_json = serialized;
+                }
+            }
+
+            conn.execute(
+                "UPDATE characters SET current_hp = ?1, temp_hp = ?2, hit_dice_current = ?3, resurrection_sickness_penalty = ?4, spell_slots_json = ?5 WHERE id = ?6",
+                params![
+                    character.current_hp,
+                    character.temp_hp,
+                    character.hit_dice_current,
+                    character.resurrection_sickness_penalty,
+                    character.spell_slots_json,
+                    character.id
+                ],
+            )?;
+
+            let _ = state.ws_sender.send(WsEvent::HpUpdate {
+                character_id: character.id.clone(),
+                current_hp: character.current_hp,
+                temp_hp: character.temp_hp,
+            });
         }
     }
 

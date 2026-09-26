@@ -29,11 +29,12 @@
   import AutomationSettingsTab from './AutomationSettingsTab.svelte';
   import StorageStatusWidget from '../dm/StorageStatusWidget.svelte';
   import { campaignDirectoryStore } from '../../stores/campaignDirectoryStore.svelte';
+  import PluginSettingsTab from './PluginSettingsTab.svelte';
 
   let { isOpen = $bindable(false) }: { isOpen?: boolean } = $props();
   let showKbModal = $state(false);
 
-  type SettingsTab = 'campaign' | 'lore' | 'homebrew' | 'automation' | 'ai' | 'audio' | 'theme';
+  type SettingsTab = 'campaign' | 'lore' | 'homebrew' | 'automation' | 'ai' | 'audio' | 'theme' | 'plugins';
   let activeTab = $state<SettingsTab>('campaign');
 
   // ── Campaign State ─────────────────────────────────────────────────────────
@@ -421,6 +422,15 @@
           {activeTab === 'theme' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
       >
         <span>🎨 UI &amp; Theme</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => activeTab = 'plugins'}
+        class="px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5
+          {activeTab === 'plugins' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-200'}"
+      >
+        <span>🧩 Plugins &amp; Addons</span>
       </button>
     </div>
 
@@ -926,6 +936,13 @@
       ══════════════════════════════════════════════════════════════════════ -->
       {#if activeTab === 'homebrew'}
         <HomebrewSettingsTab />
+      {/if}
+
+      <!-- ═════════════════════════════════════════════════════════════════════
+           TAB: SANDBOXED PLUGINS & ADDONS
+      ══════════════════════════════════════════════════════════════════════ -->
+      {#if activeTab === 'plugins'}
+        <PluginSettingsTab />
       {/if}
 
     </div>

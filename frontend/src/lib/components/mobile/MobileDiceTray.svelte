@@ -9,7 +9,10 @@
     total: number;
     breakdown: string;
     timestamp?: number;
+    seed?: number;
+    vectors?: Array<{ x: number; y: number; angle: number; velocity: number }>;
   }
+
 
   let {
     characterName = 'Player Companion',

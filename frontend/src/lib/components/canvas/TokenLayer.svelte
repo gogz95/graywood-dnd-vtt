@@ -94,7 +94,54 @@
       });
     }
   }
+
+  function addPresetAura(preset: 'paladin-10' | 'paladin-30' | 'spirit-guardians' | 'pass-without-trace') {
+    if (!selectedToken) return;
+    if (preset === 'paladin-10') {
+      tokenStore.addAura(selectedToken.id, {
+        id: `aura-paladin-10-${Date.now()}`,
+        radiusFeet: 10,
+        color: '#f59e0b',
+        fillAlpha: 0.15,
+        borderStyle: 'solid',
+        attachedTokenId: selectedToken.id,
+      });
+    } else if (preset === 'paladin-30') {
+      tokenStore.addAura(selectedToken.id, {
+        id: `aura-paladin-30-${Date.now()}`,
+        radiusFeet: 30,
+        color: '#f59e0b',
+        fillAlpha: 0.12,
+        borderStyle: 'solid',
+        attachedTokenId: selectedToken.id,
+      });
+    } else if (preset === 'spirit-guardians') {
+      tokenStore.addAura(selectedToken.id, {
+        id: `aura-spirit-guardians-${Date.now()}`,
+        radiusFeet: 15,
+        color: '#a855f7',
+        fillAlpha: 0.18,
+        borderStyle: 'solid',
+        attachedTokenId: selectedToken.id,
+      });
+    } else if (preset === 'pass-without-trace') {
+      tokenStore.addAura(selectedToken.id, {
+        id: `aura-pass-without-trace-${Date.now()}`,
+        radiusFeet: 30,
+        color: '#10b981',
+        fillAlpha: 0.14,
+        borderStyle: 'dashed',
+        attachedTokenId: selectedToken.id,
+      });
+    }
+  }
+
+  function removeAura(auraId: string) {
+    if (!selectedToken) return;
+    tokenStore.removeAura(selectedToken.id, auraId);
+  }
 </script>
+
 
 <!-- ── Selected Token Inspector HUD ─────────────────────────────────────────── -->
 {#if selectedToken}
@@ -272,6 +319,85 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- Attached 5e Auras -->
+    <div class="py-2 border-b border-slate-800 text-[11px] space-y-1.5">
+      <div class="flex items-center justify-between">
+        <span class="text-slate-400 font-medium">Attached Auras</span>
+        {#if selectedToken.auras && selectedToken.auras.length > 0}
+          <button
+            type="button"
+            class="text-[9px] text-rose-400 hover:text-rose-300"
+            onclick={() => tokenStore.clearAuras(selectedToken.id)}
+          >
+            Clear All
+          </button>
+        {/if}
+      </div>
+
+      <!-- Presets -->
+      <div class="grid grid-cols-2 gap-1">
+        <button
+          type="button"
+          class="py-1 px-1.5 rounded text-[10px] font-medium bg-amber-950/60 text-amber-300 border border-amber-800/60 hover:bg-amber-900/80 transition-all text-left truncate flex items-center justify-between"
+          onclick={() => addPresetAura('paladin-10')}
+          title="Paladin Aura of Protection (10 ft)"
+        >
+          <span>🛡️ Paladin (10ft)</span>
+          <span class="text-[9px] opacity-70">+</span>
+        </button>
+        <button
+          type="button"
+          class="py-1 px-1.5 rounded text-[10px] font-medium bg-amber-950/60 text-amber-300 border border-amber-800/60 hover:bg-amber-900/80 transition-all text-left truncate flex items-center justify-between"
+          onclick={() => addPresetAura('paladin-30')}
+          title="Paladin Aura of Protection (30 ft)"
+        >
+          <span>🛡️ Paladin (30ft)</span>
+          <span class="text-[9px] opacity-70">+</span>
+        </button>
+        <button
+          type="button"
+          class="py-1 px-1.5 rounded text-[10px] font-medium bg-purple-950/60 text-purple-300 border border-purple-800/60 hover:bg-purple-900/80 transition-all text-left truncate flex items-center justify-between"
+          onclick={() => addPresetAura('spirit-guardians')}
+          title="Spirit Guardians (15 ft)"
+        >
+          <span>👼 Spirit Guard (15ft)</span>
+          <span class="text-[9px] opacity-70">+</span>
+        </button>
+        <button
+          type="button"
+          class="py-1 px-1.5 rounded text-[10px] font-medium bg-emerald-950/60 text-emerald-300 border border-emerald-800/60 hover:bg-emerald-900/80 transition-all text-left truncate flex items-center justify-between"
+          onclick={() => addPresetAura('pass-without-trace')}
+          title="Pass Without Trace (30 ft)"
+        >
+          <span>🍃 Pass w/o Trace (30ft)</span>
+          <span class="text-[9px] opacity-70">+</span>
+        </button>
+      </div>
+
+      <!-- Active Aura Chips -->
+      {#if selectedToken.auras && selectedToken.auras.length > 0}
+        <div class="flex flex-wrap gap-1 pt-1">
+          {#each selectedToken.auras as aura (aura.id)}
+            <div
+              class="px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-slate-700 bg-slate-950"
+              style="border-left: 3px solid {aura.color};"
+            >
+              <span class="font-mono text-slate-200">{aura.radiusFeet}ft</span>
+              <span class="text-[9px] text-slate-400 capitalize">({aura.borderStyle})</span>
+              <button
+                type="button"
+                class="text-slate-500 hover:text-rose-400"
+                onclick={() => removeAura(aura.id)}
+                title="Remove aura"
+              >
+                ✕
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
 
     <!-- Conditions Tray -->

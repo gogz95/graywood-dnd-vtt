@@ -39,8 +39,15 @@ export interface AttackResolutionData {
 export interface ChatMessage {
   id: string;
   sender: string;
+  sender_id?: string;
+  sender_name?: string;
   channel: MessageChannel;
   text?: string;
+  content?: string;
+  recipient_id?: string | null;
+  recipient_name?: string | null;
+  is_system?: boolean;
+  is_ooc?: boolean;
   timestamp: number;
   roll?: RollBreakdown;
   rollLabel?: string;
@@ -49,6 +56,7 @@ export interface ChatMessage {
   damageAmount?: number;
   targetId?: string;
 }
+
 
 export interface RollOptions {
   label?: string;
@@ -139,6 +147,49 @@ class ChatStore {
         };
         this.messages = [...this.messages, msg];
         this.saveToStorage();
+      }
+    });
+
+    // Subscribe to external WebSocket chat messages (e.g. from companion mobile devices or desktop relay)
+    window.addEventListener('vtt:chat-message', (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        id: string;
+        sender_id: string;
+        sender_name: string;
+        content: string;
+        recipient_id?: string | null;
+        is_system: boolean;
+        timestamp: number;
+      }>;
+      const data = customEvent.detail;
+      if (!data || !data.id) return;
+
+      if (!this.messages.some(m => m.id === data.id)) {
+        const isWhisper = Boolean(data.recipient_id);
+        const isOoc = data.content.startsWith('(( ') && data.content.endsWith(' ))');
+        const textContent = isOoc ? data.content.slice(3, -3) : data.content;
+
+        const chatMsg: ChatMessage = {
+          id: data.id,
+          sender: data.sender_name || 'Anonymous',
+          sender_id: data.sender_id,
+          sender_name: data.sender_name,
+          channel: isWhisper ? 'whisper' : 'public',
+          content: data.content,
+          text: textContent,
+          recipient_id: data.recipient_id,
+          is_system: data.is_system,
+          is_ooc: isOoc,
+          timestamp: data.timestamp || Date.now(),
+        };
+
+        this.messages = [...this.messages, chatMsg];
+        this.saveToStorage();
+        if (isWhisper) {
+          audioEngine.triggerSfx('sfx-secret');
+        } else {
+          audioEngine.triggerSfx('sfx-dice');
+        }
       }
     });
   }
@@ -334,15 +385,19 @@ class ChatStore {
 
   /**
    * Post a plain text chat message or process slash commands:
-   * /r <formula> [label]     -> Public Roll
-   * /gmroll <formula> [label]-> Secret DM Whisper Roll
-   * /w <target> <message>    -> Secret DM Whisper
+   * /r <formula> [label]        -> Public Roll
+   * /roll <formula> [label]     -> Public Roll
+   * /gmroll <formula> [label]   -> Secret DM Whisper Roll
+   * /w <target> <message>       -> Private Whisper
+   * /whisper <target> <message> -> Private Whisper
+   * /gm <message>               -> Direct Whisper to DM
+   * /ooc <message>              -> Out-Of-Character bracketed bubble
    */
-  sendMessage(rawText: string, sender: string = 'DM', isDm: boolean = true) {
+   sendMessage(rawText: string, sender: string = 'DM', isDm: boolean = true) {
     const text = rawText.trim();
     if (!text) return;
 
-    // Check for /r or /roll command
+    // 1. /r or /roll <formula> [#label]
     const rollMatch = text.match(/^\/(?:r|roll)\s+([^#]+)(?:#\s*(.*))?$/i);
     if (rollMatch) {
       const formula = rollMatch[1].trim();
@@ -351,7 +406,7 @@ class ChatStore {
       return;
     }
 
-    // Check for /gmroll or /gr command
+    // 2. /gmroll or /gr <formula> [#label]
     const gmRollMatch = text.match(/^\/(?:gmroll|gr)\s+([^#]+)(?:#\s*(.*))?$/i);
     if (gmRollMatch) {
       const formula = gmRollMatch[1].trim();
@@ -360,37 +415,168 @@ class ChatStore {
       return;
     }
 
-    // Check for /w or /whisper command
-    const whisperMatch = text.match(/^\/(?:w|whisper)\s+(\S+)\s+(.*)$/i);
-    if (whisperMatch) {
-      const target = whisperMatch[1];
-      const whisperContent = whisperMatch[2];
+    // 3. /gm <message> -> Direct shortcut to whisper DM
+    const gmMatch = text.match(/^\/gm\s+(.+)$/i);
+    if (gmMatch) {
+      const whisperContent = gmMatch[1].trim();
+      const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const timestamp = Date.now();
+      const senderId = sender.toLowerCase().replace(/\s+/g, '-');
+
       const msg: ChatMessage = {
-        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id: msgId,
         sender,
+        sender_id: senderId,
+        sender_name: sender,
         channel: 'whisper',
-        text: `(To ${target}) ${whisperContent}`,
-        timestamp: Date.now(),
+        text: whisperContent,
+        content: whisperContent,
+        recipient_id: 'dm',
+        recipient_name: 'Dungeon Master',
+        is_system: false,
+        timestamp,
       };
+
       this.messages = [...this.messages, msg];
       this.saveToStorage();
       this.broadcastChannel?.postMessage(msg);
       audioEngine.triggerSfx('sfx-secret');
+
+      // Forward to WebSocket relay
+      sendWsEvent({
+        type: 'CHAT_MESSAGE',
+        message: {
+          id: msgId,
+          sender_id: senderId,
+          sender_name: sender,
+          content: whisperContent,
+          recipient_id: 'dm',
+          is_system: false,
+          timestamp,
+        },
+      });
       return;
     }
 
-    // Standard public chat message
+    // 4. /w or /whisper <target> <message>
+    const whisperMatch = text.match(/^\/(?:w|whisper)\s+(\S+)\s+(.+)$/i);
+    if (whisperMatch) {
+      const target = whisperMatch[1].trim();
+      const whisperContent = whisperMatch[2].trim();
+      const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const timestamp = Date.now();
+      const senderId = sender.toLowerCase().replace(/\s+/g, '-');
+
+      const msg: ChatMessage = {
+        id: msgId,
+        sender,
+        sender_id: senderId,
+        sender_name: sender,
+        channel: 'whisper',
+        text: whisperContent,
+        content: whisperContent,
+        recipient_id: target,
+        recipient_name: target,
+        is_system: false,
+        timestamp,
+      };
+
+      this.messages = [...this.messages, msg];
+      this.saveToStorage();
+      this.broadcastChannel?.postMessage(msg);
+      audioEngine.triggerSfx('sfx-secret');
+
+      // Forward to WebSocket relay
+      sendWsEvent({
+        type: 'CHAT_MESSAGE',
+        message: {
+          id: msgId,
+          sender_id: senderId,
+          sender_name: sender,
+          content: whisperContent,
+          recipient_id: target,
+          is_system: false,
+          timestamp,
+        },
+      });
+      return;
+    }
+
+    // 5. /ooc <message> -> Out-Of-Character bracketed bubble
+    const oocMatch = text.match(/^\/ooc\s+(.+)$/i);
+    if (oocMatch) {
+      const oocContent = oocMatch[1].trim();
+      const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const timestamp = Date.now();
+      const senderId = sender.toLowerCase().replace(/\s+/g, '-');
+
+      const msg: ChatMessage = {
+        id: msgId,
+        sender,
+        sender_id: senderId,
+        sender_name: sender,
+        channel: 'public',
+        text: oocContent,
+        content: `(( ${oocContent} ))`,
+        is_ooc: true,
+        is_system: false,
+        timestamp,
+      };
+
+      this.messages = [...this.messages, msg];
+      this.saveToStorage();
+      this.broadcastChannel?.postMessage(msg);
+
+      // Forward to WebSocket relay
+      sendWsEvent({
+        type: 'CHAT_MESSAGE',
+        message: {
+          id: msgId,
+          sender_id: senderId,
+          sender_name: sender,
+          content: `(( ${oocContent} ))`,
+          recipient_id: null,
+          is_system: false,
+          timestamp,
+        },
+      });
+      return;
+    }
+
+    // 6. Standard public chat message
+    const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const timestamp = Date.now();
+    const senderId = sender.toLowerCase().replace(/\s+/g, '-');
+
     const msg: ChatMessage = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: msgId,
       sender,
+      sender_id: senderId,
+      sender_name: sender,
       channel: 'public',
       text,
-      timestamp: Date.now(),
+      content: text,
+      is_system: false,
+      timestamp,
     };
 
     this.messages = [...this.messages, msg];
     this.saveToStorage();
     this.broadcastChannel?.postMessage(msg);
+
+    // Forward to WebSocket relay
+    sendWsEvent({
+      type: 'CHAT_MESSAGE',
+      message: {
+        id: msgId,
+        sender_id: senderId,
+        sender_name: sender,
+        content: text,
+        recipient_id: null,
+        is_system: false,
+        timestamp,
+      },
+    });
   }
 }
 

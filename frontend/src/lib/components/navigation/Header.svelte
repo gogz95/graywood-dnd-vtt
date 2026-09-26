@@ -8,6 +8,7 @@
   import { projectorStore } from '../../stores/projectorStore.svelte';
   import { broadcaster } from '../../services/broadcaster';
   import CalendarDisplayWidget from './CalendarDisplayWidget.svelte';
+  import WorldClockPill from './WorldClockPill.svelte';
 
   let {
     campaignName = 'Default Campaign',
@@ -108,6 +109,11 @@
     <!-- Calendar Pill -->
     <div class="hidden xl:block">
       <CalendarDisplayWidget />
+    </div>
+
+    <!-- World Clock Pill -->
+    <div class="hidden lg:block">
+      <WorldClockPill />
     </div>
 
     <!-- Compact Projector / Cast Dropdown Menu (Part 1.2) -->

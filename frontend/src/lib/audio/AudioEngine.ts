@@ -723,6 +723,11 @@ export class AudioEngine {
     this.triggerSfx('sfx-dice');
   }
 
+  playProceduralSfx(type: string): void {
+    this.triggerSfx(`sfx-${type}`);
+  }
+
+
   stopAll(): void {
     if (this.activeAmbienceSource) {
       try {

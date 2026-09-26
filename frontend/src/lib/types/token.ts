@@ -10,6 +10,15 @@ export interface LightEmission {
   enabled: boolean;
 }
 
+export interface TokenAura {
+  id: string;
+  radiusFeet: number;
+  color: string;
+  fillAlpha: number;
+  borderStyle: string; // 'solid' | 'dashed'
+  attachedTokenId: string;
+}
+
 export interface VttToken {
   id: string;
   name: string;
@@ -35,6 +44,10 @@ export interface VttToken {
   visionType?: VisionType;
   visionRange?: number; // Distance in feet (e.g. 60 for Darkvision)
   lightEmission?: LightEmission;
+
+  // 5e Attached Token Auras
+  auras?: TokenAura[];
 }
 
 export type MapToken = VttToken;
+

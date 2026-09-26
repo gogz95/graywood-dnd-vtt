@@ -21,6 +21,50 @@ use tokio::time::timeout;
 use crate::server::routes::ws::WsEvent;
 use crate::server::state::AppState;
 
+// ── 0. Role Hierarchy ────────────────────────────────────────────────────────
+
+/// Session role assigned at auth time; can be promoted by OwnerDm.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClientRole {
+    OwnerDm,
+    AssistantDm,
+    Player,
+    Spectator,
+}
+
+impl ClientRole {
+    /// Parse from the freeform string clients send during Auth.
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "owner_dm" | "ownerdm" | "dm" | "gm" => ClientRole::OwnerDm,
+            "assistant_dm" | "assistantdm" | "co_gm" | "cogm" => ClientRole::AssistantDm,
+            "spectator" | "observer" => ClientRole::Spectator,
+            _ => ClientRole::Player,
+        }
+    }
+
+    pub fn is_dm(&self) -> bool {
+        matches!(self, ClientRole::OwnerDm | ClientRole::AssistantDm)
+    }
+
+    pub fn can_mutate_canvas(&self) -> bool {
+        matches!(self, ClientRole::OwnerDm | ClientRole::AssistantDm | ClientRole::Player)
+    }
+}
+
+impl std::fmt::Display for ClientRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            ClientRole::OwnerDm    => "owner_dm",
+            ClientRole::AssistantDm => "assistant_dm",
+            ClientRole::Player     => "player",
+            ClientRole::Spectator  => "spectator",
+        };
+        write!(f, "{s}")
+    }
+}
+
 // ── 1. Strong Message Schemas (Serde JSON) ──────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +123,60 @@ pub enum CompanionClientMsg {
         color: String,
         sender_name: String,
     },
+
+    #[serde(
+        rename = "DropConcentration",
+        alias = "drop_concentration",
+        alias = "DROP_CONCENTRATION"
+    )]
+    DropConcentration { entity_id: String },
+
+    #[serde(rename = "Chat", alias = "chat", alias = "CHAT")]
+    Chat { message: ChatMessage },
+
+    /// Inbound token movement — only forwarded if role permits.
+    #[serde(rename = "UpdateTokenPosition", alias = "update_token_position", alias = "UPDATE_TOKEN_POSITION")]
+    UpdateTokenPosition {
+        token_id: String,
+        x: f64,
+        y: f64,
+        /// The owner_ids list embedded in the token (sent by client for server validation).
+        owner_ids: Vec<String>,
+    },
+
+    /// DM-only: promote a session to a new role.
+    #[serde(rename = "PromoteRole", alias = "promote_role", alias = "PROMOTE_ROLE")]
+    PromoteRole {
+        target_session_id: String,
+        new_role: String,
+    },
+
+    /// DM-only: assign owner_ids for a specific token.
+    #[serde(rename = "AssignTokenOwner", alias = "assign_token_owner", alias = "ASSIGN_TOKEN_OWNER")]
+    AssignTokenOwner {
+        token_id: String,
+        owner_ids: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub id: String,
+    pub sender_id: String,
+    pub sender_name: String,
+    pub content: String,
+    pub recipient_id: Option<String>, // None = Public, Some(id) = Private Whisper
+    pub is_system: bool,
+    pub timestamp: i64,
+}
+
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiceTrajectoryVector {
+    pub x: f32,
+    pub y: f32,
+    pub angle: f32,
+    pub velocity: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,7 +201,12 @@ pub enum CompanionServerMsg {
         expression: String,
         total: i32,
         breakdown: String,
+        #[serde(default)]
+        seed: u64,
+        #[serde(default)]
+        vectors: Vec<DiceTrajectoryVector>,
     },
+
 
     #[serde(rename = "Ping")]
     Ping,
@@ -123,6 +226,45 @@ pub enum CompanionServerMsg {
         color: String,
         sender_name: String,
     },
+
+    #[serde(rename = "ConcentrationCheckRequired")]
+    ConcentrationCheckRequired {
+        entity_id: String,
+        entity_name: String,
+        dc: i32,
+        damage_taken: i32,
+    },
+
+    #[serde(rename = "Chat", alias = "chat", alias = "CHAT")]
+    Chat { message: ChatMessage },
+
+    /// Sent back to the offending sender when a canvas mutation is denied.
+    #[serde(rename = "AuthWarning")]
+    AuthWarning {
+        reason: String,
+        token_id: Option<String>,
+    },
+
+    /// Broadcast when a session's role is changed.
+    #[serde(rename = "RoleUpdated")]
+    RoleUpdated {
+        session_id: String,
+        new_role: String,
+    },
+
+    /// Broadcast the full connected session list to DM clients.
+    #[serde(rename = "SessionList")]
+    SessionList { sessions: Vec<SessionSummary> },
+}
+
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub device_name: String,
+    pub role: String,
+    pub connected_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,7 +283,9 @@ pub struct CombatantSummary {
 pub struct CompanionSession {
     pub session_id: String,
     pub device_name: String,
-    pub role: String,
+    pub role: ClientRole,
+    /// Character IDs or session IDs this session is authorised to control.
+    pub owner_ids: Vec<String>,
     pub connected_at: u64,
 }
 
@@ -226,7 +370,7 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
     .await;
 
     // Evaluate quarantine result
-    let (pin, device_name, role) = match auth_attempt {
+    let (pin, device_name, role_raw) = match auth_attempt {
         Ok(Some(CompanionClientMsg::Auth {
             pin,
             device_name,
@@ -290,10 +434,12 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
     let session_id = generate_session_id();
     let campaign_name = state.companion_hub.campaign_name.read().await.clone();
 
+    let role = ClientRole::from_str(&role_raw);
     let session = CompanionSession {
         session_id: session_id.clone(),
         device_name: device_name.clone(),
-        role: role.clone(),
+        role,
+        owner_ids: Vec::new(),
         connected_at: current_unix_secs(),
     };
 
@@ -340,6 +486,7 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
     let ws_sender_clone = state.ws_sender.clone();
     let db_clone = state.db.clone();
     let session_id_clone = session_id.clone();
+    let sessions_clone = Arc::clone(&state.companion_hub.sessions);
 
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
@@ -357,6 +504,30 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                             } => {
                                 let (total, breakdown) = roll_dice_expression(&expression);
                                 let roll_id = format!("roll-{}", current_unix_nanos());
+                                let seed = (current_unix_nanos() & 0xFFFFFFFFFFFFFFFF) as u64;
+
+                                let count = expression
+                                    .split('d')
+                                    .next()
+                                    .and_then(|s| s.trim().parse::<usize>().ok())
+                                    .unwrap_or(1)
+                                    .clamp(1, 8);
+
+                                let mut vectors = Vec::with_capacity(count);
+                                let mut rng_state = seed;
+                                for _ in 0..count {
+                                    rng_state ^= rng_state << 13;
+                                    rng_state ^= rng_state >> 7;
+                                    rng_state ^= rng_state << 17;
+                                    let x = ((rng_state % 1000) as f32 / 1000.0) * 0.6 - 0.3;
+                                    rng_state ^= rng_state << 13;
+                                    let y = ((rng_state % 1000) as f32 / 1000.0) * 0.4 + 0.3;
+                                    rng_state ^= rng_state >> 17;
+                                    let angle = ((rng_state % 360) as f32).to_radians();
+                                    rng_state ^= rng_state << 7;
+                                    let velocity = 10.0 + ((rng_state % 1000) as f32 / 1000.0) * 8.0;
+                                    vectors.push(DiceTrajectoryVector { x, y, angle, velocity });
+                                }
 
                                 // Broadcast to all mobile companion sessions
                                 hub_clone.broadcast(CompanionServerMsg::DiceResult {
@@ -365,6 +536,8 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     expression: expression.clone(),
                                     total,
                                     breakdown,
+                                    seed,
+                                    vectors: vectors.clone(),
                                 });
 
                                 // Also notify desktop VTT via primary ws_sender
@@ -373,7 +546,10 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     formula: expression,
                                     result: total,
                                     is_critical: total == 20,
+                                    seed: Some(seed),
+                                    vectors: Some(vectors),
                                 });
+
                             }
                             CompanionClientMsg::UpdateHp { entity_id, delta } => {
                                 // Notify desktop VTT of character HP modification
@@ -524,16 +700,69 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                 // 4. Broadcast updated combatant state via CompanionServerMsg::CombatantSync
                                 hub_clone.broadcast(CompanionServerMsg::CombatantSync {
                                     combatants: vec![CombatantSummary {
-                                        id: target_entity_id,
-                                        name: final_name,
+                                        id: target_entity_id.clone(),
+                                        name: final_name.clone(),
                                         hp: final_current_hp,
                                         max_hp: final_max_hp,
                                         ac: final_ac,
                                         initiative: final_init,
                                         is_player: final_is_player,
-                                        conditions: final_conditions,
+                                        conditions: final_conditions.clone(),
                                     }],
                                 });
+
+                                // 5. Check if target was concentrating and took damage
+                                if delta_hp < 0 && final_conditions.iter().any(|c| c.eq_ignore_ascii_case("Concentrating")) {
+                                    let damage_taken = delta_hp.abs();
+                                    let dc = std::cmp::max(10, damage_taken / 2);
+
+                                    hub_clone.broadcast(CompanionServerMsg::ConcentrationCheckRequired {
+                                        entity_id: target_entity_id.clone(),
+                                        entity_name: final_name.clone(),
+                                        dc,
+                                        damage_taken,
+                                    });
+
+                                    let _ = ws_sender_clone.send(WsEvent::ConcentrationCheckRequired {
+                                        entity_id: target_entity_id.clone(),
+                                        entity_name: final_name.clone(),
+                                        dc,
+                                        damage_taken,
+                                    });
+                                }
+                            }
+                            CompanionClientMsg::DropConcentration { entity_id } => {
+                                let conn = db_clone.lock().await;
+                                let row: Option<(String, i32, i32, i32, i32, bool, String)> = conn
+                                    .query_row(
+                                        "SELECT name, hp_current, hp_max, ac, initiative, is_monster, conditions_json FROM active_combatants WHERE id = ?1 OR token_id = ?1",
+                                        rusqlite::params![entity_id],
+                                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
+                                    )
+                                    .ok();
+
+                                if let Some((c_name, hp_curr, hp_max, ac, init, is_monster, cond_json)) = row {
+                                    let mut conds: Vec<String> = serde_json::from_str(&cond_json).unwrap_or_default();
+                                    conds.retain(|c| !c.eq_ignore_ascii_case("Concentrating"));
+                                    let new_cond_json = serde_json::to_string(&conds).unwrap_or_else(|_| "[]".to_string());
+                                    let _ = conn.execute(
+                                        "UPDATE active_combatants SET conditions_json = ?1 WHERE id = ?2 OR token_id = ?2",
+                                        rusqlite::params![new_cond_json, entity_id],
+                                    );
+
+                                    hub_clone.broadcast(CompanionServerMsg::CombatantSync {
+                                        combatants: vec![CombatantSummary {
+                                            id: entity_id.clone(),
+                                            name: c_name,
+                                            hp: hp_curr,
+                                            max_hp: hp_max,
+                                            ac,
+                                            initiative: init,
+                                            is_player: !is_monster,
+                                            conditions: conds,
+                                        }],
+                                    });
+                                }
                             }
                             CompanionClientMsg::PingPoint {
                                 x,
@@ -554,10 +783,143 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     sender_name,
                                 });
                             }
+                            CompanionClientMsg::Chat { message } => {
+                                // Broadcast to all companion devices
+                                hub_clone.broadcast(CompanionServerMsg::Chat {
+                                    message: message.clone(),
+                                });
+                                // Forward to desktop VTT
+                                let _ = ws_sender_clone.send(WsEvent::ChatMessage {
+                                    message,
+                                });
+                            }
                             CompanionClientMsg::Auth { .. } => {
                                 // Redundant auth frames ignored after handshake
                             }
+
+                            // ── Role-gated: Token Position Update ────────────
+                            CompanionClientMsg::UpdateTokenPosition {
+                                token_id,
+                                x,
+                                y,
+                                owner_ids,
+                            } => {
+                                let sessions_guard = sessions_clone.read().await;
+                                let my_role = sessions_guard
+                                    .get(&session_id_clone)
+                                    .map(|s| s.role.clone())
+                                    .unwrap_or(ClientRole::Spectator);
+                                drop(sessions_guard);
+
+                                let allowed = match &my_role {
+                                    // DMs can move any token
+                                    r if r.is_dm() => true,
+                                    // Players can only move tokens they own
+                                    ClientRole::Player => {
+                                        owner_ids.contains(&session_id_clone)
+                                            || {
+                                                // Also check by device name stored in session
+                                                let sg = sessions_clone.read().await;
+                                                let matched = sg.get(&session_id_clone)
+                                                    .map(|s| owner_ids.contains(&s.device_name))
+                                                    .unwrap_or(false);
+                                                drop(sg);
+                                                matched
+                                            }
+                                    }
+                                    // Spectators cannot move anything
+                                    _ => false,
+                                };
+
+                                if allowed {
+                                    let _ = ws_sender_clone.send(WsEvent::TokenMove {
+                                        id: token_id,
+                                        x,
+                                        y,
+                                    });
+                                } else {
+                                    // Send AuthWarning only back to the offending socket via broadcast
+                                    // (connection-scoped send not available here — use hub broadcast)
+                                    hub_clone.broadcast(CompanionServerMsg::AuthWarning {
+                                        reason: format!(
+                                            "Role '{}' is not authorised to move token '{}'",
+                                            my_role, token_id
+                                        ),
+                                        token_id: Some(token_id),
+                                    });
+                                }
+                            }
+
+                            // ── DM-only: Promote session role ─────────────────
+                            CompanionClientMsg::PromoteRole {
+                                target_session_id,
+                                new_role,
+                            } => {
+                                let sessions_guard = sessions_clone.read().await;
+                                let my_role = sessions_guard
+                                    .get(&session_id_clone)
+                                    .map(|s| s.role.clone())
+                                    .unwrap_or(ClientRole::Spectator);
+                                drop(sessions_guard);
+
+                                if my_role.is_dm() {
+                                    let typed = ClientRole::from_str(&new_role);
+                                    // OwnerDm cannot be granted over WS (only set at auth)
+                                    if typed != ClientRole::OwnerDm {
+                                        let mut sg = sessions_clone.write().await;
+                                        if let Some(sess) = sg.get_mut(&target_session_id) {
+                                            sess.role = typed;
+                                        }
+                                        drop(sg);
+                                        hub_clone.broadcast(CompanionServerMsg::RoleUpdated {
+                                            session_id: target_session_id,
+                                            new_role,
+                                        });
+                                    }
+                                } else {
+                                    hub_clone.broadcast(CompanionServerMsg::AuthWarning {
+                                        reason: "Only DM/OwnerDm can promote roles".to_string(),
+                                        token_id: None,
+                                    });
+                                }
+                            }
+
+                            // ── DM-only: Assign token owner_ids ──────────────
+                            CompanionClientMsg::AssignTokenOwner {
+                                token_id,
+                                owner_ids,
+                            } => {
+                                let sessions_guard = sessions_clone.read().await;
+                                let my_role = sessions_guard
+                                    .get(&session_id_clone)
+                                    .map(|s| s.role.clone())
+                                    .unwrap_or(ClientRole::Spectator);
+                                drop(sessions_guard);
+
+                                if my_role.is_dm() {
+                                    // Persist to SQLite and forward to VTT
+                                    let owner_json = serde_json::to_string(&owner_ids).unwrap_or_default();
+                                    {
+                                        let conn = db_clone.lock().await;
+                                        let _ = conn.execute(
+                                            "UPDATE active_combatants SET owner_ids_json = ?1 WHERE token_id = ?2",
+                                            rusqlite::params![owner_json, token_id],
+                                        );
+                                    }
+                                    let _ = ws_sender_clone.send(WsEvent::TokenOwnerAssigned {
+                                        token_id,
+                                        owner_ids,
+                                    });
+                                } else {
+                                    hub_clone.broadcast(CompanionServerMsg::AuthWarning {
+                                        reason: "Only DM/OwnerDm can assign token ownership".to_string(),
+                                        token_id: Some(token_id),
+                                    });
+                                }
+                            }
                         }
+
+
                     }
                 }
                 Message::Close(_) => break,
@@ -578,7 +940,7 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
         .sessions
         .write()
         .await
-        .remove(&session_id_clone);
+        .remove(&session_id);
 }
 
 // ── 4. Lightweight LAN Discovery & Configuration Endpoints ──────────────────
@@ -639,6 +1001,81 @@ pub async fn get_companion_network_info(
         active_pin,
         connection_url,
     })
+}
+
+// ── Permission Matrix REST Endpoints ─────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct PromoteRolePayload {
+    pub new_role: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AssignOwnersPayload {
+    pub owner_ids: Vec<String>,
+}
+
+/// GET /api/companion/sessions — lists all active sessions (DM workstation use only)
+pub async fn get_active_sessions(
+    State(state): State<AppState>,
+) -> Json<Vec<SessionSummary>> {
+    let sessions = state.companion_hub.sessions.read().await;
+    let list: Vec<SessionSummary> = sessions
+        .values()
+        .map(|s| SessionSummary {
+            session_id: s.session_id.clone(),
+            device_name: s.device_name.clone(),
+            role: s.role.to_string(),
+            connected_at: s.connected_at,
+        })
+        .collect();
+    Json(list)
+}
+
+/// POST /api/companion/sessions/:session_id/promote
+/// Body: { "new_role": "assistant_dm" | "player" | "spectator" }
+pub async fn promote_session_role(
+    State(state): State<AppState>,
+    axum::extract::Path(session_id): axum::extract::Path<String>,
+    Json(payload): Json<PromoteRolePayload>,
+) -> Json<serde_json::Value> {
+    let typed = ClientRole::from_str(&payload.new_role);
+    if typed == ClientRole::OwnerDm {
+        return Json(serde_json::json!({ "success": false, "error": "OwnerDm cannot be granted via REST" }));
+    }
+    let mut sessions = state.companion_hub.sessions.write().await;
+    if let Some(sess) = sessions.get_mut(&session_id) {
+        sess.role = typed;
+        state.companion_hub.broadcast(CompanionServerMsg::RoleUpdated {
+            session_id: session_id.clone(),
+            new_role: payload.new_role,
+        });
+        Json(serde_json::json!({ "success": true }))
+    } else {
+        Json(serde_json::json!({ "success": false, "error": "Session not found" }))
+    }
+}
+
+/// POST /api/companion/tokens/:token_id/owners
+/// Body: { "owner_ids": ["ses-xxx", "device-name-yyy"] }
+pub async fn assign_token_owners(
+    State(state): State<AppState>,
+    axum::extract::Path(token_id): axum::extract::Path<String>,
+    Json(payload): Json<AssignOwnersPayload>,
+) -> Json<serde_json::Value> {
+    let owner_json = serde_json::to_string(&payload.owner_ids).unwrap_or_default();
+    {
+        let conn = state.db.lock().await;
+        let _ = conn.execute(
+            "UPDATE active_combatants SET owner_ids_json = ?1 WHERE token_id = ?2",
+            rusqlite::params![owner_json, token_id],
+        );
+    }
+    let _ = state.ws_sender.send(WsEvent::TokenOwnerAssigned {
+        token_id,
+        owner_ids: payload.owner_ids,
+    });
+    Json(serde_json::json!({ "success": true }))
 }
 
 // ── Utilities & Dice Expression Evaluator ───────────────────────────────────

@@ -313,6 +313,121 @@ export function executeAssayConversion(sunDisksToConvert: number): {
   return { mintedSovereigns, assayFeeRetained };
 }
 
+export async function executeShortRest(hpRecovered: number, hitDiceSpent: number): Promise<void> {
+  const current = get(characterStore);
+  const token = get(tokenStore);
+  if (!current) return;
+
+  const nextHp = Math.min(current.max_hp, current.current_hp + hpRecovered);
+  const nextHd = Math.max(0, current.hit_dice_current - hitDiceSpent);
+
+  // Reset resources flagged with resetOn: 'short'
+  classResourcesStore.update((resources) =>
+    resources.map((r) => (r.resetOn === 'short' ? { ...r, used: 0 } : r))
+  );
+
+  characterStore.update((c) =>
+    c ? { ...c, current_hp: nextHp, hit_dice_current: nextHd } : null
+  );
+
+  // Sync to Dexie
+  try {
+    const { compendiumDb } = await import('$lib/db/compendiumDb');
+    await compendiumDb.characterState.put({
+      characterName: current.name,
+      spellSlots: get(spellSlotsStore) as any,
+      inventory: get(inventoryStore) as any,
+      currency: get(currencyStore) as any,
+      updatedAt: Date.now(),
+    });
+  } catch (e) {
+    console.warn('[CharacterStore] Dexie short rest sync error:', e);
+  }
+
+  // Notify backend SQLite
+  try {
+    await fetch('/api/characters/action', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        character_id: current.id,
+        pin: current.pin,
+        action: {
+          type: 'SHORT_REST',
+          hp_recovered: hpRecovered,
+          hit_dice_spent: hitDiceSpent,
+        },
+      }),
+    });
+  } catch (err) {
+    console.warn('[CharacterStore] Short rest API error:', err);
+  }
+}
+
+export async function executeLongRest(): Promise<void> {
+  const current = get(characterStore);
+  const token = get(tokenStore);
+  if (!current) return;
+
+  const restoredHd = Math.max(1, Math.floor(current.hit_dice_max / 2));
+  const nextHd = Math.min(current.hit_dice_max, current.hit_dice_current + restoredHd);
+  const nextResurrection = Math.max(0, current.resurrection_sickness_penalty - 1);
+
+  // Reset spell slots and all resources
+  spellSlotsStore.update((slots) => slots.map((s) => ({ ...s, used: 0 })));
+  classResourcesStore.update((resources) => resources.map((r) => ({ ...r, used: 0 })));
+  exhaustionStore.update((lvl) => Math.max(0, lvl - 1));
+
+  characterStore.update((c) =>
+    c
+      ? {
+          ...c,
+          current_hp: c.max_hp,
+          temp_hp: 0,
+          hit_dice_current: nextHd,
+          resurrection_sickness_penalty: nextResurrection,
+        }
+      : null
+  );
+
+  // Sync to Dexie
+  try {
+    const { compendiumDb } = await import('$lib/db/compendiumDb');
+    await compendiumDb.characterState.put({
+      characterName: current.name,
+      spellSlots: get(spellSlotsStore) as any,
+      inventory: get(inventoryStore) as any,
+      currency: get(currencyStore) as any,
+      updatedAt: Date.now(),
+    });
+  } catch (e) {
+    console.warn('[CharacterStore] Dexie long rest sync error:', e);
+  }
+
+  // Notify backend SQLite
+  try {
+    await fetch('/api/characters/action', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        character_id: current.id,
+        pin: current.pin,
+        action: {
+          type: 'LONG_REST',
+        },
+      }),
+    });
+  } catch (err) {
+    console.warn('[CharacterStore] Long rest API error:', err);
+  }
+}
+
 // WebSocket incoming event dispatchers
 export function applyHpUpdateFromWs(characterId: string, currentHp: number, tempHp: number): void {
   const char = get(characterStore);

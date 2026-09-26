@@ -25,17 +25,40 @@ export type WsEvent =
       result: number;
       is_critical: boolean;
       breakdown?: string;
+      seed?: number;
+      vectors?: Array<{ x: number; y: number; angle: number; velocity: number }>;
     }
+
   | {
       type: 'SYSTEM_MESSAGE';
       message: string;
       timestamp: number;
     }
   | {
+      type: 'CHAT_MESSAGE';
+      message: {
+        id: string;
+        sender_id: string;
+        sender_name: string;
+        content: string;
+        recipient_id?: string | null;
+        is_system: boolean;
+        timestamp: number;
+      };
+    }
+
+  | {
       type: 'DATE_ADVANCED';
       epoch_days: number;
       days_advanced: number;
       date_formatted: string;
+    }
+  | {
+      type: 'TIME_UPDATE';
+      epoch_days: number;
+      current_epoch_seconds: number;
+      seconds_advanced: number;
+      formatted_time: string;
     }
   | {
       type: 'HANDOUT' | 'Handout';
@@ -157,6 +180,20 @@ export type WsEvent =
   | {
       type: 'BATTLEMAT_WS_EVENT';
       event: any;
+    }
+  | {
+      type: 'DRAWING_UPDATE';
+      action: 'upsert' | 'delete' | 'clear' | 'sync';
+      drawing?: any;
+      drawings?: any[];
+      drawing_id?: string;
+      layer?: 'dm' | 'shared';
+    }
+  | {
+      type: 'PROP_UPDATE';
+      action: 'upsert' | 'delete';
+      prop?: import('../lib/types/prop').CanvasProp;
+      prop_id?: string;
     };
 
 

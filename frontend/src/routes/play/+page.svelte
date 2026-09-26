@@ -25,6 +25,8 @@
   import WhisperInboxModal from '../../lib/components/player/WhisperInboxModal.svelte';
   import DowntimeManager from '../../lib/components/downtime/DowntimeManager.svelte';
   import SpellbookDrawer from '../../lib/components/player/SpellbookDrawer.svelte';
+  import ActionHotbar from '../../lib/components/navigation/ActionHotbar.svelte';
+  import { hotkeyManager } from '../../lib/services/hotkeyManager';
   import type { CompanionAnimal } from '../../lib/types/character';
   import {
     sendTradeOffer,
@@ -435,10 +437,13 @@
       }
     };
 
+    const unbindHotkeys = hotkeyManager.init();
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('online', handleOnline);
 
     return () => {
+      unbindHotkeys();
       clearInterval(heartbeatTimer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('online', handleOnline);
@@ -1706,6 +1711,9 @@
         </div>
       </div>
     {/if}
+
+    <!-- Persistent Quick-Action Hotbar -->
+    <ActionHotbar />
 
   {/if}
 

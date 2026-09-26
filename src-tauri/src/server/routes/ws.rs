@@ -34,7 +34,12 @@ pub enum WsEvent {
         formula: String,
         result: i32,
         is_critical: bool,
+        #[serde(default)]
+        seed: Option<u64>,
+        #[serde(default)]
+        vectors: Option<Vec<crate::server::companion_hub::DiceTrajectoryVector>>,
     },
+
 
     #[serde(rename = "SYSTEM_MESSAGE")]
     SystemMessage { message: String, timestamp: i64 },
@@ -44,6 +49,14 @@ pub enum WsEvent {
         epoch_days: u64,
         days_advanced: u32,
         date_formatted: String,
+    },
+
+    #[serde(rename = "TIME_UPDATE")]
+    TimeUpdate {
+        epoch_days: u64,
+        current_epoch_seconds: u32, // 0 to 86,400 within current day
+        seconds_advanced: u32,
+        formatted_time: String,
     },
 
     #[serde(rename = "SPAWN_TOKEN")]
@@ -92,7 +105,48 @@ pub enum WsEvent {
         color: String,
         sender_name: String,
     },
+
+    #[serde(rename = "CONCENTRATION_CHECK_REQUIRED")]
+    ConcentrationCheckRequired {
+        entity_id: String,
+        entity_name: String,
+        dc: i32,
+        damage_taken: i32,
+    },
+
+    #[serde(rename = "DRAWING_UPDATE")]
+    DrawingUpdate {
+        action: String,
+        #[serde(default)]
+        drawing: Option<serde_json::Value>,
+        #[serde(default)]
+        drawings: Option<Vec<serde_json::Value>>,
+        #[serde(default)]
+        drawing_id: Option<String>,
+        #[serde(default)]
+        layer: Option<String>,
+    },
+
+    #[serde(rename = "CHAT_MESSAGE", alias = "ChatMessage", alias = "chat_message")]
+    ChatMessage {
+        message: crate::server::companion_hub::ChatMessage,
+    },
+
+    #[serde(rename = "TOKEN_OWNER_ASSIGNED")]
+    TokenOwnerAssigned {
+        token_id: String,
+        owner_ids: Vec<String>,
+    },
+
+    #[serde(rename = "AUTH_WARNING")]
+    AuthWarning {
+        reason: String,
+        #[serde(default)]
+        token_id: Option<String>,
+    },
 }
+
+
 
 pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     ws.on_upgrade(|socket| handle_socket(socket, state))
@@ -177,6 +231,13 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                         y: *y,
                                         color: color.clone(),
                                         sender_name: sender_name.clone(),
+                                    },
+                                );
+                            }
+                            WsEvent::ChatMessage { message } => {
+                                companion_hub.broadcast(
+                                    crate::server::companion_hub::CompanionServerMsg::Chat {
+                                        message: message.clone(),
                                     },
                                 );
                             }

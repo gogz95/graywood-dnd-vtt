@@ -8,10 +8,10 @@ pub use routes::ws::WsEvent;
 pub use state::AppState;
 
 use axum::{
-    routing::{get, post},
+    extract::DefaultBodyLimit,
+    routing::{get, patch, post},
     Router,
 };
-use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
 
 pub const DEFAULT_SERVER_ADDR: &str = "0.0.0.0:5174";
@@ -60,6 +60,14 @@ pub fn create_router(state: AppState) -> Router {
             post(routes::calendar::advance_time),
         )
         .route(
+            "/api/campaign/time",
+            get(routes::campaign_dir::get_campaign_time),
+        )
+        .route(
+            "/api/campaign/time/advance",
+            post(routes::campaign_dir::advance_campaign_time_seconds),
+        )
+        .route(
             "/api/campaign/export",
             post(routes::campaign_dir::export_campaign_bundle),
         )
@@ -97,8 +105,13 @@ pub fn create_router(state: AppState) -> Router {
             get(routes::campaign_dir::list_campaign_assets_route),
         )
         .route(
+            "/api/campaign/assets/upload",
+            post(crate::api::assets::upload_asset)
+                .layer(DefaultBodyLimit::max(100 * 1024 * 1024)),
+        )
+        .route(
             "/api/campaign/assets/*path",
-            get(routes::campaign_dir::serve_campaign_asset),
+            get(crate::api::assets::serve_asset),
         )
         .route(
             "/api/campaign/assets/save",
@@ -112,7 +125,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/campaign/directory/verify-scaffold",
             post(routes::campaign_dir::verify_and_scaffold_campaign),
         )
+        // 4c. Community Plugin Discovery & Sandbox Registry
+        .route("/api/plugins", get(routes::plugins::list_plugins_route))
         // 5. DM Encounter Tracker & Monster Spawning Endpoints
+
         .route("/api/encounter/active", get(routes::encounter::get_active))
         .route(
             "/api/encounter/next_turn",
@@ -137,6 +153,20 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/encounter/spawn_token",
             post(routes::encounter::spawn_token),
+        )
+        // 5b. Scene Tokens & Clone-on-Spawn Endpoints
+        .route(
+            "/api/scenes/:scene_id/tokens/spawn",
+            post(crate::api::tokens::spawn_scene_token),
+        )
+        .route(
+            "/api/scenes/:scene_id/tokens",
+            get(crate::api::tokens::list_scene_tokens),
+        )
+        .route(
+            "/api/scenes/:scene_id/tokens/:instance_id",
+            patch(crate::api::tokens::update_scene_token)
+                .get(crate::api::tokens::get_scene_token),
         )
         // 6. Essence Crafting Matrix & Sockets Endpoints
         .route(
@@ -175,6 +205,18 @@ pub fn create_router(state: AppState) -> Router {
             "/api/companion/network-info",
             get(companion_hub::get_companion_network_info),
         )
+        .route(
+            "/api/companion/sessions",
+            get(companion_hub::get_active_sessions),
+        )
+        .route(
+            "/api/companion/sessions/:session_id/promote",
+            post(companion_hub::promote_session_role),
+        )
+        .route(
+            "/api/companion/tokens/:token_id/owners",
+            post(companion_hub::assign_token_owners),
+        )
         .route("/ws/companion", get(companion_hub::companion_ws_handler))
         // Catch-all fallback for client-side routing
         .fallback(routes::assets::serve_index)
@@ -182,27 +224,40 @@ pub fn create_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// Runs the local-first embedded Axum server inside Tauri 2 running on Tokio (default: `0.0.0.0:8080`, asset server: `0.0.0.0:5174`).
+/// Attempts to bind a TcpListener dynamically across a fallback port range, handling AddrInUse.
+pub async fn bind_dynamic_listener(
+    start_port: u16,
+    end_port: u16,
+) -> Result<(tokio::net::TcpListener, u16), std::io::Error> {
+    for port in start_port..=end_port {
+        match tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await {
+            Ok(listener) => return Ok((listener, port)),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AddrInUse,
+        "All ports in fallback range are occupied",
+    ))
+}
+
+/// Runs the local-first embedded Axum server inside Tauri 2 running on Tokio
+/// with dynamic port fallback (4242..=4252).
 pub async fn run_server(
     state: AppState,
-    bind_addr: &str,
+    _bind_addr: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let router = create_router(state);
-    let addr: SocketAddr = bind_addr.parse()?;
 
-    // Expose dedicated HTTP LAN static asset server on port 5174
-    if addr.port() != 5174 {
-        let asset_router = router.clone();
-        tokio::spawn(async move {
-            if let Ok(asset_addr) = LAN_ASSET_SERVER_ADDR.parse::<SocketAddr>() {
-                if let Ok(listener_5174) = tokio::net::TcpListener::bind(asset_addr).await {
-                    let _ = axum::serve(listener_5174, asset_router).await;
-                }
-            }
-        });
-    }
+    let (listener, port) = bind_dynamic_listener(4242, 4252).await?;
+    let port_file = std::env::temp_dir().join("graywood.port");
+    let _ = std::fs::write(&port_file, port.to_string());
+    println!(
+        "[server] Axum server bound dynamically to port {} (recorded at {:?})",
+        port, port_file
+    );
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, router).await?;
     Ok(())
 }
@@ -434,5 +489,15 @@ mod tests {
         let body = to_bytes(response.into_body(), 1024 * 64).await.unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
         assert!(html.contains("Graywood VTT") || html.contains("0.0.0.0:5174"));
+    }
+
+    #[tokio::test]
+    async fn test_bind_dynamic_listener() {
+        let (listener, port) = bind_dynamic_listener(4242, 4252)
+            .await
+            .expect("bind_dynamic_listener should bind successfully to an available port in 4242..=4252");
+        assert!(port >= 4242 && port <= 4252);
+        let local_addr = listener.local_addr().expect("local_addr should succeed");
+        assert_eq!(local_addr.port(), port);
     }
 }

@@ -6,6 +6,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { canvasStore, type CanvasToken } from '../../stores/canvasStore.svelte';
   import { combatTurnStore } from '../../stores/websocketStore';
+  import type { OverheadTile } from '../../lib/types/map';
   import {
     renderDynamicLighting,
     renderExploredFogOfWar,
@@ -34,6 +35,24 @@
 
   import TabletopCalibrationOverlay, { type ScreenRotation } from '../../lib/components/projector/TabletopCalibrationOverlay.svelte';
   import { broadcastPingPoint, type PingPayload } from '../../lib/components/canvas/PingLayer.svelte';
+  import Dice3DOverlay from '../../lib/components/dice/Dice3DOverlay.svelte';
+  import { drawingStore } from '../../lib/stores/drawingStore.svelte';
+  import { renderSharedDrawingsOnCanvas2D } from '../../lib/components/canvas/drawingRenderHelper';
+  import { spatialAudioEngine } from '../../lib/services/spatialAudioEngine';
+
+  $effect(() => {
+    // Projector tracks the active player token position for positional audio
+    const players = canvasStore.tokens.filter((t) => t.isPlayer);
+    if (players.length > 0) {
+      const active = players.find((t) => t.id === canvasStore.activeTokenId) || players[0];
+      spatialAudioEngine.setListener(
+        (active.x + 0.5) * gridSize,
+        (active.y + 0.5) * gridSize,
+        gridSize
+      );
+    }
+  });
+
 
   interface ProjectorPing {
     x: number;
@@ -266,10 +285,17 @@
           if (snapshot.ruler) {
             canvasStore.setRuler(snapshot.ruler.isPublic ? snapshot.ruler : null);
           }
+          if (snapshot.overheadTiles) {
+            canvasStore.setOverheadTiles(snapshot.overheadTiles);
+          }
           // Ensure the projector viewport operates independently of DM panning if locked/decoupled
           if (!canvasStore.lockProjectorPan && snapshot.projectorViewport) {
             canvasStore.setProjectorViewport(snapshot.projectorViewport);
           }
+          break;
+        }
+        case 'OVERHEAD_TILES_SYNC': {
+          canvasStore.setOverheadTiles(msg.payload || []);
           break;
         }
         case 'TOKEN_MOVE': {
@@ -286,6 +312,7 @@
         }
         case 'MAP_TEXTURE_UPDATE': {
           preloadAndTransitionMap(msg.url, msg.width, msg.height);
+          drawingStore.setMap(msg.url);
           break;
         }
         case 'PING_POINT': {
@@ -349,6 +376,81 @@
     cleanupSync?.();
     if (rafId) cancelAnimationFrame(rafId);
   });
+
+  const overheadImageCache = new Map<string, HTMLImageElement>();
+  const projectorTileAlphas = new Map<string, number>();
+
+  function getOverheadTileImage(url: string): HTMLImageElement | null {
+    if (!url) return null;
+    let img = overheadImageCache.get(url);
+    if (!img) {
+      img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = url;
+      overheadImageCache.set(url, img);
+    }
+    return img.complete && img.naturalWidth > 0 ? img : null;
+  }
+
+  function renderProjectorOverheadTiles(
+    ctx: CanvasRenderingContext2D,
+    tiles: OverheadTile[],
+    gridSize: number
+  ) {
+    // 3. Perspective Decoupling: Evaluate roof occlusion strictly against the party's controlled player tokens!
+    const partyTokens = canvasStore.tokens.filter(
+      (t) => t.isPlayer && !t.isOrbSealed && t.isVisible !== false
+    );
+
+    for (const tile of tiles) {
+      const tileImg = getOverheadTileImage(tile.imageUrl);
+      if (!tileImg) continue;
+
+      // Find party player tokens inside roof bounds with elevation lower than the threshold
+      const partyUnderRoof = partyTokens.filter((tok) => {
+        const tx = (tok.x + 0.5) * gridSize;
+        const ty = (tok.y + 0.5) * gridSize;
+        const elev = (tok as any).elevation ?? 0;
+        return (
+          tx >= tile.bounds.x &&
+          tx <= tile.bounds.x + tile.bounds.width &&
+          ty >= tile.bounds.y &&
+          ty <= tile.bounds.y + tile.bounds.height &&
+          elev < (tile.elevationThreshold ?? 10)
+        );
+      });
+
+      const isOccluded = partyUnderRoof.length > 0;
+      const targetAlpha = isOccluded
+        ? (tile.occlusionMode === 'fade' ? (tile.occlusionAlpha ?? 0.2) : 1.0)
+        : 1.0;
+
+      // Lerp alpha for smooth transition on projector
+      const prevAlpha = projectorTileAlphas.get(tile.id) ?? 1.0;
+      const nextAlpha = prevAlpha + (targetAlpha - prevAlpha) * 0.14;
+      projectorTileAlphas.set(tile.id, nextAlpha);
+
+      ctx.save();
+      if (isOccluded && tile.occlusionMode === 'radial') {
+        // Radial cutout: clip out a circle around each party member under roof
+        ctx.beginPath();
+        ctx.rect(tile.bounds.x - 2, tile.bounds.y - 2, tile.bounds.width + 4, tile.bounds.height + 4);
+        const cutoutRadius = Math.max(gridSize * 1.4, 75);
+        for (const tok of partyUnderRoof) {
+          const cx = (tok.x + 0.5) * gridSize;
+          const cy = (tok.y + 0.5) * gridSize;
+          ctx.arc(cx, cy, cutoutRadius, 0, Math.PI * 2, true);
+        }
+        ctx.clip('evenodd');
+        ctx.globalAlpha = 1.0;
+        ctx.drawImage(tileImg, tile.bounds.x, tile.bounds.y, tile.bounds.width, tile.bounds.height);
+      } else {
+        ctx.globalAlpha = Math.max(0, Math.min(1, nextAlpha));
+        ctx.drawImage(tileImg, tile.bounds.x, tile.bounds.y, tile.bounds.width, tile.bounds.height);
+      }
+      ctx.restore();
+    }
+  }
 
   function renderProjectorMat() {
     if (!ctx || !canvasEl) return;
@@ -502,6 +604,54 @@
       }
       drawProjectorToken(ctx, tok, gridSize, vp.zoom);
     }
+
+    // 11b. Overhead Tile Roofs (Evaluated strictly against party player tokens)
+    if (canvasStore.overheadTiles && canvasStore.overheadTiles.length > 0) {
+      renderProjectorOverheadTiles(ctx, canvasStore.overheadTiles, gridSize);
+    }
+
+    // 11c. Shared Map Drawings (Freehand sketches, arrows, shapes, notes - strictly filtered to shared layer)
+    if (drawingStore.sharedDrawings.length > 0) {
+      renderSharedDrawingsOnCanvas2D(ctx, drawingStore.sharedDrawings, vp.zoom);
+    }
+
+    // 11d. Revealed Traps (Only traps that have been triggered and revealed - never un-triggered zones)
+    if (canvasStore.triggerZones && canvasStore.triggerZones.length > 0) {
+      for (const zone of canvasStore.triggerZones) {
+        if (zone.triggerType === 'trap' && zone.isTriggered) {
+          const poly = zone.shape === 'rectangle' && zone.coordinates.length >= 2
+            ? [
+                { x: Math.min(zone.coordinates[0].x, zone.coordinates[1].x), y: Math.min(zone.coordinates[0].y, zone.coordinates[1].y) },
+                { x: Math.max(zone.coordinates[0].x, zone.coordinates[1].x), y: Math.min(zone.coordinates[0].y, zone.coordinates[1].y) },
+                { x: Math.max(zone.coordinates[0].x, zone.coordinates[1].x), y: Math.max(zone.coordinates[0].y, zone.coordinates[1].y) },
+                { x: Math.min(zone.coordinates[0].x, zone.coordinates[1].x), y: Math.max(zone.coordinates[0].y, zone.coordinates[1].y) },
+              ]
+            : zone.coordinates;
+          if (poly.length >= 3) {
+            let cx = 0, cy = 0;
+            for (const p of poly) { cx += p.x; cy += p.y; }
+            cx /= poly.length;
+            cy /= poly.length;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(127, 29, 29, 0.85)';
+            ctx.fill();
+            ctx.strokeStyle = '#ef4444';
+            ctx.lineWidth = 2.5 / vp.zoom;
+            ctx.stroke();
+
+            ctx.font = '16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('⚠️', cx, cy);
+            ctx.restore();
+          }
+        }
+      }
+    }
+
 
     // 12. Synchronized Map Pings & Attention Radar Rings
     const now = performance.now();
@@ -905,3 +1055,7 @@
     </div>
   </div>
 {/if}
+
+<!-- ── 3D Synchronized Tabletop Projector Dice Overlay ────────────────────── -->
+<Dice3DOverlay theme="gold" />
+

@@ -55,6 +55,25 @@ class HotkeyManager {
 
       if (isInput) return;
 
+      // Handle hotbar number keys (1–9 and 0) when no modifiers (Ctrl/Meta/Alt) are pressed
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        let slotIndex: number | null = null;
+        if (e.key >= '1' && e.key <= '9') {
+          slotIndex = parseInt(e.key, 10) - 1; // '1' -> slot 0, '9' -> slot 8
+        } else if (e.key === '0') {
+          slotIndex = 9; // '0' -> slot 9
+        }
+
+        if (slotIndex !== null) {
+          // Import dynamically or check store to trigger slot execution
+          import('../stores/hotbarStore.svelte').then(({ hotbarStore }) => {
+            hotbarStore.executeSlot(slotIndex!);
+          });
+          e.preventDefault();
+          return;
+        }
+      }
+
       for (const hotkey of this.hotkeys.values()) {
         const matchesKey = e.key.toLowerCase() === hotkey.key.toLowerCase() || e.code === hotkey.key;
         const matchesCtrl = !!hotkey.ctrlOrMeta === (e.ctrlKey || e.metaKey);

@@ -974,3 +974,99 @@ pub async fn import_campaign_bundle(
         characters_restored: restored_chars,
     }))
 }
+
+// ── In-Game Temporal Clock & Calendar Engine Endpoints ──────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CampaignTimeStateResponse {
+    pub epoch_days: u64,
+    pub current_epoch_seconds: u32, // 0 to 86,400 within current day
+    pub formatted_time: String,
+    pub total_seconds: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AdvanceTimeSecondsRequest {
+    pub seconds: u32,
+}
+
+fn format_clock_time(seconds: u32) -> String {
+    let s = seconds % 86400;
+    let hours = s / 3600;
+    let minutes = (s % 3600) / 60;
+    let secs = s % 60;
+    format!("{:02}:{:02}:{:02}", hours, minutes, secs)
+}
+
+pub async fn get_campaign_time(
+    State(state): State<AppState>,
+) -> Result<Json<CampaignTimeStateResponse>, StatusCode> {
+    let conn = state.db.lock().await;
+    let row: Option<(u64, i64)> = conn
+        .query_row(
+            "SELECT epoch_days, current_epoch_seconds FROM campaign_state WHERE id = 'global'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok();
+
+    let (epoch_days, raw_seconds) = row.unwrap_or((0, 43200)); // Default to noon (12:00:00 = 43,200s)
+    let current_epoch_seconds = (raw_seconds % 86400).max(0) as u32;
+
+    Ok(Json(CampaignTimeStateResponse {
+        epoch_days,
+        current_epoch_seconds,
+        formatted_time: format_clock_time(current_epoch_seconds),
+        total_seconds: (epoch_days * 86400) + (current_epoch_seconds as u64),
+    }))
+}
+
+pub async fn advance_campaign_time_seconds(
+    State(state): State<AppState>,
+    Json(payload): Json<AdvanceTimeSecondsRequest>,
+) -> Result<Json<CampaignTimeStateResponse>, StatusCode> {
+    let conn = state.db.lock().await;
+    let row: Option<(u64, i64)> = conn
+        .query_row(
+            "SELECT epoch_days, current_epoch_seconds FROM campaign_state WHERE id = 'global'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok();
+
+    let (mut epoch_days, raw_seconds) = row.unwrap_or((0, 43200));
+    let mut current_day_sec = (raw_seconds % 86400).max(0) as u32;
+
+    let total_new_day_sec = current_day_sec + payload.seconds;
+    let extra_days = (total_new_day_sec / 86400) as u64;
+    epoch_days += extra_days;
+    current_day_sec = total_new_day_sec % 86400;
+
+    let new_epoch_seconds = ((epoch_days * 86400) + (current_day_sec as u64)) as i64;
+
+    let _ = conn.execute(
+        "UPDATE campaign_state
+         SET epoch_days = ?1,
+             current_epoch_seconds = ?2,
+             updated_at = ?3
+         WHERE id = 'global'",
+        rusqlite::params![epoch_days, new_epoch_seconds, new_epoch_seconds],
+    );
+
+    let formatted_time = format_clock_time(current_day_sec);
+
+    // Broadcast WebSocket TIME_UPDATE event
+    let _ = state.ws_sender.send(crate::server::routes::ws::WsEvent::TimeUpdate {
+        epoch_days,
+        current_epoch_seconds: current_day_sec,
+        seconds_advanced: payload.seconds,
+        formatted_time: formatted_time.clone(),
+    });
+
+    Ok(Json(CampaignTimeStateResponse {
+        epoch_days,
+        current_epoch_seconds: current_day_sec,
+        formatted_time,
+        total_seconds: new_epoch_seconds as u64,
+    }))
+}

@@ -3,8 +3,10 @@
   import { onMount, onDestroy } from 'svelte';
   import { combatStore, type Combatant } from '../../stores/combatStore.svelte';
   import { tokenStore } from '../../stores/tokenStore.svelte';
+  import { canvasStore } from '../../../stores/canvasStore.svelte';
   import { audioEngine } from '../../audio/AudioEngine';
   import DiceResultFeed from './DiceResultFeed.svelte';
+
 
   interface Props {
     isOpen?: boolean;
@@ -51,8 +53,127 @@
   let newDexMod = $state(0);
   let newIsPlayer = $state(false);
 
+  // ── Zone-Based Combatant Detection (AoE Templates & Attached Token Auras) ──
+  interface DetectedZone {
+    id: string;
+    label: string;
+    cx: number;
+    cy: number;
+    radiusPx: number;
+  }
+
+  function circleIntersectsToken(
+    cx: number,
+    cy: number,
+    r: number,
+    tok: { x: number; y: number; size: number }
+  ): boolean {
+    const gridSize = canvasStore.gridSize || 60;
+    const footprint = (tok.size || 1) * gridSize;
+    const xMin = tok.x - footprint / 2;
+    const xMax = tok.x + footprint / 2;
+    const yMin = tok.y - footprint / 2;
+    const yMax = tok.y + footprint / 2;
+
+    const closestX = Math.max(xMin, Math.min(cx, xMax));
+    const closestY = Math.max(yMin, Math.min(cy, yMax));
+    const dx = cx - closestX;
+    const dy = cy - closestY;
+    return dx * dx + dy * dy <= r * r;
+  }
+
+  const activeZones = $derived.by(() => {
+    const zones: DetectedZone[] = [];
+    const gridSize = canvasStore.gridSize || 60;
+
+    // 1. Attached Token Auras
+    for (const tok of tokenStore.tokens) {
+      if (tok.auras && tok.auras.length > 0) {
+        for (const aura of tok.auras) {
+          zones.push({
+            id: aura.id,
+            label: `${tok.name} (${aura.radiusFeet}ft Aura)`,
+            cx: tok.x,
+            cy: tok.y,
+            radiusPx: (aura.radiusFeet / 5) * gridSize,
+          });
+        }
+      }
+    }
+
+    // 2. Active AoE Templates on Canvas
+    for (const aoe of canvasStore.aoeTemplates) {
+      const radiusPx = ((aoe.sizeFeet || 20) / 5) * gridSize;
+      zones.push({
+        id: aoe.id,
+        label: aoe.label || `${aoe.type} (${aoe.sizeFeet || 20}ft)`,
+        cx: aoe.originX,
+        cy: aoe.originY,
+        radiusPx,
+      });
+    }
+
+    return zones;
+  });
+
+  let selectedZoneId = $state<string | null>(null);
+  const currentZone = $derived(
+    activeZones.find((z) => z.id === selectedZoneId) || activeZones[0] || null
+  );
+
+  const tokensInCurrentZone = $derived.by(() => {
+    if (!currentZone) return [];
+    return tokenStore.tokens.filter((tok) =>
+      circleIntersectsToken(currentZone.cx, currentZone.cy, currentZone.radiusPx, tok)
+    );
+  });
+
+  // Targeted combatant IDs for mass-actions
+  let targetedTokenIds = $state<string[]>([]);
+
+  function selectTokensInZone() {
+    targetedTokenIds = tokensInCurrentZone.map((t) => t.id);
+  }
+
+  function applyBatchDamage(damage: number) {
+    if (targetedTokenIds.length === 0) return;
+    for (const id of targetedTokenIds) {
+      const combatant = combatStore.combatants.find((c) => c.tokenId === id);
+      if (combatant) {
+        applyHpDelta(combatant, -damage);
+      } else {
+        tokenStore.updateHp(id, -damage);
+      }
+    }
+  }
+
+  function applyBatchCondition(condName: string) {
+    if (targetedTokenIds.length === 0) return;
+    for (const id of targetedTokenIds) {
+      toggleCondition(id, condName, 10);
+      tokenStore.toggleCondition(id, condName);
+    }
+  }
+
+  function applyHpDelta(combatant: Combatant, delta: number) {
+    if (delta < 0) {
+      const damage = Math.abs(delta);
+      combatant.hp = Math.max(0, combatant.hp - damage);
+      if (combatant.hp <= 0) combatant.isDefeated = true;
+      tokenStore.updateHp(combatant.tokenId, -damage);
+      if (combatant.conditions.some((c) => c.toLowerCase() === 'concentrating')) {
+        combatStore.triggerConcentrationCheck(combatant.tokenId, combatant.name, damage);
+      }
+    } else {
+      combatant.hp = Math.min(combatant.maxHp, combatant.hp + delta);
+      if (combatant.hp > 0) combatant.isDefeated = false;
+      tokenStore.updateHp(combatant.tokenId, delta);
+    }
+  }
+
   // Broadcast channel for mobile companion turn alerts
   let broadcastChannel: BroadcastChannel | null = null;
+
 
   onMount(() => {
     if (typeof BroadcastChannel !== 'undefined') {
@@ -304,6 +425,83 @@
       </div>
     </div>
 
+    <!-- Zone-Based Combatant Detection Bar -->
+    {#if currentZone}
+      <div class="px-3 py-2 bg-slate-950/90 border-b border-indigo-900/40 flex flex-col gap-1.5">
+        <div class="flex items-center justify-between text-[11px]">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span class="text-xs">🎯</span>
+            {#if activeZones.length > 1}
+              <select
+                class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-indigo-300 max-w-[150px] truncate"
+                value={currentZone.id}
+                onchange={(e) => selectedZoneId = e.currentTarget.value}
+              >
+                {#each activeZones as z}
+                  <option value={z.id}>{z.label}</option>
+                {/each}
+              </select>
+            {:else}
+              <span class="font-bold text-indigo-300 truncate max-w-[150px]">{currentZone.label}</span>
+            {/if}
+          </div>
+
+          <!-- Action Chip: "Select X In Zone" -->
+          <button
+            type="button"
+            class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold rounded-lg text-[10px] shadow-sm transition-all flex items-center gap-1"
+            onclick={selectTokensInZone}
+            title="Mass-target all creatures within this zone template"
+          >
+            <span>✨</span>
+            <span>Select {tokensInCurrentZone.length} In Zone</span>
+          </button>
+        </div>
+
+        <!-- Mass-targeting quick controls (when targets selected) -->
+        {#if targetedTokenIds.length > 0}
+          <div class="flex items-center justify-between gap-1 pt-1 border-t border-slate-800 text-[10px]">
+            <span class="font-mono text-cyan-300 font-semibold">{targetedTokenIds.length} targeted:</span>
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                class="px-1.5 py-0.5 bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 rounded font-bold"
+                onclick={() => applyBatchDamage(10)}
+                title="Deal 10 damage to all targeted"
+              >
+                -10
+              </button>
+              <button
+                type="button"
+                class="px-1.5 py-0.5 bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 rounded font-bold"
+                onclick={() => applyBatchDamage(5)}
+                title="Deal 5 damage to all targeted"
+              >
+                -5
+              </button>
+              <button
+                type="button"
+                class="px-1.5 py-0.5 bg-indigo-950 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 rounded"
+                onclick={() => applyBatchCondition('Prone')}
+                title="Apply Prone to all"
+              >
+                Prone
+              </button>
+              <button
+                type="button"
+                class="text-slate-400 hover:text-white px-1"
+                onclick={() => targetedTokenIds = []}
+                title="Clear selection"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+
     <!-- Custom Combatant Inline Adder -->
     {#if showAddCustom}
       <div class="p-3 bg-slate-950 border-b border-indigo-900/60 flex flex-col gap-2">
@@ -352,9 +550,10 @@
       {:else}
         {#each combatStore.combatants as combatant, idx}
           {@const isActive = combatStore.isActive && combatStore.turnIndex === idx}
+          {@const isTargeted = targetedTokenIds.includes(combatant.tokenId)}
           {@const conditions = conditionMap[combatant.tokenId] || []}
           <div
-            class="p-2.5 rounded-xl border transition-all {isActive ? 'bg-indigo-950/70 border-indigo-500 shadow-lg shadow-indigo-950/60 ring-1 ring-indigo-400' : 'bg-slate-950/70 border-slate-800'}"
+            class="p-2.5 rounded-xl border transition-all {isTargeted ? 'ring-2 ring-cyan-400 bg-cyan-950/40 border-cyan-500' : isActive ? 'bg-indigo-950/70 border-indigo-500 shadow-lg shadow-indigo-950/60 ring-1 ring-indigo-400' : 'bg-slate-950/70 border-slate-800'}"
           >
             <!-- Combatant Top Row: Initiative, Name, Turn Badge -->
             <div class="flex items-center justify-between gap-2">
@@ -366,7 +565,12 @@
                   onchange={() => sortRoster()}
                   class="w-10 text-center bg-slate-900 border border-slate-700 rounded px-1 py-0.5 font-mono font-bold text-amber-300 text-xs"
                 />
-                <span class="font-bold text-white truncate max-w-[150px]">{combatant.name}</span>
+                <span class="font-bold text-white truncate max-w-[130px]">{combatant.name}</span>
+                {#if isTargeted}
+                  <span class="px-1 py-0.2 bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 rounded text-[9px] font-mono">
+                    TARGET
+                  </span>
+                {/if}
               </div>
 
               {#if isActive}
@@ -383,19 +587,22 @@
                 <span class="font-mono font-bold text-emerald-400">{combatant.hp}/{combatant.maxHp}</span>
                 <button
                   type="button"
-                  class="w-4 h-4 bg-slate-800 hover:bg-slate-700 rounded flex items-center justify-center text-slate-300"
-                  onclick={() => combatant.hp = Math.max(0, combatant.hp - 1)}
+                  class="w-4 h-4 bg-slate-800 hover:bg-slate-700 rounded flex items-center justify-center text-slate-300 font-bold"
+                  onclick={() => applyHpDelta(combatant, -1)}
+                  title="-1 HP"
                 >
                   -
                 </button>
                 <button
                   type="button"
-                  class="w-4 h-4 bg-slate-800 hover:bg-slate-700 rounded flex items-center justify-center text-slate-300"
-                  onclick={() => combatant.hp = Math.min(combatant.maxHp, combatant.hp + 1)}
+                  class="w-4 h-4 bg-slate-800 hover:bg-slate-700 rounded flex items-center justify-center text-slate-300 font-bold"
+                  onclick={() => applyHpDelta(combatant, 1)}
+                  title="+1 HP"
                 >
                   +
                 </button>
               </div>
+
 
               <div class="flex items-center gap-1">
                 <button
@@ -466,6 +673,84 @@
     </div>
   </div>
 {/if}
+
+<!-- ── High-Priority Automated Concentration Check Modal ───────────────────── -->
+{#if combatStore.activeConcentrationPrompt}
+  {@const prompt = combatStore.activeConcentrationPrompt}
+  <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 select-none pointer-events-auto">
+    <div class="bg-slate-900 border-2 border-amber-500/80 rounded-2xl shadow-2xl p-5 max-w-sm w-full text-slate-100 flex flex-col gap-4 animate-scale-up">
+      <!-- Header -->
+      <div class="flex items-center gap-3 pb-3 border-b border-slate-800">
+        <div class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-xl text-amber-400">
+          ⚡
+        </div>
+        <div>
+          <h3 class="text-sm font-bold text-white uppercase tracking-wider">Concentration Check</h3>
+          <p class="text-[11px] text-amber-400 font-mono">DC {prompt.dc} &bull; Took {prompt.damageTaken} Damage</p>
+        </div>
+      </div>
+
+      <!-- Prompt Text -->
+      <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3 text-xs leading-relaxed text-slate-300">
+        <div class="font-medium text-slate-200">
+          Concentration Check Required: DC {prompt.dc}. Roll CON Save?
+        </div>
+        <p class="text-[11px] text-slate-400 mt-1">
+          Target: <span class="font-bold text-white">{prompt.entityName}</span>
+        </p>
+      </div>
+
+      <!-- Result Banner (After Roll) -->
+      {#if prompt.rollResult}
+        <div class="p-3 rounded-xl border flex items-center justify-between {prompt.rollResult.success ? 'bg-emerald-950/80 border-emerald-500 text-emerald-200' : 'bg-rose-950/80 border-rose-500 text-rose-200'}">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">{prompt.rollResult.success ? '✅' : '💥'}</span>
+            <div>
+              <span class="text-xs font-bold block">{prompt.rollResult.success ? 'Save Succeeded!' : 'Save Failed!'}</span>
+              <span class="text-[10px] font-mono">d20({prompt.rollResult.d20}) + {prompt.conModifier} = {prompt.rollResult.total} vs DC {prompt.dc}</span>
+            </div>
+          </div>
+
+          {#if !prompt.rollResult.success}
+            <button
+              type="button"
+              class="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg text-xs shadow-md transition-all animate-pulse"
+              onclick={() => combatStore.dropConcentration(prompt.entityId)}
+            >
+              Drop Concentration
+            </button>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-2 pt-1">
+        {#if !prompt.rollResult}
+          <button
+            type="button"
+            class="flex-1 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs shadow-lg transition-all flex items-center justify-center gap-1.5"
+            onclick={() => {
+              combatStore.rollConcentrationSave();
+              audioEngine.triggerSfx('sfx-dice');
+            }}
+          >
+            <span>🎲</span>
+            <span>Roll Save</span>
+          </button>
+        {/if}
+
+        <button
+          type="button"
+          class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-xl text-xs transition-colors"
+          onclick={() => combatStore.dismissConcentrationPrompt()}
+        >
+          {prompt.rollResult ? 'Done' : 'Dismiss'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 
 <style>
   @keyframes slideLeft {

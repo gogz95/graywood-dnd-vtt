@@ -1,5 +1,7 @@
 import { writable } from 'svelte/store';
 import type { WsEvent } from '../types/websocket';
+import { vttTimeStore } from '../lib/stores/timeStore.svelte';
+import { routeInboundWsEvent } from '../lib/network/wsRouter';
 import {
   applyHpUpdateFromWs,
   applyBlackOrbToggleFromWs,
@@ -38,7 +40,10 @@ export const latestDiceRollStore = writable<{
   result: number;
   isCritical: boolean;
   breakdown?: string;
+  seed?: number;
+  vectors?: Array<{ x: number; y: number; angle: number; velocity: number }>;
 } | null>(null);
+
 
 export const campaignDateStore = writable<{
   epochDays: number;
@@ -157,14 +162,27 @@ function handleIncomingWsEvent(event: WsEvent): void {
         result: event.result,
         isCritical: event.is_critical,
         breakdown: event.breakdown,
+        seed: event.seed,
+        vectors: event.vectors,
       });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:dice-roll', { detail: event }));
+      }
       break;
+
 
     case 'DATE_ADVANCED':
       campaignDateStore.set({
         epochDays: event.epoch_days,
         formatted: event.date_formatted,
       });
+      break;
+
+    case 'TIME_UPDATE':
+      vttTimeStore.applyWsUpdate(event);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:time-update', { detail: event }));
+      }
       break;
 
     case 'HANDOUT_BROADCAST':
@@ -181,7 +199,14 @@ function handleIncomingWsEvent(event: WsEvent): void {
       }
       break;
 
+    case 'CHAT_MESSAGE':
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:chat-message', { detail: event.message }));
+      }
+      break;
+
     case 'DM_WHISPER': {
+
       const whisper: WhisperMessage = {
         id: event.id,
         target_character_id: event.target_character_id,
@@ -266,9 +291,36 @@ function handleIncomingWsEvent(event: WsEvent): void {
       }
       break;
 
+    case 'DRAWING_UPDATE':
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:drawing-update', { detail: event }));
+      }
+      break;
+
+    case 'PROP_UPDATE':
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:prop-update', { detail: event }));
+      }
+      break;
+
     case 'TOKEN_MOVE':
+    case 'TOKEN_SPAWNED':
+    case 'TOKEN_UPDATED':
+    case 'TOKEN_REMOVED':
+    case 'STATE_SNAPSHOT':
+    case 'TokenMoved':
+    case 'TokenSpawned':
+    case 'TokenUpdated':
+    case 'TokenRemoved':
+    case 'StateSnapshot':
+      routeInboundWsEvent(event);
+      break;
+
     case 'SYSTEM_MESSAGE':
     case 'AUTH_REQUEST':
+      break;
+    default:
+      routeInboundWsEvent(event);
       break;
   }
 }
@@ -282,6 +334,8 @@ export function sendWsEvent(event: WsEvent | any): void {
     if (event?.type === 'TOGGLE_BLACK_ORB' || event?.type === 'BLACK_ORB_TOGGLE') {
       applyBlackOrbToggleFromWs(event.character_id, event.is_orb_sealed);
       window.dispatchEvent(new CustomEvent('vtt:black-orb-toggle', { detail: event }));
+    } else if (event?.type === 'DRAWING_UPDATE') {
+      window.dispatchEvent(new CustomEvent('vtt:drawing-update', { detail: event }));
     } else if (event?.type === 'TRADE_OFFER') {
       window.dispatchEvent(new CustomEvent('vtt:trade-offer', { detail: event }));
     } else if (event?.type === 'TRADE_ACCEPT') {

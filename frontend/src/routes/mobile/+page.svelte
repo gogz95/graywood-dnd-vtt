@@ -9,10 +9,30 @@
   import MobileSpellbook from '$lib/components/mobile/MobileSpellbook.svelte';
   import MobileInventory, { type InventoryItem, type Currency } from '$lib/components/mobile/MobileInventory.svelte';
   import { compendiumDb } from '$lib/db/compendiumDb';
+  import Dice3DOverlay from '$lib/components/dice/Dice3DOverlay.svelte';
 
   // ── Svelte 5 Rune State ───────────────────────────────────────────────────
-  type MobileTab = 'core' | 'spells' | 'inventory' | 'dice';
+  type MobileTab = 'core' | 'spells' | 'inventory' | 'dice' | 'chat';
   let activeTab = $state<MobileTab>('core');
+
+  interface MobileChatMessage {
+    id: string;
+    sender_id: string;
+    sender_name: string;
+    content: string;
+    recipient_id?: string | null;
+    is_system: boolean;
+    timestamp: number;
+  }
+  let mobileChatMessages = $state<MobileChatMessage[]>([]);
+  let mobileChatInput = $state('');
+
+  function loadMobile3dSetting(): boolean {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem('vtt_mobile_3d_dice') === 'true';
+  }
+  let enable3dDice = $state(loadMobile3dSetting());
+
 
   let connectionStatus = $state<
     'disconnected' | 'connecting' | 'authenticating' | 'connected' | 'reconnecting' | 'error'
@@ -91,8 +111,52 @@
   let armorClass = $state(16);
   let conditions = $state<string[]>([]);
 
+  // ── High-Priority Automated Concentration Check State ──────────────────────
+  interface MobileConcentrationPrompt {
+    entityId: string;
+    entityName: string;
+    dc: number;
+    damageTaken: number;
+    rollResult: { d20: number; total: number; success: boolean } | null;
+  }
+  let mobileConcentrationPrompt = $state<MobileConcentrationPrompt | null>(null);
+
+  function rollMobileConcentrationSave() {
+    if (!mobileConcentrationPrompt) return;
+    const conMod = 2; // Default CON save modifier
+    const d20 = Math.floor(Math.random() * 20) + 1;
+    const total = d20 + conMod;
+    const success = total >= mobileConcentrationPrompt.dc;
+    mobileConcentrationPrompt.rollResult = { d20, total, success };
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: 'RollDice',
+          expression: `1d20+${conMod}`,
+          character_name: mobileConcentrationPrompt.entityName || characterName || 'Player Companion',
+        })
+      );
+    }
+  }
+
+  function dropMobileConcentration() {
+    if (!mobileConcentrationPrompt) return;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: 'DropConcentration',
+          entity_id: mobileConcentrationPrompt.entityId,
+        })
+      );
+    }
+    conditions = conditions.filter((c) => c.toLowerCase() !== 'concentrating');
+    mobileConcentrationPrompt = null;
+  }
+
   // Spell Slots State (Levels 1 to 9)
   let spellSlots = $state<Record<number, { total: number; used: number }>>({
+
     1: { total: 4, used: 1 },
     2: { total: 3, used: 0 },
     3: { total: 2, used: 1 },
@@ -331,6 +395,31 @@
           } else if (msg.type === 'PingPoint' || msg.type === 'PING_POINT') {
             if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
               navigator.vibrate?.(25);
+            }
+          } else if (msg.type === 'ConcentrationCheckRequired') {
+            const cleanChar = (characterName.trim() || 'Player Companion').toLowerCase();
+            const promptName = (msg.entity_name || '').toLowerCase();
+            const promptId = msg.entity_id;
+            if (
+              !promptName ||
+              promptName === cleanChar ||
+              promptId === session?.sessionId ||
+              cleanChar.includes(promptName) ||
+              promptName.includes(cleanChar)
+            ) {
+              mobileConcentrationPrompt = {
+                entityId: msg.entity_id,
+                entityName: msg.entity_name,
+                dc: msg.dc,
+                damageTaken: msg.damage_taken,
+                rollResult: null,
+              };
+            }
+          } else if (msg.type === 'Chat' || msg.type === 'CHAT') {
+            if (msg.message && msg.message.id) {
+              if (!mobileChatMessages.some(m => m.id === msg.message.id)) {
+                mobileChatMessages = [...mobileChatMessages, msg.message];
+              }
             }
           }
         } catch {
@@ -597,9 +686,24 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5">
+        <!-- Low-Power 3D WebGL Physics Toggle -->
+        <button
+          type="button"
+          class="px-2 py-1 rounded-lg border text-[10px] font-mono flex items-center gap-1 transition-all {enable3dDice ? 'bg-amber-950/80 border-amber-600 text-amber-300' : 'bg-slate-900 border-slate-700 text-slate-400'}"
+          onclick={() => {
+            enable3dDice = !enable3dDice;
+            try { localStorage.setItem('vtt_mobile_3d_dice', String(enable3dDice)); } catch {}
+          }}
+          title="Toggle 3D WebGL physics dice rendering on mobile"
+        >
+          <span>🎲</span>
+          <span class="font-bold">{enable3dDice ? '3D' : '2D'}</span>
+        </button>
+
         <!-- Status Badge -->
         {#if connectionStatus === 'connected'}
+
           <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-950/80 border border-emerald-500/40 text-emerald-300">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             Connected
@@ -892,6 +996,130 @@
             bind:rollHistory
           />
         {/if}
+
+        <!-- ── TAB 5: TABLETOP CHAT & WHISPERS ─────────────────────────────── -->
+        {#if activeTab === 'chat'}
+          <div class="flex-1 flex flex-col h-[70vh] bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div class="p-3 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-base">💬</span>
+                <span class="text-xs font-black uppercase tracking-wider text-slate-200">Tabletop Chat</span>
+              </div>
+              <span class="text-[10px] font-mono text-indigo-400 font-bold">{mobileChatMessages.length} msgs</span>
+            </div>
+
+            <!-- Messages Stream -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-2">
+              {#if mobileChatMessages.length === 0}
+                <div class="text-center py-12 text-slate-500 space-y-1">
+                  <span class="text-2xl block">💬</span>
+                  <p class="text-xs">No chat messages yet.</p>
+                  <p class="text-[10px] text-slate-600">Send public messages or /w, /gm, /ooc</p>
+                </div>
+              {/if}
+
+              {#each mobileChatMessages as m (m.id)}
+                <div class="p-2.5 rounded-xl border text-xs {m.recipient_id ? 'bg-purple-950/60 border-purple-800 text-purple-200' : m.content.startsWith('(( ') ? 'bg-sky-950/40 border-sky-800 text-sky-200' : 'bg-slate-950/80 border-slate-800 text-slate-200'}">
+                  <div class="flex items-center justify-between gap-1 mb-1">
+                    <span class="font-bold text-slate-100 truncate">{m.sender_name}</span>
+                    {#if m.recipient_id}
+                      <span class="px-1.5 py-0.2 rounded text-[8px] font-black uppercase bg-purple-900 text-purple-200 border border-purple-700">
+                        🔒 Whisper
+                      </span>
+                    {:else if m.content.startsWith('(( ')}
+                      <span class="px-1.5 py-0.2 rounded text-[8px] font-bold uppercase bg-sky-900 text-sky-200 border border-sky-700">
+                        OOC
+                      </span>
+                    {/if}
+                  </div>
+                  <p class="whitespace-pre-wrap leading-relaxed">{m.content}</p>
+                </div>
+              {/each}
+            </div>
+
+            <!-- Chat Input Bar -->
+            <form
+              onsubmit={(e) => {
+                e.preventDefault();
+                const raw = mobileChatInput.trim();
+                if (!raw) return;
+
+                const senderName = session.characterName || 'Player Companion';
+                const senderId = senderName.toLowerCase().replace(/\s+/g, '-');
+                const msgId = `mobile-msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                const timestamp = Date.now();
+
+                let recipientId: string | null = null;
+                let formattedContent = raw;
+
+                const whisperMatch = raw.match(/^\/(?:w|whisper)\s+(\S+)\s+(.+)$/i);
+                const gmMatch = raw.match(/^\/gm\s+(.+)$/i);
+                const oocMatch = raw.match(/^\/ooc\s+(.+)$/i);
+                const rollMatch = raw.match(/^\/(?:r|roll)\s+(.+)$/i);
+
+                if (rollMatch) {
+                  // Direct to dice roll
+                  if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                      type: 'RollDice',
+                      expression: rollMatch[1].trim(),
+                      character_name: senderName,
+                    }));
+                  }
+                  mobileChatInput = '';
+                  return;
+                }
+
+                if (gmMatch) {
+                  recipientId = 'dm';
+                  formattedContent = gmMatch[1].trim();
+                } else if (whisperMatch) {
+                  recipientId = whisperMatch[1].trim();
+                  formattedContent = whisperMatch[2].trim();
+                } else if (oocMatch) {
+                  formattedContent = `(( ${oocMatch[1].trim()} ))`;
+                }
+
+                const chatPayload: MobileChatMessage = {
+                  id: msgId,
+                  sender_id: senderId,
+                  sender_name: senderName,
+                  content: formattedContent,
+                  recipient_id: recipientId,
+                  is_system: false,
+                  timestamp,
+                };
+
+                // Add to local state
+                mobileChatMessages = [...mobileChatMessages, chatPayload];
+
+                // Send across WebSocket
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                  socket.send(JSON.stringify({
+                    type: 'Chat',
+                    message: chatPayload,
+                  }));
+                }
+
+                mobileChatInput = '';
+              }}
+              class="p-2 border-t border-slate-800 bg-slate-950 flex gap-1.5"
+            >
+              <input
+                type="text"
+                bind:value={mobileChatInput}
+                placeholder="Chat or /w, /gm, /ooc, /r..."
+                class="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
+              />
+              <button
+                type="submit"
+                class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all active:scale-95"
+              >
+                Send
+              </button>
+            </form>
+          </div>
+        {/if}
       </section>
 
       <!-- ═════════════════════════════════════════════════════════════════════════
@@ -901,7 +1129,7 @@
         class="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-md border-t border-slate-800/90 px-3 pt-2 pb-[max(0.6rem,env(safe-area-inset-bottom))] shadow-2xl"
         aria-label="Companion Tabs Navigation"
       >
-        <div class="max-w-md mx-auto grid grid-cols-4 gap-1">
+        <div class="max-w-md mx-auto grid grid-cols-5 gap-1">
           <button
             type="button"
             onclick={() => activeTab = 'core'}
@@ -926,7 +1154,7 @@
             class="flex flex-col items-center justify-center py-1.5 rounded-xl transition-all {activeTab === 'inventory' ? 'bg-indigo-950/70 text-indigo-300 border border-indigo-700/50 shadow-sm' : 'text-slate-400 hover:text-slate-200'}"
           >
             <span class="text-base">🎒</span>
-            <span class="text-[10px] font-bold mt-0.5 tracking-tight">Inventory</span>
+            <span class="text-[10px] font-bold mt-0.5 tracking-tight">Items</span>
           </button>
 
           <button
@@ -935,7 +1163,16 @@
             class="flex flex-col items-center justify-center py-1.5 rounded-xl transition-all {activeTab === 'dice' ? 'bg-indigo-950/70 text-indigo-300 border border-indigo-700/50 shadow-sm' : 'text-slate-400 hover:text-slate-200'}"
           >
             <span class="text-base">🎲</span>
-            <span class="text-[10px] font-bold mt-0.5 tracking-tight">Dice Log</span>
+            <span class="text-[10px] font-bold mt-0.5 tracking-tight">Dice</span>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => activeTab = 'chat'}
+            class="flex flex-col items-center justify-center py-1.5 rounded-xl transition-all {activeTab === 'chat' ? 'bg-indigo-950/70 text-indigo-300 border border-indigo-700/50 shadow-sm' : 'text-slate-400 hover:text-slate-200'}"
+          >
+            <span class="text-base">💬</span>
+            <span class="text-[10px] font-bold mt-0.5 tracking-tight">Chat</span>
           </button>
         </div>
       </nav>
@@ -1116,3 +1353,79 @@
     </div>
   </div>
 {/if}
+
+<!-- ── High-Priority Mobile Concentration Check Modal ──────────────────────── -->
+{#if mobileConcentrationPrompt}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in select-none">
+    <div class="w-full max-w-sm bg-zinc-900 border-2 border-amber-500/80 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-zinc-100">
+      <div class="flex items-center gap-3 pb-3 border-b border-zinc-800">
+        <div class="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-2xl text-amber-400">
+          ⚡
+        </div>
+        <div>
+          <h3 class="text-sm font-black text-amber-200 uppercase tracking-wider">Concentration Check</h3>
+          <p class="text-xs text-amber-400/80 font-mono">DC {mobileConcentrationPrompt.dc} &bull; {mobileConcentrationPrompt.damageTaken} Dmg Taken</p>
+        </div>
+      </div>
+
+      <div class="bg-zinc-950/80 border border-zinc-800 rounded-2xl p-3.5 text-xs text-zinc-300 leading-relaxed">
+        <p class="font-bold text-white text-xs mb-1">
+          Concentration Check Required: DC {mobileConcentrationPrompt.dc}. Roll CON Save?
+        </p>
+        <p class="text-[11px] text-zinc-400">
+          Target: <span class="text-amber-300 font-semibold">{mobileConcentrationPrompt.entityName}</span>
+        </p>
+      </div>
+
+      {#if mobileConcentrationPrompt.rollResult}
+        <div class="p-3.5 rounded-2xl border flex items-center justify-between {mobileConcentrationPrompt.rollResult.success ? 'bg-emerald-950/80 border-emerald-500/80 text-emerald-200' : 'bg-rose-950/80 border-rose-500/80 text-rose-200'}">
+          <div class="flex items-center gap-2.5">
+            <span class="text-2xl">{mobileConcentrationPrompt.rollResult.success ? '🛡️' : '💥'}</span>
+            <div>
+              <span class="text-xs font-bold block">{mobileConcentrationPrompt.rollResult.success ? 'Save Succeeded!' : 'Save Failed!'}</span>
+              <span class="text-[10px] font-mono">d20({mobileConcentrationPrompt.rollResult.d20}) + 2 = {mobileConcentrationPrompt.rollResult.total} vs DC {mobileConcentrationPrompt.dc}</span>
+            </div>
+          </div>
+
+          {#if !mobileConcentrationPrompt.rollResult.success}
+            <button
+              type="button"
+              onclick={dropMobileConcentration}
+              class="py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md transition-all active:scale-95 animate-pulse"
+            >
+              Drop Concentration
+            </button>
+          {/if}
+        </div>
+      {/if}
+
+      <div class="flex items-center gap-2 pt-1">
+        {#if !mobileConcentrationPrompt.rollResult}
+          <button
+            type="button"
+            onclick={rollMobileConcentrationSave}
+            class="flex-1 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 active:scale-95 text-zinc-950 font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2"
+          >
+            <span>🎲</span>
+            <span>Roll CON Save</span>
+          </button>
+        {/if}
+
+        <button
+          type="button"
+          onclick={() => mobileConcentrationPrompt = null}
+          class="px-4 py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-300 font-semibold text-xs transition-colors"
+        >
+          {mobileConcentrationPrompt.rollResult ? 'Done' : 'Dismiss'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- ── 3D Physics Mobile Dice Overlay (Toggleable for Low-Power Devices) ──── -->
+{#if enable3dDice}
+  <Dice3DOverlay enabled={enable3dDice} theme="gemstone" />
+{/if}
+
+

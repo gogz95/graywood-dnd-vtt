@@ -37,6 +37,7 @@
   import { importUniversalMap } from '../lib/services/mapImporter';
 
   import CommandPalette from '../lib/components/navigation/CommandPalette.svelte';
+  import ActionHotbar from '../lib/components/navigation/ActionHotbar.svelte';
   import CheatSheetModal from '../lib/components/modals/CheatSheetModal.svelte';
   import { hotkeyManager } from '../lib/services/hotkeyManager';
   import { projectorStore } from '../lib/stores/projectorStore.svelte';
@@ -47,7 +48,7 @@
   import BastionManagerView from '../lib/components/bastion/BastionManagerView.svelte';
   import StrongholdDashboard from '../lib/components/stronghold/StrongholdDashboard.svelte';
   import InitiativeRibbon from '../lib/components/combat/InitiativeRibbon.svelte';
-  import SessionChatLog from '../lib/components/chat/SessionChatLog.svelte';
+  import ChatDrawer from '../lib/components/chat/ChatDrawer.svelte';
   import PhysicalDicePromptModal from '../lib/components/modals/PhysicalDicePromptModal.svelte';
   import { chatStore } from '../lib/stores/chatStore.svelte';
 
@@ -60,6 +61,8 @@
   import PlayerCompanionPortalModal from '../lib/components/player/PlayerCompanionPortalModal.svelte';
   import PairingModal from '../lib/components/setup/PairingModal.svelte';
   import { getLanIp, getLanPort } from '../lib/services/networkDiscovery';
+  import Dice3DOverlay from '../lib/components/dice/Dice3DOverlay.svelte';
+
 
   // Utilities
   import { initAutoSaver } from '../lib/utils/campaignPersistence';
@@ -358,7 +361,10 @@
   </FloatingPanel>
 
   <!-- Interactive Session Chat & Universal Dice Drawer -->
-  <SessionChatLog isDm={true} userName="Dungeon Master" />
+  <ChatDrawer isDm={true} userName="Dungeon Master" playerName="DM" />
+
+  <!-- Persistent Macro & Quick-Action Hotbar -->
+  <ActionHotbar />
 
   <!-- Global Physical Tabletop Dice Manual Input Modal -->
   <PhysicalDicePromptModal />
@@ -501,4 +507,8 @@
       </button>
     </aside>
   {/if}
+
+  <!-- 3D Physics Synchronized Dice Overlay -->
+  <Dice3DOverlay theme="gemstone" />
 </div>
+
