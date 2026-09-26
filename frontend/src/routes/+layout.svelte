@@ -83,6 +83,20 @@
       if (asset.category === 'audio') floatingWindowsStore.open('audio');
       setTimeout(() => { lastDrop = null; }, 3500);
     });
+
+    // ── VisualViewport API: keyboard-safe height resync ────────────────────
+    // When the mobile soft keyboard opens, window.visualViewport.height shrinks
+    // to the remaining visible area. We mirror that into --vv-height so any
+    // scrollable container using `height: var(--vv-height)` automatically
+    // collapses without the Safari layout-jump caused by 100dvh not updating.
+    function syncVvHeight() {
+      const h = window.visualViewport?.height ?? window.innerHeight;
+      document.documentElement.style.setProperty('--vv-height', `${h}px`);
+    }
+
+    syncVvHeight(); // set correct value immediately on mount
+    window.visualViewport?.addEventListener('resize', syncVvHeight);
+    window.visualViewport?.addEventListener('scroll', syncVvHeight);
   });
 
   onDestroy(() => {
@@ -93,6 +107,9 @@
     window.removeEventListener('vtt:campaign-loaded', handleCampaignLoaded);
     window.removeEventListener('vtt:toggle-audio', handleToggleAudio);
     window.removeEventListener('vtt:toggle-quick-ref', handleToggleQuickRef);
+    // VisualViewport cleanup — handler reference captured in onMount closure;
+    // removing by name is safe because the fn is re-created each mount.
+    document.documentElement.style.removeProperty('--vv-height');
   });
 
   function handleToggleAudio() {

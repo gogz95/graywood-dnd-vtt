@@ -168,6 +168,15 @@ pub fn create_router(state: AppState) -> Router {
             patch(crate::api::tokens::update_scene_token)
                 .get(crate::api::tokens::get_scene_token),
         )
+        .route(
+            "/api/scenes/:scene_id/tokens/:instance_id/lease",
+            post(crate::api::tokens::request_token_lease),
+        )
+        // 5c. Epoch Resync (missed-event catchup for reconnecting clients)
+        .route(
+            "/api/sync/epoch",
+            get(crate::api::sync::get_epoch_delta),
+        )
         // 6. Essence Crafting Matrix & Sockets Endpoints
         .route(
             "/api/crafting/essences",
@@ -248,6 +257,8 @@ pub async fn run_server(
     state: AppState,
     _bind_addr: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Clone the Arc before state is moved into create_router.
+    let lease_map = state.lease_map.clone();
     let router = create_router(state);
 
     let (listener, port) = bind_dynamic_listener(4242, 4252).await?;
@@ -258,9 +269,13 @@ pub async fn run_server(
         port, port_file
     );
 
+    // Spawn ephemeral lease pruner – removes expired token leases every second.
+    crate::state::lease::spawn_lease_pruner(lease_map);
+
     axum::serve(listener, router).await?;
     Ok(())
 }
+
 
 #[cfg(test)]
 mod tests {

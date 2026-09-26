@@ -70,6 +70,8 @@ pub struct AppState {
     pub assets_dir: PathBuf,
     pub campaign_dir: Arc<tokio::sync::RwLock<Option<PathBuf>>>,
     pub companion_hub: Arc<crate::server::companion_hub::CompanionHub>,
+    pub lease_map: crate::state::lease::LeaseMap,
+    pub epoch_buffer: crate::state::epoch::SharedEpochBuffer,
 }
 
 impl AppState {
@@ -88,6 +90,8 @@ impl AppState {
                 "1337",
                 "Graywood Campaign",
             )),
+            lease_map: crate::state::lease::new_lease_map(),
+            epoch_buffer: crate::state::epoch::new_epoch_buffer(),
         }
     }
 

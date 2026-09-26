@@ -172,6 +172,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let broadcast_tx = state.ws_sender.clone();
     let db = state.db.clone();
     let companion_hub = state.companion_hub.clone();
+    let epoch_buffer = state.epoch_buffer.clone();
 
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
@@ -244,7 +245,11 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             _ => {}
                         }
 
-                        // Broadcast the event to all subscribers in the hub
+                        // Stamp event with a monotonic epoch, then broadcast.
+                        {
+                            let mut buf = epoch_buffer.write().await;
+                            buf.push_event(event.clone());
+                        }
                         let _ = broadcast_tx.send(event);
                     }
                 }

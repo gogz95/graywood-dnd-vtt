@@ -14,16 +14,27 @@
 }
 
 /* Prevent viewport bounce, elastic overscroll, and phantom horizontal bars.
-   position:fixed anchors the root so iOS rubber-banding never escapes the shell. */
+   100dvh collapses mobile browser chrome; overscroll-behavior stops rubber-band scroll.
+   touch-action allows pan gestures but blocks pinch-zoom at the OS level.
+   -webkit-user-select prevents accidental text-selection during touch drags. */
 html, body {
-  width: 100%;
-  height: 100%;
-  height: 100dvh; /* dynamic viewport height — collapses mobile browser chrome */
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100dvh;
   overflow: hidden;
-  position: fixed;
-  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-x pan-y;
   background-color: #020617; /* slate-950 */
   color: #f8fafc;
+}
+
+/* Default --vv-height mirrors 100dvh; overridden at runtime by the
+   VisualViewport API $effect in +layout.svelte to track keyboard shrink. */
+:root {
+  --vv-height: 100dvh;
 }
 
 /* Canvas and media elements must never expand their flex/grid parent.

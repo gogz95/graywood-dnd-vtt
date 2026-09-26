@@ -144,6 +144,29 @@ export class TokenController {
     return this.tokenMap.get(id)?.container;
   }
 
+  /**
+   * Returns the world-space axis-aligned bounding box enclosing the given token ids.
+   * Tokens not found are skipped. Returns null if no valid tokens were found.
+   */
+  public getTokenBounds(ids: string[]): { minX: number; minY: number; maxX: number; maxY: number } | null {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let found = false;
+
+    for (const id of ids) {
+      const entry = this.tokenMap.get(id);
+      if (!entry) continue;
+      const { x, y, size = 60 } = entry.data;
+      const r = size / 2;
+      if (x - r < minX) minX = x - r;
+      if (y - r < minY) minY = y - r;
+      if (x + r > maxX) maxX = x + r;
+      if (y + r > maxY) maxY = y + r;
+      found = true;
+    }
+
+    return found ? { minX, minY, maxX, maxY } : null;
+  }
+
   public getAllTokenIds(): string[] {
     return Array.from(this.tokenMap.keys());
   }

@@ -219,6 +219,12 @@ export class ViewportController {
     this.notifyChange();
   }
 
+  /** Returns the current canvas screen dimensions in CSS pixels. */
+  public getScreenSize(): { width: number; height: number } {
+    const rect = this.canvasElement.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  }
+
   /**
    * Resets viewport camera to origin (0, 0) and default zoom (1.0).
    */

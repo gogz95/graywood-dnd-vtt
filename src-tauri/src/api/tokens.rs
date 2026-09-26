@@ -315,3 +315,39 @@ pub async fn update_scene_token(
 
     Ok(Json(current))
 }
+
+// ── Lease handler ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct LeaseRequest {
+    pub user_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LeaseResponse {
+    pub acquired: bool,
+    pub holder: Option<String>,
+}
+
+/// POST /api/scenes/{scene_id}/tokens/{instance_id}/lease
+/// Grants or renews an exclusive drag lease for `user_id`.
+/// Returns 200 OK on success or 409 Conflict when another user holds the lease.
+pub async fn request_token_lease(
+    State(state): State<AppState>,
+    AxumPath((_scene_id, instance_id)): AxumPath<(String, String)>,
+    Json(body): Json<LeaseRequest>,
+) -> Result<Json<LeaseResponse>, (StatusCode, String)> {
+    let acquired =
+        crate::state::lease::acquire_lease(&state.lease_map, &instance_id, &body.user_id).await;
+
+    if acquired {
+        Ok(Json(LeaseResponse { acquired: true, holder: Some(body.user_id) }))
+    } else {
+        let holder = crate::state::lease::current_holder(&state.lease_map, &instance_id).await;
+        Err((
+            StatusCode::CONFLICT,
+            serde_json::to_string(&LeaseResponse { acquired: false, holder }).unwrap_or_default(),
+        ))
+    }
+}
+
