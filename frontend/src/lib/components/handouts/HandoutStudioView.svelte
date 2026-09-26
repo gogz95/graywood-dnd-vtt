@@ -626,6 +626,7 @@ In the event of ambuscades by highwaymen, goblins, or wandering monstrosities, t
           theme={docTheme}
           sealType={docSealType}
           sealText={docSealText}
+          isDm={true}
         />
       </div>
     </main>

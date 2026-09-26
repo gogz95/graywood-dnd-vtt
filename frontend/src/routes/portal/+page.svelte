@@ -7,6 +7,8 @@
   import { resolveLanAssetUrl } from '$lib/services/canvas/assetUrlResolver';
   import type { ChatMessage } from '$lib/services/chatCommandService';
   import { curtainStore } from '$lib/stores/curtainStore.svelte';
+  import { loreGraphStore, type LoreEntity } from '$lib/stores/loreGraphStore.svelte';
+  import WikilinkRenderer from '$lib/components/lore/WikilinkRenderer.svelte';
 
   interface PortalToken {
     id: string;
@@ -40,6 +42,25 @@
   let fogPolygons = $state<Array<Array<{ x: number; y: number }>>>([]);
   let chatLog = $state<ChatMessage[]>([]);
   let showChatDrawer = $state(false);
+
+  // Portal Navigation Tabs: Tactical Map vs Campaign Codex / Party Journal
+  let activePortalTab = $state<'battlemat' | 'codex'>('battlemat');
+  let selectedCodexDoc = $state<LoreEntity | null>(null);
+  let codexSearchQuery = $state('');
+
+  let discoveredEntities = $derived(
+    loreGraphStore.entities.filter(e => e.discovered === true || e.discovered === undefined)
+  );
+
+  let filteredCodexEntities = $derived.by(() => {
+    const q = codexSearchQuery.trim().toLowerCase();
+    if (!q) return discoveredEntities;
+    return discoveredEntities.filter(e =>
+      e.name.toLowerCase().includes(q) ||
+      e.summary.toLowerCase().includes(q) ||
+      e.tags.some(t => t.toLowerCase().includes(q))
+    );
+  });
 
   // Canvas & High-DPI Camera state
   let canvasEl = $state<HTMLCanvasElement | null>(null);
@@ -506,49 +527,61 @@
 
     <!-- Top Floating HUD: Session Info & Touch Actions -->
     <header class="absolute top-3 inset-x-3 flex items-center justify-between pointer-events-none z-30">
-      <div class="flex items-center gap-2 bg-slate-900/85 backdrop-blur-md border border-slate-800/80 px-3 py-1.5 rounded-full shadow-lg pointer-events-auto">
-        <span class="w-2 h-2 rounded-full {syncClient.isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}"></span>
-        <span class="text-[11px] font-bold text-slate-200 uppercase tracking-wider">
-          {syncClient.isConnected ? 'Live Portal' : 'Connecting...'}
-        </span>
-        <span class="text-slate-600 font-mono text-[10px]">&bull;</span>
-        <span class="text-[10px] font-mono text-slate-400">{tokens.length} Tokens</span>
+      <div class="flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md border border-slate-800/80 p-1 rounded-full shadow-lg pointer-events-auto">
+        <button
+          type="button"
+          onclick={() => activePortalTab = 'battlemat'}
+          class="px-2.5 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1 {activePortalTab === 'battlemat' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}"
+        >
+          <span>⚔️</span>
+          <span>Battlemat</span>
+        </button>
+        <button
+          type="button"
+          onclick={() => activePortalTab = 'codex'}
+          class="px-2.5 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1 {activePortalTab === 'codex' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}"
+        >
+          <span>📖</span>
+          <span>Codex ({discoveredEntities.length})</span>
+        </button>
       </div>
 
       <!-- Quick Action Buttons -->
       <div class="flex items-center gap-1.5 bg-slate-900/85 backdrop-blur-md border border-slate-800/80 p-1 rounded-full shadow-lg pointer-events-auto">
-        <button
-          type="button"
-          onclick={() => zoomAtPoint(1.25, window.innerWidth / 2, window.innerHeight / 2)}
-          class="w-7 h-7 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
-          title="Zoom In"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-          </svg>
-        </button>
+        {#if activePortalTab === 'battlemat'}
+          <button
+            type="button"
+            onclick={() => zoomAtPoint(1.25, window.innerWidth / 2, window.innerHeight / 2)}
+            class="w-7 h-7 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+            title="Zoom In"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
 
-        <button
-          type="button"
-          onclick={() => zoomAtPoint(0.8, window.innerWidth / 2, window.innerHeight / 2)}
-          class="w-7 h-7 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
-          title="Zoom Out"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
-          </svg>
-        </button>
+          <button
+            type="button"
+            onclick={() => zoomAtPoint(0.8, window.innerWidth / 2, window.innerHeight / 2)}
+            class="w-7 h-7 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+            title="Zoom Out"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
+            </svg>
+          </button>
 
-        <button
-          type="button"
-          onclick={fitToScreen}
-          class="w-7 h-7 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
-          title="Recenter Map"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-          </svg>
-        </button>
+          <button
+            type="button"
+            onclick={fitToScreen}
+            class="w-7 h-7 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+            title="Recenter Map"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+            </svg>
+          </button>
+        {/if}
 
         <button
           type="button"
@@ -562,6 +595,91 @@
         </button>
       </div>
     </header>
+
+    <!-- ── Discovered Campaign Codex Tab (Obsidian Publish Style) ─────────── -->
+    {#if activePortalTab === 'codex'}
+      <div class="absolute inset-0 z-20 pt-16 pb-4 px-4 bg-slate-950/95 backdrop-blur-md overflow-hidden flex flex-col">
+        <div class="max-w-xl w-full mx-auto flex-1 flex flex-col min-h-0 space-y-3">
+          <!-- Search Header -->
+          <div class="flex items-center gap-2">
+            <input
+              type="text"
+              bind:value={codexSearchQuery}
+              placeholder="Search discovered lore, NPCs, locations..."
+              class="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+            />
+            {#if selectedCodexDoc}
+              <button
+                type="button"
+                onclick={() => selectedCodexDoc = null}
+                class="px-2.5 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-xl text-xs font-bold"
+              >
+                ← Back
+              </button>
+            {/if}
+          </div>
+
+          <!-- Document List or Document Reader -->
+          {#if selectedCodexDoc}
+            <div class="flex-1 overflow-y-auto bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 space-y-3">
+              <div class="border-b border-slate-800 pb-2 flex items-start justify-between">
+                <div>
+                  <h3 class="text-base font-bold text-amber-300">{selectedCodexDoc.name}</h3>
+                  <span class="text-[10px] uppercase font-bold text-slate-500">{selectedCodexDoc.type}</span>
+                </div>
+                {#if selectedCodexDoc.tags && selectedCodexDoc.tags.length > 0}
+                  <div class="flex flex-wrap gap-1">
+                    {#each selectedCodexDoc.tags as tag}
+                      <span class="px-1.5 py-0.2 rounded bg-indigo-950/60 border border-indigo-800/60 text-[9px] text-indigo-300">
+                        #{tag}
+                      </span>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+
+              {#if selectedCodexDoc.summary}
+                <p class="text-xs italic text-slate-400 bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/60">
+                  {selectedCodexDoc.summary}
+                </p>
+              {/if}
+
+              <!-- Markdown content with secret redaction (isDm=false) and Wikilinks -->
+              <div class="text-xs text-slate-200 leading-relaxed font-sans">
+                <WikilinkRenderer markdown={selectedCodexDoc.bodyMarkdown} isDm={false} />
+              </div>
+            </div>
+          {:else}
+            <!-- Discovered Entities Catalog -->
+            <div class="flex-1 overflow-y-auto space-y-2 pr-1">
+              {#each filteredCodexEntities as entity}
+                <button
+                  type="button"
+                  onclick={() => selectedCodexDoc = entity}
+                  class="w-full text-left bg-slate-900/80 hover:bg-slate-850 border border-slate-800/80 rounded-xl p-3 transition-all space-y-1 block shadow-sm"
+                >
+                  <div class="flex items-center justify-between">
+                    <span class="font-bold text-xs text-slate-100">{entity.name}</span>
+                    <span class="text-[9px] uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">
+                      {entity.type}
+                    </span>
+                  </div>
+                  {#if entity.summary}
+                    <p class="text-[11px] text-slate-400 line-clamp-2">{entity.summary}</p>
+                  {/if}
+                </button>
+              {/each}
+
+              {#if filteredCodexEntities.length === 0}
+                <div class="p-8 text-center text-slate-500 text-xs">
+                  No discovered lore entries match your search.
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
 
     <!-- Companion Character Summary Cards with Live Condition Badges -->
     {#if tokens.some((t) => t.isPlayer)}

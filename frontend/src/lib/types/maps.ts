@@ -63,15 +63,22 @@ export interface TacticalBattlemap {
   biome?: BiomeType;
 }
 
+export type MapPinCategory = 'settlement' | 'dungeon' | 'hazard' | 'quest' | 'shop';
+
 export interface MapPoiPin {
   id: string;
   x: number;
   y: number;
-  icon: string;
-  label: string;
-  description: string;
+  title?: string;
+  label?: string;
+  category?: MapPinCategory;
+  target_map_id?: string;
+  target_lore_id?: string;
   linkedTacticalMapId?: string;
   isSecret: boolean;
+  is_secret?: boolean;
+  icon?: string;
+  description?: string;
 }
 
 export interface WorldAtlasScale {

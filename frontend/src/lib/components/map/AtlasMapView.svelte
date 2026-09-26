@@ -4,7 +4,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { mapsDb } from '../../db/mapsDb';
-  import type { WorldAtlasMap, MapPoiPin, TacticalBattlemap } from '../../types/maps';
+  import type { WorldAtlasMap, MapPoiPin, TacticalBattlemap, MapPinCategory } from '../../types/maps';
   import { importAzgaarGeoJson } from '../../importers/azgaarImporter';
   import { importUniversalMap } from '../../services/mapImporter';
   import { projectorStore } from '../../stores/projectorStore.svelte';
@@ -28,6 +28,15 @@
   let editingPin = $state<MapPoiPin | null>(null);
   let isEditingPin = $state(false);
 
+  // Category filters
+  let enabledCategories = $state<Record<MapPinCategory, boolean>>({
+    settlement: true,
+    dungeon: true,
+    hazard: true,
+    quest: true,
+    shop: true,
+  });
+
   // Ruler & Measurement
   let rulerActive = $state(false);
   let rulerWaypoints = $state<Array<{ x: number; y: number }>>([]);
@@ -41,9 +50,14 @@
   let dragStartX = 0;
   let dragStartY = 0;
 
-  // Filtered pins for projector / players: strictly filter out secret pins
+  // Filtered pins for projector / players: strictly filter out secret pins & apply category filter
   let displayPins = $derived(
-    currentAtlas?.poiPins.filter(p => isDm || !p.isSecret) || []
+    currentAtlas?.poiPins.filter(p => {
+      const isSec = p.isSecret || p.is_secret;
+      if (!isDm && isSec) return false;
+      const cat = p.category || 'settlement';
+      return enabledCategories[cat] !== false;
+    }) || []
   );
 
   async function loadAtlases() {
@@ -220,12 +234,24 @@
     zoom = 1;
   }
 
-  function getPinEmoji(icon: string): string {
+  function getPinEmoji(icon?: string, category?: MapPinCategory): string {
+    if (category) {
+      switch (category) {
+        case 'settlement': return '🏰';
+        case 'dungeon': return '💀';
+        case 'hazard': return '⚠️';
+        case 'quest': return '📜';
+        case 'shop': return '🪙';
+      }
+    }
     switch (icon) {
       case 'castle': return '🏰';
+      case 'dungeon': return '💀';
+      case 'hazard': return '⚠️';
+      case 'quest': return '📜';
+      case 'shop': return '🪙';
       case 'anchor': return '⚓';
-      case 'dungeon': return '🗝️';
-      default: return '🏘️';
+      default: return '📍';
     }
   }
 </script>
@@ -281,6 +307,50 @@
         <span>📏</span>
         <span>{rulerActive ? 'Measuring…' : 'Ruler'}</span>
       </button>
+
+      <!-- Category Filter Toggles -->
+      <div class="flex items-center gap-1 border-l border-slate-700/60 pl-2">
+        <button
+          type="button"
+          onclick={() => enabledCategories.settlement = !enabledCategories.settlement}
+          class="px-2 py-0.5 rounded text-[11px] font-bold transition-all {enabledCategories.settlement ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50' : 'bg-slate-800 text-slate-500 line-through'}"
+          title="Toggle Settlements"
+        >
+          🏰 Settlements
+        </button>
+        <button
+          type="button"
+          onclick={() => enabledCategories.dungeon = !enabledCategories.dungeon}
+          class="px-2 py-0.5 rounded text-[11px] font-bold transition-all {enabledCategories.dungeon ? 'bg-rose-600/30 text-rose-300 border border-rose-500/50' : 'bg-slate-800 text-slate-500 line-through'}"
+          title="Toggle Dungeons"
+        >
+          💀 Dungeons
+        </button>
+        <button
+          type="button"
+          onclick={() => enabledCategories.hazard = !enabledCategories.hazard}
+          class="px-2 py-0.5 rounded text-[11px] font-bold transition-all {enabledCategories.hazard ? 'bg-yellow-600/30 text-yellow-300 border border-yellow-500/50' : 'bg-slate-800 text-slate-500 line-through'}"
+          title="Toggle Hazards"
+        >
+          ⚠️ Hazards
+        </button>
+        <button
+          type="button"
+          onclick={() => enabledCategories.quest = !enabledCategories.quest}
+          class="px-2 py-0.5 rounded text-[11px] font-bold transition-all {enabledCategories.quest ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/50' : 'bg-slate-800 text-slate-500 line-through'}"
+          title="Toggle Quests"
+        >
+          📜 Quests
+        </button>
+        <button
+          type="button"
+          onclick={() => enabledCategories.shop = !enabledCategories.shop}
+          class="px-2 py-0.5 rounded text-[11px] font-bold transition-all {enabledCategories.shop ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/50' : 'bg-slate-800 text-slate-500 line-through'}"
+          title="Toggle Shops"
+        >
+          🪙 Shops
+        </button>
+      </div>
 
       <button
         type="button"
@@ -343,6 +413,9 @@
 
       <!-- POI Pins -->
       {#each displayPins as pin (pin.id)}
+        {@const pinTitle = pin.title || pin.label || 'Point of Interest'}
+        {@const isSec = pin.isSecret || pin.is_secret}
+        {@const targetMap = pin.target_map_id || pin.linkedTacticalMapId}
         <div
           class="absolute -translate-x-1/2 -translate-y-1/2 transition-transform hover:scale-125 z-10 cursor-pointer"
           style="left: {pin.x}px; top: {pin.y}px;"
@@ -351,6 +424,12 @@
           onclick={(e) => {
             e.stopPropagation();
             selectedPin = pin;
+          }}
+          ondblclick={(e) => {
+            e.stopPropagation();
+            if (targetMap) {
+              enterEncounterMap(targetMap);
+            }
           }}
           oncontextmenu={(e) => {
             if (isDm) {
@@ -365,15 +444,18 @@
         >
           <div class="flex flex-col items-center group">
             <div
-              class="w-7 h-7 rounded-full flex items-center justify-center shadow-lg border text-sm transition-all {pin.isSecret
+              class="w-7 h-7 rounded-full flex items-center justify-center shadow-lg border text-sm transition-all {isSec
                 ? 'bg-rose-950 border-rose-500/80 text-rose-200'
                 : 'bg-slate-900 border-amber-500/80 text-amber-200 group-hover:border-amber-400'}"
             >
-              <span>{getPinEmoji(pin.icon)}</span>
+              <span>{getPinEmoji(pin.icon, pin.category)}</span>
             </div>
-            <span class="mt-0.5 px-1.5 py-0.5 rounded bg-slate-950/90 border border-slate-800 text-[10px] font-bold text-slate-200 whitespace-nowrap shadow">
-              {pin.label}
-              {#if isDm && pin.isSecret}
+            <span class="mt-0.5 px-1.5 py-0.5 rounded bg-slate-950/90 border border-slate-800 text-[10px] font-bold text-slate-200 whitespace-nowrap shadow flex items-center gap-1">
+              <span>{pinTitle}</span>
+              {#if targetMap}
+                <span class="text-[9px] text-amber-400" title="Linked Battlemat (Double-click to open)">⚔️</span>
+              {/if}
+              {#if isDm && isSec}
                 <span class="text-[9px] text-rose-400 font-normal">[Secret]</span>
               {/if}
             </span>
@@ -488,26 +570,28 @@
 
         <div class="space-y-3 text-xs">
           <div>
-            <label for="atlas-pin-label" class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Pin Name / Label</label>
+            <label for="atlas-pin-label" class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Pin Title</label>
             <input
               id="atlas-pin-label"
               type="text"
-              bind:value={editingPin.label}
+              bind:value={editingPin.title}
+              placeholder="e.g. Iron Citadel..."
               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500"
             />
           </div>
 
           <div>
-            <label for="atlas-pin-icon" class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Icon Category</label>
+            <label for="atlas-pin-category" class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Pin Category</label>
             <select
-              id="atlas-pin-icon"
-              bind:value={editingPin.icon}
+              id="atlas-pin-category"
+              bind:value={editingPin.category}
               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500"
             >
-              <option value="settlement">🏘️ Settlement / Town</option>
-              <option value="castle">🏰 Castle / Fortress</option>
-              <option value="dungeon">🗝️ Dungeon / Ruin</option>
-              <option value="anchor">⚓ Port / Coast</option>
+              <option value="settlement">🏰 Settlements</option>
+              <option value="dungeon">💀 Dungeons</option>
+              <option value="hazard">⚠️ Hazards</option>
+              <option value="quest">📜 Quests</option>
+              <option value="shop">🪙 Shops</option>
             </select>
           </div>
 
@@ -522,17 +606,28 @@
           </div>
 
           <div>
-            <label for="atlas-pin-battlemap" class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Linked Tactical Battlemap</label>
+            <label for="atlas-pin-battlemap" class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Target Battlemat (Direct Tactical Open)</label>
             <select
               id="atlas-pin-battlemap"
-              bind:value={editingPin.linkedTacticalMapId}
+              bind:value={editingPin.target_map_id}
               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500"
             >
-              <option value="">-- No Linked Battlemap --</option>
+              <option value="">-- No Linked Battlemat --</option>
               {#each tacticalMapsList as tMap}
                 <option value={tMap.id}>{tMap.name}</option>
               {/each}
             </select>
+          </div>
+
+          <div>
+            <label for="atlas-pin-lore" class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Target Lore Document ID (Optional)</label>
+            <input
+              id="atlas-pin-lore"
+              type="text"
+              bind:value={editingPin.target_lore_id}
+              placeholder="e.g. doc-iron-citadel"
+              class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500"
+            />
           </div>
 
           <div class="flex items-center gap-2 pt-1">
@@ -543,7 +638,7 @@
               class="rounded bg-slate-950 border-slate-800 text-amber-500 focus:ring-amber-500"
             />
             <label for="pin-secret-checkbox" class="text-xs text-slate-300 font-semibold cursor-pointer">
-              Secret POI (Hidden from Player Projector)
+              Secret Marker (Filter Out from Player Projector &amp; Companion Portal)
             </label>
           </div>
         </div>

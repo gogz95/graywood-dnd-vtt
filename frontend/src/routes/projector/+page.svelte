@@ -46,10 +46,11 @@
     const players = canvasStore.tokens.filter((t) => t.isPlayer);
     if (players.length > 0) {
       const active = players.find((t) => t.id === canvasStore.activeTokenId) || players[0];
+      const gSize = canvasStore.gridSize || 60;
       spatialAudioEngine.setListener(
-        (active.x + 0.5) * gridSize,
-        (active.y + 0.5) * gridSize,
-        gridSize
+        (active.x + 0.5) * gSize,
+        (active.y + 0.5) * gSize,
+        gSize
       );
     }
   });
@@ -331,6 +332,14 @@
     };
     window.addEventListener('vtt:ping-point', onPingEvent);
 
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        curtainStore.toggle();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+
     window.addEventListener('resize', syncCanvasDimensions);
 
     const startTime = performance.now();
@@ -364,6 +373,7 @@
     });
 
     return () => {
+      window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('resize', syncCanvasDimensions);
       window.removeEventListener('vtt:ping-point', onPingEvent);
       cleanupSync?.();
@@ -1061,9 +1071,23 @@
 <Dice3DOverlay theme="gold" />
 
 <!-- ── DM Staging Curtain ("Blackout Veil") Overlay ────────────────────── -->
-{#if curtainStore.active}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black transition-opacity duration-300">
-    <span class="text-zinc-600 font-mono tracking-widest uppercase text-sm">Scene Staging in Progress</span>
+{#if curtainStore.active || isPreloadingMap}
+  <div class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/95 transition-opacity duration-300 select-none">
+    <div class="flex flex-col items-center space-y-4 max-w-md p-6 text-center">
+      <div class="w-16 h-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-3xl shadow-2xl animate-pulse">
+        🎭
+      </div>
+      <h2 class="text-xl font-bold font-serif uppercase tracking-widest text-slate-200">
+        The Stage is Being Set
+      </h2>
+      <p class="text-xs text-slate-400 font-mono leading-relaxed">
+        The Dungeon Master is staging the next scene. Please stand by while terrain, tokens, and lighting are calibrated.
+      </p>
+      <div class="flex items-center gap-2 text-indigo-400 font-mono text-[11px]">
+        <span class="w-2 h-2 rounded-full bg-indigo-500 animate-ping"></span>
+        <span>Staging Curtain Active</span>
+      </div>
+    </div>
   </div>
 {/if}
 

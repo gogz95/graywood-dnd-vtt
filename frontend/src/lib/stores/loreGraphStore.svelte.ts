@@ -13,6 +13,7 @@ export interface LoreEntity {
   bodyMarkdown: string;
   tags: string[];
   attributes: Record<string, string | number | boolean>;
+  discovered?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -327,6 +328,10 @@ class LoreGraphStore {
 
   getEntitiesByType(type: EntityType): LoreEntity[] {
     return this.entities.filter(e => e.type === type);
+  }
+
+  getDiscoveredEntities(): LoreEntity[] {
+    return this.entities.filter(e => e.discovered === true || e.discovered === undefined);
   }
 
   getEntitiesByTag(tag: string): LoreEntity[] {

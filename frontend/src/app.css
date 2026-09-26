@@ -185,3 +185,116 @@ html.theme-high-contrast {
   --theme-text-muted:  #e2e8f0;
   --theme-accent:      #38bdf8;
 }
+
+/* ==========================================================================
+   ITS Theme Callout Archetypes & Wikilinks (Quartz / Obsidian)
+   ========================================================================== */
+
+/* 1. Parchment Archetype: Aged paper background, ragged border, serif typography */
+.callout-parchment {
+  background-color: #f4ecd8 !important;
+  color: #451a03 !important;
+  border: 1px solid #78350f !important;
+  border-radius: 4px;
+  font-family: Georgia, Cambria, 'Times New Roman', serif;
+  box-shadow: 0 4px 12px rgba(41, 18, 6, 0.2), inset 0 0 30px rgba(120, 53, 15, 0.15);
+}
+
+/* 2. Letter Archetype: Authentic wax-sealed missive layout */
+.callout-letter {
+  background-color: #fcf9f2 !important;
+  color: #291206 !important;
+  border: 1px solid #b45309 !important;
+  border-radius: 6px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  position: relative;
+}
+
+/* 3. Statblock Archetype: 5e two-column statblock format with crimson divider bars */
+.callout-statblock {
+  background-color: #140b0b !important;
+  color: #f1f5f9 !important;
+  border: 2px solid #7f1d1d !important;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.callout-statblock-columns {
+  column-count: 2;
+  column-gap: 1.25rem;
+  column-rule: 2px solid #7f1d1d;
+}
+
+@media (max-width: 640px) {
+  .callout-statblock-columns {
+    column-count: 1;
+  }
+}
+
+/* 4. DM Secret Callout */
+.callout-secret {
+  background: rgba(69, 26, 3, 0.4) !important;
+  border: 2px solid #d97706 !important;
+  box-shadow: inset 0 0 16px rgba(180, 83, 9, 0.2);
+}
+
+/* 5. Wikilink interactive pill / chip */
+.wikilink-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.8em;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.wikilink-monster {
+  background: rgba(225, 29, 72, 0.15);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  color: #fda4af;
+}
+.wikilink-monster:hover {
+  background: rgba(225, 29, 72, 0.3);
+  border-color: #f43f5e;
+  color: #fff;
+}
+
+.wikilink-spell {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(129, 140, 248, 0.4);
+  color: #c7d2fe;
+}
+.wikilink-spell:hover {
+  background: rgba(99, 102, 241, 0.3);
+  border-color: #818cf8;
+  color: #fff;
+}
+
+.wikilink-item {
+  background: rgba(217, 119, 6, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  color: #fde68a;
+}
+.wikilink-item:hover {
+  background: rgba(217, 119, 6, 0.3);
+  border-color: #fbbf24;
+  color: #fff;
+}
+
+.wikilink-generic {
+  background: rgba(148, 163, 184, 0.15);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: #cbd5e1;
+}
+.wikilink-generic:hover {
+  background: rgba(148, 163, 184, 0.25);
+  border-color: #94a3b8;
+  color: #fff;
+}
+

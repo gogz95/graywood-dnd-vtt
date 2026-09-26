@@ -263,6 +263,42 @@ pub const MIGRATIONS: &[MigrationStep] = &[
             CREATE VIRTUAL TABLE IF NOT EXISTS lore_fts USING fts5(content_text, document_title);
         "#,
     },
+    MigrationStep {
+        version: 4,
+        name: "004_calendarium_world_engine_and_hierarchical_map_pins",
+        sql: r#"
+            -- Configurable Fantasy World Calendar Engine (Calendarium Schema)
+            CREATE TABLE IF NOT EXISTS world_calendar (
+                id TEXT PRIMARY KEY NOT NULL DEFAULT 'primary_calendar',
+                epoch_name TEXT NOT NULL DEFAULT 'Common Era',
+                current_year INTEGER NOT NULL DEFAULT 1492,
+                current_day_of_year INTEGER NOT NULL DEFAULT 1,
+                current_epoch_seconds INTEGER NOT NULL DEFAULT 43200,
+                lunar_cycle_days REAL NOT NULL DEFAULT 28.0,
+                months_json TEXT NOT NULL DEFAULT '[]',
+                weekdays_json TEXT NOT NULL DEFAULT '[]',
+                active_effects_json TEXT NOT NULL DEFAULT '[]',
+                updated_at BIGINT NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
+
+            -- Hierarchical Map Markers & Tactical Pins (Obsidian Leaflet Schema)
+            CREATE TABLE IF NOT EXISTS map_pins (
+                id TEXT PRIMARY KEY NOT NULL,
+                map_id TEXT NOT NULL,
+                x REAL NOT NULL,
+                y REAL NOT NULL,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'settlement', -- settlement, dungeon, hazard, quest, shop
+                target_map_id TEXT,
+                target_lore_id TEXT,
+                is_secret BOOLEAN NOT NULL DEFAULT 0 CHECK (is_secret IN (0, 1)),
+                created_at BIGINT NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_map_pins_map_id ON map_pins(map_id);
+            CREATE INDEX IF NOT EXISTS idx_map_pins_category ON map_pins(category);
+        "#,
+    },
 ];
 
 /// Retrieves current schema version from PRAGMA user_version.

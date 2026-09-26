@@ -100,16 +100,19 @@ if (typeof window !== 'undefined') {
   });
 }
 
+import { stripSecretCallouts } from '../utils/markdownRenderer';
+
 /**
  * Broadcasts a rendered parchment handout to all connected player screens.
  * Strips secret DM notes before serialization to guarantee zero player leakage.
  */
 export function broadcastHandoutToParty(handout: HandoutDocument): PlayerBroadcastPayload {
+  const sanitizedContent = stripSecretCallouts(handout.contentMarkdown);
   const sanitizedPayload: PlayerBroadcastPayload = {
     handout_id: handout.id,
     title: handout.title,
     subtitle: handout.subtitle || undefined,
-    content_markdown: handout.contentMarkdown,
+    content_markdown: sanitizedContent,
     theme: handout.theme,
     seal_type: handout.sealType,
     seal_text: handout.sealText || undefined,

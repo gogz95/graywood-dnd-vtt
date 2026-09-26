@@ -25,6 +25,7 @@
   import { dispatchSoundEvent } from '../../audio/soundboardBridge';
   import { audioEngine } from '../../audio/AudioEngine';
   import { sendWsEvent } from '../../../stores/websocketStore';
+  import WikilinkRenderer from './WikilinkRenderer.svelte';
 
   // ── Sub-view Tabs ──────────────────────────────────────────────────────────
   type LoreSubView = 'wiki' | 'manifests' | 'pricing';
@@ -711,8 +712,8 @@
                   {/if}
                 </div>
               {:else}
-                <div class="p-4 bg-slate-900/50 border border-slate-800/80 rounded-xl text-xs text-slate-300 whitespace-pre-wrap leading-relaxed font-sans space-y-2">
-                  {activeEntity.bodyMarkdown}
+                <div class="p-4 bg-slate-900/50 border border-slate-800/80 rounded-xl text-xs text-slate-300 leading-relaxed font-sans space-y-2">
+                  <WikilinkRenderer markdown={activeEntity.bodyMarkdown} isDm={true} />
                 </div>
               {/if}
             </div>

@@ -4,6 +4,7 @@
   // authentic fantasy typography, drop-caps, two-column covenants, and wax seal stamps.
 
   import type { HandoutTheme, WaxSealType } from '../../network/broadcastBridge';
+  import { renderMarkdown, stripSecretCallouts } from '../../utils/markdownRenderer';
 
   let {
     title = 'Official Document',
@@ -13,6 +14,7 @@
     sealType = 'wax_red',
     sealText = 'SEALED & WITNESSED',
     compact = false,
+    isDm = false,
   }: {
     title?: string;
     subtitle?: string;
@@ -21,6 +23,7 @@
     sealType?: WaxSealType;
     sealText?: string;
     compact?: boolean;
+    isDm?: boolean;
   } = $props();
 
   // ── Markdown Parser to Styled Parchment HTML ──────────────────────────────
@@ -29,8 +32,75 @@
 
     let html = md;
 
+    // Filter secret callouts if not DM workstation
+    if (!isDm) {
+      html = stripSecretCallouts(html);
+    }
+
     // Normalize newlines
     html = html.replace(/\r\n/g, '\n');
+
+    // Handle standard Obsidian/ITS callout syntax within Parchment documents
+    html = html.replace(/^[ \t]*>[ \t]*\[!([a-zA-Z0-9_-]+)\][ \t]*([^\n]*)(?:\n([ \t]*>[^\n]*))*/gim, (fullMatch) => {
+      const lines = fullMatch.split('\n').map(l => l.replace(/^[ \t]*>[ \t]?/, ''));
+      if (lines.length === 0) return fullMatch;
+      const firstLineMatch = lines[0].match(/^\[!([a-zA-Z0-9_-]+)\][ \t]*(.*)$/i);
+      if (!firstLineMatch) return fullMatch;
+
+      const calloutType = firstLineMatch[1].toLowerCase();
+      const customTitle = firstLineMatch[2].trim();
+      const bodyLines = lines.slice(1).join('\n').trim();
+
+      if (calloutType === 'secret' || calloutType === 'gm' || calloutType === 'danger') {
+        if (!isDm) return '';
+        const t = customTitle || (calloutType === 'danger' ? 'DM Hazard / Secret' : 'DM Confidential Note');
+        return `<div class="my-3 p-3 rounded border-2 border-amber-800 bg-amber-950/20 text-amber-950 shadow">
+          <div class="flex items-center gap-1.5 font-bold text-xs uppercase tracking-wider text-amber-900 border-b border-amber-800/40 pb-1 mb-2">
+            <span>🔒</span>
+            <span>${escapeHtml(t)}</span>
+            <span class="ml-auto text-[9px] px-1 py-0.5 rounded bg-amber-900 text-amber-100 font-mono">DM ONLY</span>
+          </div>
+          <div class="text-xs leading-relaxed italic text-amber-950/90">${parseMarkdownToParchment(bodyLines)}</div>
+        </div>`;
+      }
+
+      if (calloutType === 'parchment') {
+        const t = customTitle || 'Archival Fragment';
+        return `<div class="my-3 p-3 rounded border border-amber-950/40 bg-amber-900/10 font-serif">
+          <div class="font-bold text-xs uppercase text-amber-950 border-b border-amber-950/30 pb-0.5 mb-1.5 flex items-center gap-1">
+            <span>📜</span>
+            <span>${escapeHtml(t)}</span>
+          </div>
+          <div class="text-xs leading-relaxed text-amber-950/95">${parseMarkdownToParchment(bodyLines)}</div>
+        </div>`;
+      }
+
+      if (calloutType === 'letter') {
+        const t = customTitle || 'Sealed Missive';
+        return `<div class="my-3 p-4 rounded border border-amber-950/50 bg-[#fffdfa] shadow-sm font-serif">
+          <div class="flex items-center justify-between border-b border-amber-950/30 pb-1 mb-2 text-xs font-bold text-amber-950">
+            <span>✉️ ${escapeHtml(t)}</span>
+            <span class="text-[10px] text-amber-800 font-serif italic">Wax Affixed</span>
+          </div>
+          <div class="text-xs leading-relaxed italic text-amber-950/90">${parseMarkdownToParchment(bodyLines)}</div>
+        </div>`;
+      }
+
+      if (calloutType === 'statblock') {
+        const t = customTitle || 'Creature Statblock';
+        return `<div class="my-4 p-3 rounded border-2 border-red-950/80 bg-red-950/10 text-amber-950 font-serif">
+          <div class="text-xs font-black uppercase tracking-wide text-red-950 border-b-2 border-red-950/40 pb-1 mb-2">
+            ⚔️ ${escapeHtml(t)}
+          </div>
+          <div class="parchment-columns text-xs text-amber-950">${parseMarkdownToParchment(bodyLines)}</div>
+        </div>`;
+      }
+
+      return `<div class="my-3 pl-3 border-l-4 border-amber-900 bg-amber-950/10 py-1.5 pr-2 font-serif text-xs text-amber-950">
+        <strong class="block uppercase text-[10px] text-amber-900 mb-0.5">${escapeHtml(customTitle || calloutType)}</strong>
+        <div>${parseMarkdownToParchment(bodyLines)}</div>
+      </div>`;
+    });
 
     // 1. Two-column blocks :::columns ... :::
     html = html.replace(/:::columns([\s\S]*?):::/g, (_match, body) => {

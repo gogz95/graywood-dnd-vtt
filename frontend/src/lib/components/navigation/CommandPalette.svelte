@@ -12,14 +12,22 @@
   import { audioEngine } from '../../audio/AudioEngine';
   import { uiStore } from '../../stores/uiStore.svelte';
   import StatblockView from '../bestiary/StatblockView.svelte';
+  import {
+    generateCharacterName,
+    generateEstablishmentName,
+    quickAddNpcToRoster,
+    type FantasyRace,
+    type EstablishmentType,
+  } from '../../services/nameGeneratorService';
 
   export interface CommandItem {
     id: string;
-    category: 'spell' | 'monster' | 'item' | 'map' | 'combat' | 'audio' | 'navigation';
+    category: 'spell' | 'monster' | 'item' | 'map' | 'combat' | 'audio' | 'navigation' | 'generator';
     icon: string;
     title: string;
     subtitle: string;
     badge?: string;
+    quickAction?: { label: string; action: () => void };
     action: () => void;
   }
 
@@ -191,9 +199,57 @@
         items.push(defaultCommands[4]);
       }
 
-      // 3. Projector Blackout
-      if ('blackout'.includes(q) || 'curtain'.includes(q) || 'projector'.includes(q)) {
-        items.push(defaultCommands[2]);
+      // Procedural Name & Improv Generators
+      const RACES: FantasyRace[] = ['Dwarf', 'Elf', 'Human', 'Orc', 'Tiefling', 'Halfling'];
+      const ESTABLISHMENTS: EstablishmentType[] = ['Tavern', 'General Store', 'Blacksmith', 'Ship'];
+
+      if (q.includes('name') || q.includes('npc') || q.includes('improv') || RACES.some(r => r.toLowerCase().includes(q))) {
+        for (const race of RACES) {
+          if (q.includes('name') || q.includes('npc') || race.toLowerCase().includes(q)) {
+            const gen = generateCharacterName(race);
+            items.push({
+              id: `gen-${race}-${Date.now()}`,
+              category: 'generator',
+              icon: race === 'Elf' ? '🧝' : race === 'Dwarf' ? '🧔' : race === 'Orc' ? '👹' : '👤',
+              title: `${gen.fullName} (${race} NPC)`,
+              subtitle: `Procedural ${race} Name · Click to copy or Quick-Add to combat roster`,
+              badge: race,
+              quickAction: {
+                label: '+ Quick Add NPC to Roster',
+                action: () => {
+                  quickAddNpcToRoster(gen.fullName, race);
+                  close();
+                }
+              },
+              action: () => {
+                if (typeof navigator !== 'undefined') navigator.clipboard.writeText(gen.fullName);
+                chatStore.sendMessage(`Generated NPC: **${gen.fullName}** (${race})`, 'System');
+                close();
+              }
+            });
+          }
+        }
+      }
+
+      if (q.includes('tavern') || q.includes('store') || q.includes('shop') || q.includes('blacksmith') || q.includes('ship') || q.includes('place')) {
+        for (const est of ESTABLISHMENTS) {
+          if (q.includes('place') || est.toLowerCase().includes(q)) {
+            const estName = generateEstablishmentName(est);
+            items.push({
+              id: `gen-${est}-${Date.now()}`,
+              category: 'generator',
+              icon: est === 'Tavern' ? '🍺' : est === 'Ship' ? '⛵' : est === 'Blacksmith' ? '⚒️' : '🏬',
+              title: estName,
+              subtitle: `Procedural ${est} · Click to post into session chat`,
+              badge: est,
+              action: () => {
+                if (typeof navigator !== 'undefined') navigator.clipboard.writeText(estName);
+                chatStore.sendMessage(`Generated Establishment: **${estName}** (${est})`, 'System');
+                close();
+              }
+            });
+          }
+        }
       }
 
       try {
@@ -355,11 +411,13 @@
           </div>
         {:else}
           {#each results as item, index}
-            <button
-              type="button"
-              class="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-left transition-all {selectedIndex === index ? 'bg-indigo-600/20 border border-indigo-500/50 shadow-sm' : 'hover:bg-slate-800/60 border border-transparent'}"
+            <div
+              role="button"
+              tabindex="0"
+              class="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-left cursor-pointer transition-all {selectedIndex === index ? 'bg-indigo-600/20 border border-indigo-500/50 shadow-sm' : 'hover:bg-slate-800/60 border border-transparent'}"
               onmouseenter={() => (selectedIndex = index)}
               onclick={() => item.action()}
+              onkeydown={(e) => { if (e.key === 'Enter') item.action(); }}
             >
               <div class="flex items-center gap-3 min-w-0">
                 <span class="text-xl shrink-0">{item.icon}</span>
@@ -376,12 +434,28 @@
                 </div>
               </div>
 
-              {#if selectedIndex === index}
-                <span class="shrink-0 text-[10px] font-mono text-indigo-300 bg-indigo-950/70 border border-indigo-700/40 px-2 py-0.5 rounded">
-                  ↵ Enter
-                </span>
-              {/if}
-            </button>
+              <div class="flex items-center gap-2 shrink-0">
+                {#if item.quickAction}
+                  <button
+                    type="button"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      item.quickAction!.action();
+                    }}
+                    class="px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-[10px] font-bold transition-colors shadow flex items-center gap-1"
+                  >
+                    <span>⚔️</span>
+                    <span>{item.quickAction.label}</span>
+                  </button>
+                {/if}
+
+                {#if selectedIndex === index}
+                  <span class="text-[10px] font-mono text-indigo-300 bg-indigo-950/70 border border-indigo-700/40 px-2 py-0.5 rounded">
+                    ↵ Enter
+                  </span>
+                {/if}
+              </div>
+            </div>
           {/each}
         {/if}
       </div>

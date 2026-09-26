@@ -272,3 +272,27 @@ class CompendiumStore {
 }
 
 export const compendiumStore = new CompendiumStore();
+
+export const spellStore = {
+  find(name: string): CompendiumSpell | undefined {
+    const q = name.trim().toLowerCase();
+    return compendiumStore.spells.find((s) => s.name.toLowerCase() === q);
+  },
+  search(query: string): CompendiumSpell[] {
+    const q = query.trim().toLowerCase();
+    if (!q) return compendiumStore.spells;
+    return compendiumStore.spells.filter((s) => s.name.toLowerCase().includes(q));
+  }
+};
+
+export const equipmentStore = {
+  find(name: string): CompendiumItem | undefined {
+    const q = name.trim().toLowerCase();
+    return compendiumStore.items.find((i) => i.name.toLowerCase() === q);
+  },
+  search(query: string): CompendiumItem[] {
+    const q = query.trim().toLowerCase();
+    if (!q) return compendiumStore.items;
+    return compendiumStore.items.filter((i) => i.name.toLowerCase().includes(q));
+  }
+};

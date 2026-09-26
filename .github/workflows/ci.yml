@@ -63,6 +63,7 @@ jobs:
       - name: Frontend Typecheck and Build Validation
         run: |
           npm --prefix frontend run check
+          npm --prefix frontend run build
 
       - name: Rust Code Formatting Check
         run: |
