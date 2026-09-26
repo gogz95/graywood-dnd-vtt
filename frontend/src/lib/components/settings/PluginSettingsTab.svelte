@@ -1,7 +1,7 @@
 <script lang="ts">
   // PluginSettingsTab.svelte — Sandboxed Plugin & Community Addons Management
   import { onMount } from 'svelte';
-  import { pluginHost, type PluginInstance } from '../../services/pluginHost';
+  import { pluginHost, type PluginInstance } from '../../services/pluginHost.svelte';
 
   let searchQuery = $state('');
   let selectedPluginId = $state<string | null>(null);
