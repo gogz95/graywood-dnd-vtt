@@ -35,6 +35,7 @@ pub enum ClientRole {
 
 impl ClientRole {
     /// Parse from the freeform string clients send during Auth.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "owner_dm" | "ownerdm" | "dm" | "gm" => ClientRole::OwnerDm,

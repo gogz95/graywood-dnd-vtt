@@ -45,8 +45,8 @@ impl EpochBuffer {
     /// Returns all events that occurred *after* `since_epoch`.
     ///
     /// * `Some(vec)` – the caller missed some events and here they are.
-    /// * `None`      – `since_epoch` has been evicted from the ring; the
-    ///                 caller must fall back to a full DB snapshot (HTTP 410).
+    /// * `None` – `since_epoch` has been evicted from the ring; the
+    ///   caller must fall back to a full DB snapshot (HTTP 410).
     pub fn get_missed_events(&self, since_epoch: u64) -> Option<Vec<WsEvent>> {
         // If the buffer is empty or the client is fully caught up, return an
         // empty slice (no missed events, no need for a snapshot).
