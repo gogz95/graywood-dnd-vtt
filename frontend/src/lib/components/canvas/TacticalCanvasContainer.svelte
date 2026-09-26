@@ -691,7 +691,16 @@
   let isDroppingMap = $state(false);
 
   function handleBattleMapEvent(e: Event) {
-    const detail = (e as CustomEvent<{ url?: string; dataUrl?: string; fileName?: string }>).detail;
+    const detail = (e as CustomEvent<{
+      url?: string;
+      dataUrl?: string;
+      fileName?: string;
+      mapId?: string;
+      gridSize?: number;
+      walls?: any[];
+      width?: number;
+      height?: number;
+    }>).detail;
     if (!detail) return;
     const targetUrl = detail.dataUrl || detail.url;
     if (targetUrl) {
@@ -699,6 +708,25 @@
       if (detail.fileName) {
         mapImageUrl = detail.fileName;
         mapImageInput = detail.fileName;
+      }
+      if (detail.mapId) {
+        activeBattlemapId = detail.mapId;
+      }
+      if (detail.gridSize) {
+        gridSize = detail.gridSize;
+      }
+      if (detail.walls && detail.walls.length > 0) {
+        walls = detail.walls.map((w, idx) => ({
+          id: w.id || `w-${idx}`,
+          x1: w.x1,
+          y1: w.y1,
+          x2: w.x2,
+          y2: w.y2,
+          blocksVision: w.blocksVision ?? w.blocksLight ?? true,
+          blocksMovement: w.blocksMovement ?? true,
+          isDoor: w.door || w.isDoor,
+          isOpen: w.isOpen || false
+        }));
       }
       vpX = 0;
       vpY = 0;

@@ -155,6 +155,114 @@ pub const MIGRATIONS: &[MigrationStep] = &[
             );
         "#,
     },
+    MigrationStep {
+        version: 3,
+        name: "003_categorized_entities_and_lore_fts",
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS campaign_meta (
+                key TEXT PRIMARY KEY NOT NULL,
+                value TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS maps (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                grid_size INTEGER NOT NULL DEFAULT 60,
+                data_json TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE TABLE IF NOT EXISTS wall_colliders (
+                id TEXT PRIMARY KEY NOT NULL,
+                map_id TEXT NOT NULL,
+                x1 REAL NOT NULL,
+                y1 REAL NOT NULL,
+                x2 REAL NOT NULL,
+                y2 REAL NOT NULL,
+                blocks_light INTEGER NOT NULL DEFAULT 1,
+                blocks_movement INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS tokens (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                x REAL NOT NULL DEFAULT 0.0,
+                y REAL NOT NULL DEFAULT 0.0,
+                data_json TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE TABLE IF NOT EXISTS bestiary (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                cr TEXT NOT NULL DEFAULT '0',
+                size TEXT NOT NULL DEFAULT 'Medium',
+                type TEXT NOT NULL DEFAULT 'humanoid',
+                ac INTEGER NOT NULL DEFAULT 10,
+                hp INTEGER NOT NULL DEFAULT 10,
+                stats_json TEXT NOT NULL DEFAULT '{}',
+                traits_json TEXT NOT NULL DEFAULT '[]',
+                actions_json TEXT NOT NULL DEFAULT '[]',
+                source TEXT NOT NULL DEFAULT 'SRD 5.1'
+            );
+
+            CREATE TABLE IF NOT EXISTS monsters (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                cr TEXT NOT NULL,
+                size TEXT NOT NULL,
+                type TEXT NOT NULL,
+                ac INTEGER NOT NULL,
+                hp INTEGER NOT NULL,
+                stats_json TEXT NOT NULL DEFAULT '{}',
+                traits_json TEXT NOT NULL DEFAULT '[]',
+                actions_json TEXT NOT NULL DEFAULT '[]',
+                source TEXT NOT NULL DEFAULT 'SRD 5.1'
+            );
+
+            CREATE TABLE IF NOT EXISTS spells (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                level INTEGER NOT NULL,
+                school TEXT NOT NULL,
+                casting_time TEXT NOT NULL,
+                range TEXT NOT NULL,
+                duration TEXT NOT NULL,
+                components TEXT NOT NULL,
+                description_text TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'SRD 5.1'
+            );
+
+            CREATE TABLE IF NOT EXISTS items (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                item_type TEXT NOT NULL,
+                rarity TEXT NOT NULL DEFAULT 'Common',
+                cost TEXT NOT NULL DEFAULT '0 gp',
+                weight REAL NOT NULL DEFAULT 0.0,
+                description_text TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'SRD 5.1'
+            );
+
+            CREATE TABLE IF NOT EXISTS lore_documents (
+                id TEXT PRIMARY KEY NOT NULL,
+                document_title TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL DEFAULT 0,
+                content_text TEXT NOT NULL,
+                tags TEXT NOT NULL DEFAULT '',
+                embedding_vector TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS lore_chunks (
+                id TEXT PRIMARY KEY NOT NULL,
+                document_title TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL DEFAULT 0,
+                content_text TEXT NOT NULL,
+                tags TEXT NOT NULL DEFAULT '',
+                embedding_vector TEXT
+            );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS lore_fts USING fts5(content_text, document_title);
+        "#,
+    },
 ];
 
 /// Retrieves current schema version from PRAGMA user_version.

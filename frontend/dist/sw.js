@@ -29,6 +29,11 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Only cache GET requests; Cache.put throws a TypeError on POST/PUT/DELETE
+  if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) {
+    return;
+  }
+
   const url = new URL(event.request.url);
 
   // 1. Live state & WebSocket endpoints must bypass cache completely

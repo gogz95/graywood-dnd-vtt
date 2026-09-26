@@ -167,14 +167,21 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             let _ = sender.send(Message::Text(json_str)).await;
         }
 
-        while let Ok(event) = rx.recv().await {
-            match serde_json::to_string(&event) {
-                Ok(json_str) => {
-                    if sender.send(Message::Text(json_str)).await.is_err() {
-                        break;
+        loop {
+            match rx.recv().await {
+                Ok(event) => match serde_json::to_string(&event) {
+                    Ok(json_str) => {
+                        if sender.send(Message::Text(json_str)).await.is_err() {
+                            break;
+                        }
                     }
+                    Err(_) => break,
+                },
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                    eprintln!("[ws] WebSocket client lagged, skipped {} messages", count);
+                    continue;
                 }
-                Err(_) => break,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
     });

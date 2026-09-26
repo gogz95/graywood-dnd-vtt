@@ -13,7 +13,8 @@
     type SourceChunk
   } from '../../db/sourceStore';
   import { ingestFileToDocument } from '../../importers/sourceIngestionEngine';
-  import { searchGroundedSources, type SearchResultMatch } from '../../services/sourceSearch';
+  import { searchGroundedSources, extractContextualSnippet, type SearchResultMatch } from '../../services/sourceSearch';
+  import { sourceEngineStore } from '../../stores/sourceEngineStore.svelte';
 
   let documents = $state<SourceDocument[]>([]);
   let searchQuery = $state('');
@@ -64,11 +65,21 @@
   async function handleSearch() {
     if (!searchQuery.trim()) {
       searchResults = [];
+      sourceEngineStore.clear();
       return;
     }
     isSearching = true;
     try {
-      searchResults = await searchGroundedSources(searchQuery);
+      const storeResults = await sourceEngineStore.search(searchQuery);
+      searchResults = storeResults.map(r => ({
+        chunkId: r.id,
+        docId: r.id.split('-chk-')[0] || r.id,
+        docName: r.document_title,
+        sectionHeader: r.tags || 'General',
+        fullText: r.content_text,
+        snippet: extractContextualSnippet(r.content_text, searchQuery.trim().split(/\s+/)),
+        score: r.score
+      }));
     } finally {
       isSearching = false;
     }
@@ -186,7 +197,7 @@
             No source documents loaded. Upload rulebooks, campaign setting PDFs, or notes to begin.
           </div>
         {:else}
-          {#each documents as doc (doc.id)}
+          {#each documents as doc, index (doc?.id ?? index)}
             <div class="group flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950/70 border border-slate-800/80 hover:border-slate-700 transition-colors">
               <div class="flex items-center gap-2 min-w-0">
                 <input
@@ -233,9 +244,14 @@
     <section class="w-96 border-r border-slate-800 bg-slate-900/60 flex flex-col shrink-0 overflow-hidden">
       <!-- Search Input Header -->
       <div class="p-3 border-b border-slate-800 space-y-2">
-        <label for="grounded-source-search-input" class="text-[10px] uppercase font-bold text-slate-400 block">
-          Grounded Rulebook Query
-        </label>
+        <div class="flex items-center justify-between">
+          <label for="grounded-source-search-input" class="text-[10px] uppercase font-bold text-slate-400 block">
+            Grounded Rulebook Query
+          </label>
+          <span class="text-[9px] font-mono px-1.5 py-0.5 rounded {sourceEngineStore.status.includes('Offline') ? 'bg-amber-950/80 text-amber-300 border border-amber-800/60' : 'bg-slate-950 text-slate-400'}">
+            {sourceEngineStore.status}
+          </span>
+        </div>
         <div class="relative">
           <input
             id="grounded-source-search-input"
@@ -265,7 +281,7 @@
             Type keywords above to query grounded citations across enabled rulebooks.
           </div>
         {:else}
-          {#each searchResults as result (result.chunkId)}
+          {#each searchResults as result, index (result?.chunkId ?? index)}
             <button
               type="button"
               onclick={() => handleSelectResult(result)}
@@ -327,7 +343,7 @@
           </div>
 
           <div class="space-y-6">
-            {#each selectedDocChunks as chunk (chunk.id)}
+            {#each selectedDocChunks as chunk, index (chunk?.id ?? index)}
               <div class="bg-slate-900/40 border border-slate-800/60 rounded-xl p-5 space-y-2">
                 <h3 class="text-xs font-bold uppercase tracking-wider text-indigo-300 font-mono">
                   {chunk.sectionHeader}

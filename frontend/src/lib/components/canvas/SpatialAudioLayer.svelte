@@ -3,7 +3,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Container, Graphics, Text } from 'pixi.js';
   import type { Application } from 'pixi.js';
-  import { spatialAudioEngine } from '../../services/spatialAudioEngine';
+  import { spatialAudioEngine } from '../../services/spatialAudioEngine.svelte';
   import type { AudioEmitter } from '../../types/audio';
 
   interface Props {

@@ -125,7 +125,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
       <!-- List Column -->
       <div class="lg:col-span-5 space-y-2">
-        {#each filteredPlugins as p (p.manifest.id)}
+        {#each filteredPlugins as p, idx (p?.manifest?.id ?? idx)}
           {@const badge = getStatusBadge(p.status)}
           <div
             tabindex="0"

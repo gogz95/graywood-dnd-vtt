@@ -11,18 +11,10 @@ function createPropStore() {
   let activeMapId = $state<string | null>(null);
   let selectedPropId = $state<string | null>(null);
 
-  // ── Persistence helpers ────────────────────────────────────────────────────
-  function apiBase(): string {
-    if (typeof window === 'undefined') return '';
-    return window.location.port === '5173'
-      ? `${window.location.protocol}//${window.location.hostname}:5174`
-      : `${window.location.protocol}//${window.location.host}`;
-  }
-
   async function loadProps(mapId: string): Promise<void> {
     activeMapId = mapId;
     try {
-      const res = await fetch(`${apiBase()}/api/maps/${encodeURIComponent(mapId)}/props`);
+      const res = await fetch(`/api/maps/${encodeURIComponent(mapId)}/props`);
       if (!res.ok) { props = []; return; }
       const data = await res.json();
       props = Array.isArray(data) ? data : [];
@@ -34,7 +26,7 @@ function createPropStore() {
   async function saveProps(): Promise<void> {
     if (!activeMapId) return;
     try {
-      await fetch(`${apiBase()}/api/maps/${encodeURIComponent(activeMapId)}/props`, {
+      await fetch(`/api/maps/${encodeURIComponent(activeMapId)}/props`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(props),

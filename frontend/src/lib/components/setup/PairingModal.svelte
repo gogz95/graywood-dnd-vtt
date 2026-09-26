@@ -39,21 +39,20 @@
     fetchError = null;
 
     try {
-      const port = typeof window !== 'undefined' && window.location.port ? window.location.port : '5174';
-      const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : '127.0.0.1';
-
-      // Probe backend network-info endpoint
-      const res = await fetch(`http://${host}:${port}/api/companion/network-info`, {
+      // Probe backend network-info endpoint via relative URL
+      const res = await fetch('/api/companion/network-info', {
         signal: AbortSignal.timeout(3000)
-      }).catch(() => fetch('/api/companion/network-info', { signal: AbortSignal.timeout(3000) }));
+      });
 
       if (res && res.ok) {
         networkInfo = await res.json();
       } else {
+        const port = typeof window !== 'undefined' && window.location.port ? window.location.port : '4242';
+        const host = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : '127.0.0.1';
         // Fallback default
         networkInfo = {
           host_ip: host === 'localhost' ? '127.0.0.1' : host,
-          port: Number(port) || 5174,
+          port: Number(port) || 4242,
           active_pin: '1337',
           connection_url: `http://${host === 'localhost' ? '127.0.0.1' : host}:${port}/mobile?pin=1337`
         };
@@ -63,9 +62,9 @@
       const host = typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1';
       networkInfo = {
         host_ip: host,
-        port: 5174,
+        port: 4242,
         active_pin: '1337',
-        connection_url: `http://${host}:5174/mobile?pin=1337`
+        connection_url: `http://${host}:4242/mobile?pin=1337`
       };
     } finally {
       isLoading = false;
@@ -196,7 +195,7 @@
               Direct Connection URL
             </span>
             <span class="font-mono text-slate-500 text-[10px]">
-              Host: {networkInfo?.host_ip || '...'}:{networkInfo?.port || '5174'}
+              Host: {networkInfo?.host_ip || '...'}:{networkInfo?.port || '4242'}
             </span>
           </div>
 

@@ -102,7 +102,12 @@
     verifyError = null;
     try {
       const info: any = await campaignDirectoryStore.selectDirectory();
-      if (!info) return;
+      if (!info) {
+        if (campaignDirectoryStore.errorMessage) {
+          verifyError = campaignDirectoryStore.errorMessage;
+        }
+        return;
+      }
 
       const resolvedPath: string | undefined =
         typeof info === 'string'
@@ -116,6 +121,7 @@
         verifyError = 'No valid folder path returned from file picker.';
       }
     } catch (err: any) {
+      console.error('[FolderPicker]', err);
       verifyError = err?.message ?? 'Failed to open folder picker';
     } finally {
       isSelectingFolder = false;

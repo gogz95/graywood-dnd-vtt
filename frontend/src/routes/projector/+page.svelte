@@ -39,7 +39,7 @@
   import Dice3DOverlay from '../../lib/components/dice/Dice3DOverlay.svelte';
   import { drawingStore } from '../../lib/stores/drawingStore.svelte';
   import { renderSharedDrawingsOnCanvas2D } from '../../lib/components/canvas/drawingRenderHelper';
-  import { spatialAudioEngine } from '../../lib/services/spatialAudioEngine';
+  import { spatialAudioEngine } from '../../lib/services/spatialAudioEngine.svelte';
 
   $effect(() => {
     // Projector tracks the active player token position for positional audio

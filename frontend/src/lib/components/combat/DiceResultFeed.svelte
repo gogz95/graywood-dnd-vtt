@@ -113,12 +113,8 @@
     if (typeof window === 'undefined') return;
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.hostname || 'localhost';
-      const port =
-        window.location.port === '5173'
-          ? 5174
-          : parseInt(window.location.port, 10) || 5174;
-      const wsUrl = `${protocol}//${host}:${port}/ws/companion`;
+      const host = window.location.host;
+      const wsUrl = `${protocol}//${host}/ws/companion`;
 
       const ws = new WebSocket(wsUrl);
 

@@ -411,7 +411,11 @@
       <div class="grid grid-cols-4 gap-1">
         <button
           type="button"
-          onclick={() => floatingWindowsStore.toggleWindow('sources')}
+          onclick={() => {
+            floatingWindowsStore.toggleWindow('sources');
+            activeTab = 'lore';
+            onSelectTab?.('lore');
+          }}
           class="p-2 rounded-lg text-center hover:bg-slate-800 transition-colors text-xs text-slate-300"
           title="Source Engine (NotebookLM-Style)"
         >
@@ -419,7 +423,11 @@
         </button>
         <button
           type="button"
-          onclick={() => floatingWindowsStore.toggleWindow('copilot')}
+          onclick={() => {
+            floatingWindowsStore.toggleWindow('copilot');
+            activeTab = 'lore';
+            onSelectTab?.('lore');
+          }}
           class="p-2 rounded-lg text-center hover:bg-slate-800 transition-colors text-xs text-slate-300"
           title="Session AI Co-Pilot"
         >
@@ -444,6 +452,30 @@
       </div>
     {:else}
       <div class="flex flex-col items-center gap-1.5 py-1">
+        <button
+          type="button"
+          onclick={() => {
+            floatingWindowsStore.toggleWindow('sources');
+            activeTab = 'lore';
+            onSelectTab?.('lore');
+          }}
+          class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors text-sm"
+          title="Source Engine"
+        >
+          📚
+        </button>
+        <button
+          type="button"
+          onclick={() => {
+            floatingWindowsStore.toggleWindow('copilot');
+            activeTab = 'lore';
+            onSelectTab?.('lore');
+          }}
+          class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors text-sm"
+          title="AI Co-Pilot"
+        >
+          🤖
+        </button>
         <button
           type="button"
           onclick={() => floatingWindowsStore.toggleWindow('audio')}

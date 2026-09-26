@@ -61,7 +61,8 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/api/campaign/time",
-            get(routes::campaign_dir::get_campaign_time),
+            get(routes::campaign_dir::get_campaign_time)
+                .post(routes::campaign_dir::advance_campaign_time_seconds),
         )
         .route(
             "/api/campaign/time/advance",
@@ -124,7 +125,13 @@ pub fn create_router(state: AppState) -> Router {
             "/api/campaign/directory/verify-scaffold",
             post(routes::campaign_dir::verify_and_scaffold_campaign),
         )
-        // 4c. Community Plugin Discovery & Sandbox Registry
+        // 4c. Lore Engine & Categorized Entity Ingestion
+        .route("/api/lore/ingest", post(routes::lore::ingest_lore))
+        .route("/api/lore/search", get(routes::lore::search_lore))
+        .route("/api/campaign/monsters", post(routes::lore::save_monster))
+        .route("/api/compendium/spells", post(routes::lore::save_spell))
+        .route("/api/compendium/items", post(routes::lore::save_item))
+        // 4d. Community Plugin Discovery & Sandbox Registry
         .route("/api/plugins", get(routes::plugins::list_plugins_route))
         // 5. DM Encounter Tracker & Monster Spawning Endpoints
         .route("/api/encounter/active", get(routes::encounter::get_active))
@@ -230,6 +237,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         // Catch-all fallback for client-side routing
         .fallback(routes::assets::serve_index)
+        .layer(DefaultBodyLimit::max(250 * 1024 * 1024))
         .layer(cors)
         .with_state(state)
 }
@@ -273,7 +281,9 @@ pub async fn run_server(
     // Spawn ephemeral lease pruner – removes expired token leases every second.
     crate::state::lease::spawn_lease_pruner(lease_map);
 
-    axum::serve(listener, router).await?;
+    let res = axum::serve(listener, router).await;
+    let _ = std::fs::remove_file(&port_file);
+    res?;
     Ok(())
 }
 
@@ -511,7 +521,7 @@ mod tests {
         let (listener, port) = bind_dynamic_listener(4242, 4252).await.expect(
             "bind_dynamic_listener should bind successfully to an available port in 4242..=4252",
         );
-        assert!(port >= 4242 && port <= 4252);
+        assert!((4242..=4252).contains(&port));
         let local_addr = listener.local_addr().expect("local_addr should succeed");
         assert_eq!(local_addr.port(), port);
     }

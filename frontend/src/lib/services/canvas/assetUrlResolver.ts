@@ -1,7 +1,7 @@
 // src/lib/services/canvas/assetUrlResolver.ts
 // Maps desktop asset protocols and relative paths to LAN HTTP static asset server endpoints.
 
-export const LAN_ASSET_PORT = 5174;
+export const LAN_ASSET_PORT = 4242;
 
 /**
  * Resolves an asset URL (asset://, https://asset.localhost/, relative path, or http URL)
@@ -19,12 +19,10 @@ export function resolveLanAssetUrl(rawUrl: string | undefined | null): string {
     return trimmed;
   }
 
-  const hostname =
-    typeof window !== 'undefined' && window.location.hostname
-      ? window.location.hostname
-      : '127.0.0.1';
-
-  const lanHttpBase = `http://${hostname}:${LAN_ASSET_PORT}`;
+  const lanHttpBase =
+    typeof window !== 'undefined' && window.location.origin
+      ? window.location.origin
+      : '';
 
   // Strip desktop custom protocol prefixes
   if (

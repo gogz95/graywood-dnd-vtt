@@ -286,6 +286,7 @@ class CampaignDirectoryStore {
       }
       return null;
     } catch (err: any) {
+      console.error('[FolderPicker]', err);
       this.errorMessage = err?.message || 'Error selecting folder';
       return null;
     } finally {

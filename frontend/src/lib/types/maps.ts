@@ -58,6 +58,7 @@ export interface TacticalBattlemap {
   walls: MapWall[];
   tokens: MapPlacedToken[];
   textureBlob?: Blob;
+  textureUrl?: string;
   weather?: WeatherSettings;
   biome?: BiomeType;
 }

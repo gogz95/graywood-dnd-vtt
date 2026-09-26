@@ -22,20 +22,10 @@ const DEFAULT_STATE: VttTimeState = {
 function createTimeStore() {
   let state = $state<VttTimeState>({ ...DEFAULT_STATE });
 
-  // Resolve API base (DM workstation talks to backend on :5174 when dev is on :5173)
-  function apiBase(): string {
-    if (typeof window === 'undefined') return '';
-    const host =
-      window.location.port === '5173'
-        ? `${window.location.protocol}//${window.location.hostname}:5174`
-        : `${window.location.protocol}//${window.location.host}`;
-    return host;
-  }
-
   /** Fetch current time from backend and hydrate state. */
   async function fetchTime(): Promise<void> {
     try {
-      const res = await fetch(`${apiBase()}/api/campaign/time`);
+      const res = await fetch('/api/campaign/time');
       if (!res.ok) return;
       const data = await res.json();
       state.epochDays = data.epoch_days ?? data.epochDays ?? 0;
@@ -49,7 +39,7 @@ function createTimeStore() {
   /** Advance in-game time by the given seconds via POST to backend. */
   async function advanceSeconds(seconds: number): Promise<void> {
     try {
-      const res = await fetch(`${apiBase()}/api/campaign/time/advance`, {
+      const res = await fetch('/api/campaign/time/advance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ seconds }),

@@ -51,10 +51,22 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:4242',
         changeOrigin: true,
+        timeout: 120000,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.warn('[ViteProxy] /api proxy error:', err.message);
+          });
+        },
       },
       '/ws': {
         target: 'ws://127.0.0.1:4242',
         ws: true,
+        timeout: 120000,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.warn('[ViteProxy] /ws proxy error:', err.message);
+          });
+        },
       },
     },
   },

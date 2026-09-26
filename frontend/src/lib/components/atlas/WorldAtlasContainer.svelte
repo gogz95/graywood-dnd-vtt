@@ -527,7 +527,7 @@ We shall attempt to decipher the sequence tomorrow morning. If we do not return,
           title={currentTool.name}
           class="w-full h-full border-0 bg-slate-950"
           sandbox="allow-scripts allow-same-origin allow-downloads allow-forms allow-popups"
-          allow="clipboard-read; clipboard-write; fullscreen"
+          allow="accelerometer; gyroscope; clipboard-read; clipboard-write; fullscreen"
           loading="lazy"
         ></iframe>
       {/key}

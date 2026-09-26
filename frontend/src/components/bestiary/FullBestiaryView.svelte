@@ -1,6 +1,6 @@
 // ... existing code ...
 
-<select bind:value={selectedSource} on:change={handleSourceChange}>
+<select bind:value={selectedSource} onchange={handleSourceChange}>
     <option value="">All Sources</option>
     {#each availableSources as src}
         <option value={src}>{src}</option>

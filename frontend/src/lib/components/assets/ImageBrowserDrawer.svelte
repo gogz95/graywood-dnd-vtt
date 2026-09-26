@@ -190,7 +190,7 @@
         </div>
       {:else}
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {#each assetBrowserStore.filteredAssets as asset (asset.id)}
+          {#each assetBrowserStore.filteredAssets as asset, idx (`${asset.id || asset.relative_path || 'asset'}-${idx}`)}
             {@const isMap = asset.category === 'map'}
             <div
               class="group relative bg-slate-950 border border-slate-800 hover:border-amber-500/60 rounded-xl overflow-hidden flex flex-col transition-all duration-150 cursor-grab active:cursor-grabbing hover:shadow-lg"

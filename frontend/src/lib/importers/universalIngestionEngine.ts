@@ -612,6 +612,118 @@ async function processDungeonScrawlFile(file: File | Blob, fileName: string): Pr
   };
 }
 
+// ── Helper: Dispatch Categorized Entities to Stores & Backend ────────────────
+
+async function dispatchCategorizedEntities(
+  entities: ReturnType<typeof parseDeterministic>,
+  fileName: string,
+  chunks?: SourceChunk[]
+): Promise<number> {
+  let count = 0;
+  if (!entities) return count;
+
+  // 1. Monsters -> Bestiary & SQLite
+  if (entities.monsters && entities.monsters.length > 0) {
+    await compendiumDb.monsters.bulkPut(entities.monsters);
+    count += entities.monsters.length;
+    await notifyMonstersUpdated();
+
+    for (const m of entities.monsters) {
+      try {
+        await fetch('/api/campaign/monsters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: m.id,
+            name: m.name,
+            cr: m.challengeRating || m.cr || '1',
+            size: m.size || 'Medium',
+            type_str: m.type || 'Monstrosity',
+            ac: m.armorClass || 10,
+            hp: m.hitPoints || 10,
+            stats_json: JSON.stringify(m.abilities || {}),
+            traits_json: JSON.stringify(m.traits || []),
+            actions_json: JSON.stringify(m.actions || []),
+            source: m.sourceBook || fileName,
+          }),
+        });
+      } catch (_) {}
+    }
+  }
+
+  // 2. Spells -> Compendium & SQLite
+  if (entities.spells && entities.spells.length > 0) {
+    await compendiumDb.spells.bulkPut(entities.spells);
+    count += entities.spells.length;
+
+    for (const s of entities.spells) {
+      try {
+        await fetch('/api/compendium/spells', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: s.id,
+            name: s.name,
+            level: s.level ?? 0,
+            school: s.school || 'Evocation',
+            casting_time: s.castingTime || '1 action',
+            range: s.range || '60 feet',
+            duration: s.duration || 'Instantaneous',
+            components: s.components || 'V, S',
+            description_text: s.description || '',
+            source: s.sourceBook || fileName,
+          }),
+        });
+      } catch (_) {}
+    }
+  }
+
+  // 3. Items -> Compendium & SQLite
+  if (entities.items && entities.items.length > 0) {
+    await compendiumDb.items.bulkPut(entities.items);
+    count += entities.items.length;
+
+    for (const item of entities.items) {
+      try {
+        await fetch('/api/compendium/items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: item.id,
+            name: item.name,
+            item_type: item.itemType || item.category || 'Adventuring Gear',
+            rarity: item.rarity || 'Common',
+            cost: item.cost || '0 gp',
+            weight: item.weight || 0,
+            description_text: item.description || '',
+            source: item.sourceBook || fileName,
+          }),
+        });
+      } catch (_) {}
+    }
+  }
+
+  // 4. Lore Chunks -> SQLite FTS5 backend
+  if (chunks && chunks.length > 0) {
+    try {
+      await fetch('/api/lore/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document_title: fileName,
+          chunks: chunks.map((c) => ({
+            chunk_index: c.chunkIndex,
+            content_text: c.text,
+            tags: c.sectionHeader,
+          })),
+        }),
+      });
+    } catch (_) {}
+  }
+
+  return count;
+}
+
 // ── 4. Markdown & Plaintext Chunking & 5e Statblock Ingestion ────────────────
 
 async function processTextOrMarkdown(file: File | Blob, fileName: string): Promise<IngestionFileResult> {
@@ -691,15 +803,7 @@ async function processTextOrMarkdown(file: File | Blob, fileName: string): Promi
   let statblocksCount = 0;
   try {
     const parsedEntities = parseDeterministic(text, fileName);
-    if (parsedEntities.monsters.length > 0) {
-      await compendiumDb.monsters.bulkPut(parsedEntities.monsters);
-      statblocksCount += parsedEntities.monsters.length;
-      await notifyMonstersUpdated();
-    }
-    if (parsedEntities.spells.length > 0) {
-      await compendiumDb.spells.bulkPut(parsedEntities.spells);
-      statblocksCount += parsedEntities.spells.length;
-    }
+    statblocksCount = await dispatchCategorizedEntities(parsedEntities, fileName, chunks);
   } catch {
     // Non-blocking entity parsing fallback
   }
@@ -802,15 +906,7 @@ async function processPdfFile(file: File | Blob, fileName: string): Promise<Inge
   if (extractedText) {
     try {
       const entities = parseDeterministic(extractedText, fileName);
-      if (entities.monsters.length > 0) {
-        await compendiumDb.monsters.bulkPut(entities.monsters);
-        statblocksCount += entities.monsters.length;
-        await notifyMonstersUpdated();
-      }
-      if (entities.spells.length > 0) {
-        await compendiumDb.spells.bulkPut(entities.spells);
-        statblocksCount += entities.spells.length;
-      }
+      statblocksCount = await dispatchCategorizedEntities(entities, fileName, chunks);
     } catch {
       // Non-blocking entity parsing fallback
     }

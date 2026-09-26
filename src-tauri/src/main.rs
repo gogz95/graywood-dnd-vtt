@@ -1,4 +1,6 @@
-use graywood_vtt_lib::{init_database, run_server, AppState, DEFAULT_SERVER_ADDR};
+use graywood_vtt_lib::{
+    configure_single_instance, init_database, run_server, AppState, DEFAULT_SERVER_ADDR,
+};
 use std::path::{Path, PathBuf};
 
 #[tokio::main]
@@ -40,7 +42,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let secret_key = b"graywood_vtt_dm_workstation_secret_key_9876543210".to_vec();
     let app_state = AppState::new(conn, secret_key, assets_dir);
 
-    run_server(app_state, DEFAULT_SERVER_ADDR).await?;
+    // 1. Run Axum server in a background task so it doesn't block the GUI
+    let server_state = app_state.clone();
+    tokio::spawn(async move {
+        if let Err(err) = run_server(server_state, DEFAULT_SERVER_ADDR).await {
+            eprintln!("[Axum Server Fatal Error]: {}", err);
+        }
+    });
+
+    // 2. Attach plugins (single-instance & tauri-plugin-dialog)
+    let builder = tauri::Builder::default();
+    let builder = configure_single_instance(builder);
+
+    // 3. Register state and the actual Tauri IPC command
+    builder
+        .manage(app_state)
+        .invoke_handler(tauri::generate_handler![
+            graywood_vtt_lib::commands::open_projector_window,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 
     Ok(())
 }

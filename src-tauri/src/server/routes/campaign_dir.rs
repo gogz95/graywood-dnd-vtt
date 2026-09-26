@@ -201,16 +201,19 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
 pub async fn save_campaign_asset(
     State(state): State<AppState>,
     Json(payload): Json<SaveAssetRequest>,
-) -> Result<Json<SaveAssetResponse>, StatusCode> {
+) -> (StatusCode, Json<SaveAssetResponse>) {
     let guard = state.campaign_dir.read().await;
     let base_dir = guard.clone().unwrap_or_else(|| state.assets_dir.clone());
     let target_dir = base_dir.join(&payload.subfolder);
-    if let Err(e) = std::fs::create_dir_all(&target_dir) {
-        return Ok(Json(SaveAssetResponse {
-            success: false,
-            url: None,
-            error: Some(format!("Failed to create folder: {}", e)),
-        }));
+    if let Err(e) = tokio::fs::create_dir_all(&target_dir).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(SaveAssetResponse {
+                success: false,
+                url: None,
+                error: Some(format!("Failed to create folder: {}", e)),
+            }),
+        );
     }
 
     let clean_b64 = if let Some(idx) = payload.data_base64.find(',') {
@@ -222,32 +225,41 @@ pub async fn save_campaign_asset(
     let bytes = match decode_base64(clean_b64.trim()) {
         Ok(b) => b,
         Err(e) => {
-            return Ok(Json(SaveAssetResponse {
-                success: false,
-                url: None,
-                error: Some(format!("Invalid base64 payload: {}", e)),
-            }));
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(SaveAssetResponse {
+                    success: false,
+                    url: None,
+                    error: Some(format!("Invalid base64 payload: {}", e)),
+                }),
+            );
         }
     };
 
     let file_path = target_dir.join(&payload.filename);
-    if let Err(e) = std::fs::write(&file_path, bytes) {
-        return Ok(Json(SaveAssetResponse {
-            success: false,
-            url: None,
-            error: Some(format!("Failed to write file: {}", e)),
-        }));
+    if let Err(e) = tokio::fs::write(&file_path, bytes).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(SaveAssetResponse {
+                success: false,
+                url: None,
+                error: Some(format!("Failed to write file: {}", e)),
+            }),
+        );
     }
 
     let url = format!(
         "/api/campaign/assets/{}/{}",
         payload.subfolder, payload.filename
     );
-    Ok(Json(SaveAssetResponse {
-        success: true,
-        url: Some(url),
-        error: None,
-    }))
+    (
+        StatusCode::OK,
+        Json(SaveAssetResponse {
+            success: true,
+            url: Some(url),
+            error: None,
+        }),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -704,8 +716,8 @@ pub async fn import_campaign_bundle(
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
         ));
         std::fs::write(&temp_path, bytes).map_err(|e| {
             (

@@ -7,6 +7,11 @@
   import { canvasStore } from '../../../stores/canvasStore.svelte';
   import { audioEngine } from '../../audio/AudioEngine';
   import { dispatchMapToBattlemat } from '../../services/mapDispatchService';
+  import {
+    parseGeoJsonToWalls,
+    generateChamberColliders,
+    generateDungeonCryptColliders
+  } from '../../services/vectorMapParser';
 
   let {
     isOpen = $bindable(false),
@@ -87,6 +92,7 @@
     options: { name?: string; gridSize?: number; gridCols?: number; gridRows?: number; walls?: any[] } = {}
   ) {
     try {
+      const wallCount = options.walls?.length || 0;
       await dispatchMapToBattlemat({
         imageBlob: source,
         name: options.name || 'Generated Battlemat',
@@ -97,7 +103,7 @@
       });
 
       audioEngine.triggerSfx('sfx-secret');
-      feedbackMessage = '⚡ Map pushed directly to battlemat!';
+      feedbackMessage = `⚡ Map pushed to Tactical Canvas: ${wallCount} walls loaded!`;
 
       if (onOpenCalibration) {
         onOpenCalibration();
@@ -174,12 +180,7 @@
         gridSize: 60,
         gridCols: 30,
         gridRows: 20,
-        walls: [
-          { x1: 2, y1: 2, x2: 28, y2: 2 },
-          { x1: 28, y1: 2, x2: 28, y2: 18 },
-          { x1: 28, y1: 18, x2: 2, y2: 18 },
-          { x1: 2, y1: 18, x2: 2, y2: 2 }
-        ]
+        walls: generateChamberColliders(canvas.width, canvas.height, cell, pillars.map(p => ({ x: p.x, y: p.y, r: 26 })))
       });
     } catch {
       feedbackMessage = 'Failed generating procedural chamber.';
@@ -265,11 +266,7 @@
         gridSize: 60,
         gridCols: 32,
         gridRows: 24,
-        walls: [
-          { x1: 3, y1: 3, x2: 13, y2: 3 },
-          { x1: 19, y1: 3, x2: 29, y2: 3 },
-          { x1: 11, y1: 13, x2: 21, y2: 13 },
-        ]
+        walls: generateDungeonCryptColliders(rooms, corridors, cell)
       });
     } catch {
       feedbackMessage = 'Failed generating dungeon crypt.';
@@ -329,18 +326,60 @@
     }
   }
 
+  async function processImportedFile(file: File) {
+    const lower = file.name.toLowerCase();
+    if (file.type.startsWith('image/')) {
+      await applyMapTexture(file, { name: file.name.replace(/\.[^/.]+$/, '') });
+      return;
+    }
+
+    if (lower.endsWith('.geojson') || lower.endsWith('.json')) {
+      try {
+        const text = await file.text();
+        const parsed = parseGeoJsonToWalls(text, { targetWidth: 1920, targetHeight: 1080, padding: 60 });
+        if (parsed.walls.length > 0) {
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1200, parsed.bounds.width);
+          canvas.height = Math.max(800, parsed.bounds.height);
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 2;
+            for (const w of parsed.walls) {
+              ctx.beginPath();
+              ctx.moveTo(w.x1, w.y1);
+              ctx.lineTo(w.x2, w.y2);
+              ctx.stroke();
+            }
+          }
+          const blob = await canvasToBlobGuarded(canvas);
+          await applyMapTexture(blob, {
+            name: file.name.replace(/\.[^/.]+$/, ''),
+            walls: parsed.walls,
+            gridSize: 60
+          });
+          return;
+        }
+      } catch (err) {
+        console.error('[GeoJsonImport] Error parsing vector file:', err);
+      }
+    }
+  }
+
   function handleFileDrop(e: DragEvent) {
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      applyMapTexture(file, { name: file.name.replace(/\.[^/.]+$/, '') });
+    if (file) {
+      processImportedFile(file);
     }
   }
 
   function handleFileInput(e: Event) {
     const file = (e.target as HTMLInputElement).files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      applyMapTexture(file, { name: file.name.replace(/\.[^/.]+$/, '') });
+    if (file) {
+      processImportedFile(file);
     }
   }
 </script>
@@ -466,6 +505,7 @@
           title={currentTabDef.label}
           class="w-full h-full border-none flex-1"
           sandbox="allow-scripts allow-same-origin allow-downloads allow-forms allow-popups"
+          allow="accelerometer; gyroscope"
         ></iframe>
 
         <!-- Quick Calibration Callout in Footer -->

@@ -81,11 +81,7 @@ export function initWebSocket(pin?: string): void {
   }
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // Target backend port 5174 when running frontend dev server on 5173
-  const host =
-    window.location.port === '5173'
-      ? `${window.location.hostname}:5174`
-      : window.location.host;
+  const host = window.location.host;
 
   const pinQuery = currentConnectedPin ? `?pin=${encodeURIComponent(currentConnectedPin)}` : '';
   const wsUrl = `${protocol}//${host}/ws${pinQuery}`;

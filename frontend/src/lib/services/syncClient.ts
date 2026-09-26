@@ -38,13 +38,8 @@ class SyncClient {
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const actualPort =
-        port ||
-        (window.location.port === '5173'
-          ? 5174
-          : parseInt(window.location.port, 10) || 5174);
-      const targetHost = hostname || window.location.hostname || 'localhost';
-      const url = `${protocol}//${targetHost}:${actualPort}/ws`;
+      const targetHost = (hostname && port) ? `${hostname}:${port}` : window.location.host;
+      const url = `${protocol}//${targetHost}/ws`;
 
       this.ws = new WebSocket(url);
 

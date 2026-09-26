@@ -177,7 +177,7 @@ async fn test_upload_identical_file_deduplication() {
 
     let body_bytes1 = to_bytes(res1.into_body(), 10 * 1024 * 1024).await.unwrap();
     let upload_res1: AssetUploadResponse = serde_json::from_slice(&body_bytes1).unwrap();
-    assert_eq!(upload_res1.deduplicated, false);
+    assert!(!upload_res1.deduplicated);
     assert_eq!(upload_res1.hash, expected_hash);
     assert_eq!(
         upload_res1.path,
@@ -207,8 +207,8 @@ async fn test_upload_identical_file_deduplication() {
 
     let body_bytes2 = to_bytes(res2.into_body(), 10 * 1024 * 1024).await.unwrap();
     let upload_res2: AssetUploadResponse = serde_json::from_slice(&body_bytes2).unwrap();
-    assert_eq!(
-        upload_res2.deduplicated, true,
+    assert!(
+        upload_res2.deduplicated,
         "Second upload of identical file must be marked deduplicated"
     );
     assert_eq!(upload_res2.hash, expected_hash);

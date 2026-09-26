@@ -146,5 +146,5 @@ fn fallback_response() -> Response<Body> {
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
         .body(Body::from(FALLBACK_PWA_INDEX_HTML))
-        .unwrap()
+        .unwrap_or_else(|_| Response::new(Body::from(FALLBACK_PWA_INDEX_HTML)))
 }

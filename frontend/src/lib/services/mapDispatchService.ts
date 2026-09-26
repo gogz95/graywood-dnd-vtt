@@ -3,6 +3,9 @@
 // Manages memory lifecycle for Blob Object URLs and synchronizes with Projector display
 
 import { canvasStore } from '../stores/canvasStore';
+import { wallStore, type WallSegment } from '../stores/wallStore.svelte';
+import { mapsDb } from '../db/mapsDb';
+import type { TacticalBattlemap } from '../types/maps';
 import { broadcastBattlematUpdate } from './battlematSyncBridge';
 
 export interface DispatchMapPayload {
@@ -11,7 +14,7 @@ export interface DispatchMapPayload {
   gridRows?: number;
   gridSize?: number;
   name?: string;
-  walls?: Array<{ x1: number; y1: number; x2: number; y2: number }>;
+  walls?: Array<{ x1: number; y1: number; x2: number; y2: number; blocksLight?: boolean; blocksVision?: boolean; blocksMovement?: boolean; door?: boolean; isDoor?: boolean }>;
 }
 
 export interface PushMapOptions {
@@ -19,7 +22,7 @@ export interface PushMapOptions {
   gridSize?: number;
   gridCols?: number;
   gridRows?: number;
-  walls?: Array<{ x1: number; y1: number; x2: number; y2: number }>;
+  walls?: Array<{ x1: number; y1: number; x2: number; y2: number; blocksLight?: boolean; blocksVision?: boolean; blocksMovement?: boolean; door?: boolean; isDoor?: boolean }>;
 }
 
 let activeBlobUrl: string | null = null;
@@ -69,7 +72,65 @@ export async function dispatchMapToBattlemat(payload: DispatchMapPayload): Promi
   const naturalWidth = img.naturalWidth || 1800;
   const naturalHeight = img.naturalHeight || 1200;
 
-  // 1. Update DM Canvas Store
+  // 1. Convert walls to canonical wall segment schemas
+  const canonicalWalls: WallSegment[] = (walls || []).map((w, idx) => ({
+    id: `wall-col-${Date.now()}-${idx}`,
+    x1: w.x1,
+    y1: w.y1,
+    x2: w.x2,
+    y2: w.y2,
+    blocksVision: w.blocksLight !== undefined ? w.blocksLight : (w.blocksVision !== undefined ? w.blocksVision : true),
+    blocksMovement: w.blocksMovement !== undefined ? w.blocksMovement : true,
+    isDoor: w.door || w.isDoor,
+    isOpen: false
+  }));
+
+  // 2. Register & Select Active Map in IndexedDB
+  const mapId = `map-${Date.now()}`;
+  const effectiveGridSize = gridSize || 60;
+  try {
+    const mapRecord: TacticalBattlemap = {
+      id: mapId,
+      name: name || 'Tactical Battlemat',
+      type: 'tactical',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      grid: {
+        type: 'square',
+        sizePx: effectiveGridSize,
+        offsetX: 0,
+        offsetY: 0,
+        opacity: 0.35,
+        color: '#64748b'
+      },
+      lighting: {
+        ambientDarkness: 0,
+        tintColor: '#ffffff'
+      },
+      fogOfWar: {
+        revealedPolygons: [],
+        concealedPolygons: []
+      },
+      walls: canonicalWalls.map(w => ({
+        id: w.id,
+        p1: { x: w.x1, y: w.y1 },
+        p2: { x: w.x2, y: w.y2 },
+        type: w.isDoor ? 'door_closed' : 'wall'
+      })),
+      tokens: [],
+      textureBlob: imageBlob instanceof Blob ? imageBlob : undefined,
+      textureUrl: typeof imageBlob === 'string' ? imageBlob : undefined
+    };
+    await mapsDb.tacticalMaps.put(mapRecord);
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('vtt_active_battlemap_id', mapId);
+    }
+  } catch (err) {
+    console.warn('[MapDispatch] Failed persisting map to mapsDb:', err);
+  }
+
+  // 3. Update DM Canvas Store & Wall Store
   canvasStore.setBackgroundTexture(
     {
       url: textureUrl,
@@ -81,15 +142,11 @@ export async function dispatchMapToBattlemat(payload: DispatchMapPayload): Promi
     gridRows
   );
 
-  if (gridSize) {
-    canvasStore.setGridSize(gridSize);
-  }
+  canvasStore.setGridSize(effectiveGridSize);
+  wallStore.setWalls(canonicalWalls);
+  canvasStore.setWallCollisions(canonicalWalls);
 
-  if (walls && walls.length > 0) {
-    canvasStore.setWallCollisions(walls);
-  }
-
-  // 2. Broadcast to Projector Route and WebSockets
+  // 4. Broadcast to Projector Route and WebSockets
   broadcastBattlematUpdate({
     type: 'MAP_TEXTURE_UPDATE',
     url: textureUrl,
@@ -97,16 +154,24 @@ export async function dispatchMapToBattlemat(payload: DispatchMapPayload): Promi
     height: naturalHeight
   });
 
-  // 3. Dispatch workspace events
+  // 5. Dispatch workspace events
   if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('vtt:maps-updated')
+    );
+
     window.dispatchEvent(
       new CustomEvent('vtt:load-battle-map', {
         detail: {
           url: textureUrl,
           fileName: name || 'Tactical Battlemat',
-          gridSize: gridSize || canvasStore.gridSize,
+          mapId,
+          gridSize: effectiveGridSize,
           gridCols,
-          gridRows
+          gridRows,
+          walls: canonicalWalls,
+          width: naturalWidth,
+          height: naturalHeight
         }
       })
     );

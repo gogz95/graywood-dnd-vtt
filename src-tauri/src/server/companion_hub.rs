@@ -495,11 +495,20 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
 
     // Outbound server message forwarding task
     let mut send_task = tokio::spawn(async move {
-        while let Ok(msg) = rx.recv().await {
-            if let Ok(json) = serde_json::to_string(&msg) {
-                if sender.send(Message::Text(json)).await.is_err() {
-                    break;
+        loop {
+            match rx.recv().await {
+                Ok(msg) => {
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        if sender.send(Message::Text(json)).await.is_err() {
+                            break;
+                        }
+                    }
                 }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                    eprintln!("[companion_ws] Client lagged, skipped {} messages", count);
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
     });

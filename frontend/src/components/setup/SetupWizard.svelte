@@ -34,12 +34,12 @@
 
             <div class="wizard-navigation">
                 {#if step > 1}
-                    <button class="btn-back" on:click={() => (step -= 1)}
+                    <button class="btn-back" onclick={() => (step -= 1)}
                         >Back</button
                     >
                 {/if}
                 {#if step < 3}
-                    <button class="btn-next" on:click={() => (step += 1)}
+                    <button class="btn-next" onclick={() => (step += 1)}
                         >Next Step</button
                     >
                 {:else}
