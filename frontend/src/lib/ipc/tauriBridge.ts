@@ -105,3 +105,49 @@ export async function exportCampaignArchive(
 
   return (await response.json()) as ExportArchiveResult;
 }
+
+export interface SaveMapVectorGeometryPayload {
+  map_id: string;
+  name: string;
+  grid_size: number;
+  walls: Array<{
+    id: string;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    blocks_light?: boolean;
+    blocks_movement?: boolean;
+  }>;
+}
+
+/**
+ * Persists vector wall geometry to SQLite via Tauri IPC or LAN REST fallback.
+ */
+export async function saveMapVectorGeometry(
+  payload: SaveMapVectorGeometryPayload
+): Promise<{ success: boolean; walls_saved: number }> {
+  if (isTauriEnvironment()) {
+    try {
+      const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: (cmd: string, args: unknown) => Promise<number> } } }).__TAURI__;
+      if (tauri?.core?.invoke) {
+        const count = await tauri.core.invoke('save_map_vector_geometry', { request: payload });
+        return { success: true, walls_saved: count };
+      }
+    } catch (ipcErr) {
+      console.warn('Tauri IPC save_map_vector_geometry failed, falling back to REST:', ipcErr);
+    }
+  }
+
+  const response = await fetch('/api/map/save_vector', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to save vector geometry to SQLite: ${response.statusText}`);
+  }
+
+  return (await response.json()) as { success: boolean; walls_saved: number };
+}

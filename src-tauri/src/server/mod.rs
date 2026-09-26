@@ -77,6 +77,10 @@ pub fn create_router(state: AppState) -> Router {
             post(routes::campaign_dir::import_campaign_bundle),
         )
         .route(
+            "/api/map/save_vector",
+            post(routes::campaign_dir::save_map_vector_geometry_endpoint),
+        )
+        .route(
             "/api/system/network-info",
             get(routes::campaign::get_network_info),
         )

@@ -21,6 +21,11 @@ export interface EngineReadyEvent {
   app: Application;
   engine: VttCanvasEngine;
   worldContainer: Container;
+  backgroundContainer: Container;
+  gridContainer: Container;
+  wallsContainer: Container;
+  tokensContainer: Container;
+  fogContainer: Container;
   viewport: ViewportController;
   grid: GridController;
   tokens: TokenController;
@@ -45,6 +50,11 @@ export class VttCanvasEngine {
   private app: Application | null = null;
   private canvasElement: HTMLCanvasElement | null = null;
   private worldContainer: Container | null = null;
+  public backgroundContainer: Container | null = null;
+  public gridContainer: Container | null = null;
+  public wallsContainer: Container | null = null;
+  public tokensContainer: Container | null = null;
+  public fogContainer: Container | null = null;
   private viewportController: ViewportController | null = null;
   private gridController: GridController | null = null;
   private tokenController: TokenController | null = null;
@@ -157,6 +167,19 @@ export class VttCanvasEngine {
     this.worldContainer.label = 'VTT_WorldContainer';
     app.stage.addChild(this.worldContainer);
 
+    // Strict semantic layer hierarchy (Foundry / Roll20 architecture)
+    this.backgroundContainer = new Container();
+    this.backgroundContainer.label = 'VTT_BackgroundContainer';
+    this.worldContainer.addChild(this.backgroundContainer);
+
+    this.gridContainer = new Container();
+    this.gridContainer.label = 'VTT_GridContainer';
+    this.worldContainer.addChild(this.gridContainer);
+
+    this.wallsContainer = new Container();
+    this.wallsContainer.label = 'VTT_WallsContainer';
+    this.worldContainer.addChild(this.wallsContainer);
+
     // Initialize ViewportController
     this.viewportController = new ViewportController({
       canvasElement,
@@ -179,7 +202,12 @@ export class VttCanvasEngine {
 
     // Initialize TokenController and FogController attached to worldContainer
     this.tokenController = new TokenController(this.worldContainer);
+    this.tokensContainer = this.tokenController.tokenLayer;
+    this.tokensContainer.label = 'VTT_TokensContainer';
+
     this.fogController = new FogController(this.worldContainer);
+    this.fogContainer = this.fogController.fogLayer;
+    this.fogContainer.label = 'VTT_FogContainer';
 
     // Dynamic grid line rendering when viewport bounds change
     this.on('viewport:change', () => {
@@ -208,11 +236,49 @@ export class VttCanvasEngine {
       app,
       engine: this,
       worldContainer: this.worldContainer,
+      backgroundContainer: this.backgroundContainer!,
+      gridContainer: this.gridContainer!,
+      wallsContainer: this.wallsContainer!,
+      tokensContainer: this.tokensContainer!,
+      fogContainer: this.fogContainer!,
       viewport: this.viewportController,
       grid: this.gridController,
       tokens: this.tokenController,
       fog: this.fogController,
     });
+  }
+
+  /**
+   * Binds interaction modes to the active canvas tool (Foundry/Roll20 masking pattern).
+   * When drawing walls, measuring with ruler, carving fog, or placing templates:
+   * tokensContainer.eventMode is set to 'none' to prevent accidental token selection/movement.
+   * When select/pan is active, static event mode is restored.
+   */
+  public setInteractionMode(tool: string): void {
+    if (!this.tokensContainer) return;
+    const lower = tool.toLowerCase();
+    const isDrawingOrMeasuring =
+      lower.startsWith('wall') ||
+      lower === 'ruler' ||
+      lower.startsWith('fog') ||
+      lower === 'template' ||
+      ['brush', 'circle', 'cone', 'cube', 'line'].includes(lower);
+
+    this.tokensContainer.eventMode = isDrawingOrMeasuring ? 'none' : 'static';
+  }
+
+  public get walls(): Container {
+    if (!this.wallsContainer) {
+      throw new Error('[VttCanvasEngine] wallsContainer accessed before engine.init()');
+    }
+    return this.wallsContainer;
+  }
+
+  public get tokensLayer(): Container {
+    if (!this.tokensContainer) {
+      throw new Error('[VttCanvasEngine] tokensContainer accessed before engine.init()');
+    }
+    return this.tokensContainer;
   }
 
   public get grid(): GridController {

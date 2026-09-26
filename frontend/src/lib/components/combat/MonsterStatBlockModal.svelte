@@ -5,6 +5,7 @@
   import { chatStore } from '../../stores/chatStore.svelte';
   import type { CompendiumMonster } from '../../db/compendiumDb';
   import { compendiumStore } from '../../stores/compendiumStore.svelte';
+  import ClickToRollText from './ClickToRollText.svelte';
 
   let {
     isOpen = $bindable(false),
@@ -231,7 +232,9 @@
                     </div>
                   </div>
 
-                  <p class="text-xs text-stone-300 leading-relaxed">{action.description}</p>
+                  <div class="text-xs text-stone-300 leading-relaxed">
+                    <ClickToRollText text={action.description} actorName={activeMonster.name} actionName={action.name} />
+                  </div>
                 </div>
               {/each}
             </div>

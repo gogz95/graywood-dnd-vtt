@@ -9,9 +9,11 @@
   import { dispatchMapToBattlemat } from '../../services/mapDispatchService';
   import {
     parseGeoJsonToWalls,
+    parseSvgToWalls,
     generateChamberColliders,
     generateDungeonCryptColliders
   } from '../../services/vectorMapParser';
+  import { mapStore } from '../../stores/mapStore.svelte';
 
   let {
     isOpen = $bindable(false),
@@ -333,10 +335,13 @@
       return;
     }
 
-    if (lower.endsWith('.geojson') || lower.endsWith('.json')) {
+    if (lower.endsWith('.geojson') || lower.endsWith('.json') || lower.endsWith('.svg')) {
       try {
         const text = await file.text();
-        const parsed = parseGeoJsonToWalls(text, { targetWidth: 1920, targetHeight: 1080, padding: 60 });
+        const parsed = lower.endsWith('.svg')
+          ? parseSvgToWalls(text, { targetWidth: 1920, targetHeight: 1080, padding: 60 })
+          : parseGeoJsonToWalls(text, { targetWidth: 1920, targetHeight: 1080, padding: 60 });
+
         if (parsed.walls.length > 0) {
           const canvas = document.createElement('canvas');
           canvas.width = Math.max(1200, parsed.bounds.width);
@@ -355,15 +360,24 @@
             }
           }
           const blob = await canvasToBlobGuarded(canvas);
+          const mapName = file.name.replace(/\.[^/.]+$/, '');
+          await mapStore.syncVectorGeometry({
+            name: mapName,
+            walls: parsed.walls,
+            bounds: parsed.bounds,
+            gridSize: 60,
+            imageBlob: blob,
+            fitCamera: true,
+          });
           await applyMapTexture(blob, {
-            name: file.name.replace(/\.[^/.]+$/, ''),
+            name: mapName,
             walls: parsed.walls,
             gridSize: 60
           });
           return;
         }
       } catch (err) {
-        console.error('[GeoJsonImport] Error parsing vector file:', err);
+        console.error('[VectorImport] Error parsing vector file:', err);
       }
     }
   }

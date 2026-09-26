@@ -9,8 +9,8 @@ pub mod systems;
 
 pub use commands::{
     export_campaign_archive_cmd, open_projector_window, pick_and_read_campaign_folder,
-    scan_ingest_directory, spawn_combatant_token_cmd, IngestScanEntry, IngestScanResult,
-    IngestedFileEntry,
+    save_map_vector_geometry, scan_ingest_directory, spawn_combatant_token_cmd, IngestScanEntry,
+    IngestScanResult, IngestedFileEntry, SaveMapVectorRequest, WallColliderPayload,
 };
 pub use db::{configure_and_migrate, init_database, init_in_memory_db};
 pub use migrations::{export_campaign_archive, run_versioned_migrations};

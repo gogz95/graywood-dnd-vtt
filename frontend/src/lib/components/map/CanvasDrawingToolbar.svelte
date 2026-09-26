@@ -12,7 +12,8 @@
     | 'wall_polygon'
     | 'fog_carve'
     | 'fog_conceal'
-    | 'ruler';
+    | 'ruler'
+    | 'template';
 
   interface Props {
     activeTool?: DrawTool;

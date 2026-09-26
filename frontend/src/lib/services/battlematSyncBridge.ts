@@ -17,6 +17,7 @@ export type SyncMessage =
   | { type: 'TOKEN_MOVE'; tokenId: string; x: number; y: number }
   | { type: 'GRID_UPDATE'; gridSize: number; gridColor: string }
   | { type: 'MAP_TEXTURE_UPDATE'; url: string; width: number; height: number }
+  | { type: 'WALL_GEOMETRY_UPDATE'; mapId: string; walls: any[] }
   | { type: 'FOG_UPDATE'; polygons: Array<Array<{ x: number; y: number }>> }
   | { type: 'PING_POINT'; x: number; y: number; color: string; sender_name: string };
 

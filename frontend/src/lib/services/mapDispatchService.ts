@@ -145,6 +145,57 @@ export async function dispatchMapToBattlemat(payload: DispatchMapPayload): Promi
   canvasStore.setGridSize(effectiveGridSize);
   wallStore.setWalls(canonicalWalls);
   canvasStore.setWallCollisions(canonicalWalls);
+  canvasStore.setWallsAndDoors(canonicalWalls, []);
+
+  // Persist vector geometry directly to SQLite
+  const sqlitePayload = {
+    map_id: mapId,
+    name: name || 'Tactical Battlemat',
+    grid_size: effectiveGridSize,
+    walls: canonicalWalls.map((w) => ({
+      id: w.id,
+      x1: w.x1,
+      y1: w.y1,
+      x2: w.x2,
+      y2: w.y2,
+      blocks_light: w.blocksVision,
+      blocks_movement: w.blocksMovement,
+    })),
+  };
+
+  if (typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)) {
+    try {
+      const tauri = (window as any).__TAURI__;
+      if (tauri?.core?.invoke) {
+        await tauri.core.invoke('save_map_vector_geometry', { request: sqlitePayload });
+      }
+    } catch (err) {
+      console.warn('[MapDispatch] SQLite IPC failed:', err);
+    }
+  } else {
+    try {
+      await fetch('/api/map/save_vector', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sqlitePayload),
+      });
+    } catch {
+      // offline fallback
+    }
+  }
+
+  // Auto-fit camera viewport bounds to imported geometry
+  if (typeof window !== 'undefined') {
+    const viewW = window.innerWidth || 1200;
+    const viewH = window.innerHeight || 800;
+    const margin = 80;
+    const scaleX = viewW / Math.max(naturalWidth + margin * 2, 200);
+    const scaleY = viewH / Math.max(naturalHeight + margin * 2, 200);
+    const fitZoom = Math.max(0.15, Math.min(2.5, Math.min(scaleX, scaleY)));
+    const panX = (viewW - naturalWidth * fitZoom) / 2;
+    const panY = (viewH - naturalHeight * fitZoom) / 2;
+    canvasStore.setDmViewport({ x: panX, y: panY, zoom: fitZoom });
+  }
 
   // 4. Broadcast to Projector Route and WebSockets
   broadcastBattlematUpdate({
@@ -158,6 +209,12 @@ export async function dispatchMapToBattlemat(payload: DispatchMapPayload): Promi
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
       new CustomEvent('vtt:maps-updated')
+    );
+
+    window.dispatchEvent(
+      new CustomEvent('vtt:walls-updated', {
+        detail: { mapId, walls: canonicalWalls }
+      })
     );
 
     window.dispatchEvent(

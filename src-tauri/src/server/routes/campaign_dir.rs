@@ -1084,3 +1084,52 @@ pub async fn advance_campaign_time_seconds(
         total_seconds: new_epoch_seconds as u64,
     }))
 }
+
+pub async fn save_map_vector_geometry_endpoint(
+    State(state): State<AppState>,
+    Json(payload): Json<crate::commands::SaveMapVectorRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let conn = state.db.lock().await;
+    conn.execute(
+        "INSERT INTO maps (id, name, grid_size, data_json)
+         VALUES (?1, ?2, ?3, '{}')
+         ON CONFLICT(id) DO UPDATE SET name = ?2, grid_size = ?3",
+        rusqlite::params![payload.map_id, payload.name, payload.grid_size],
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    conn.execute(
+        "DELETE FROM wall_colliders WHERE map_id = ?1",
+        rusqlite::params![payload.map_id],
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut count = 0;
+    for w in &payload.walls {
+        let _ = conn.execute(
+            "INSERT INTO wall_colliders (id, map_id, x1, y1, x2, y2, blocks_light, blocks_movement)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                w.id,
+                payload.map_id,
+                w.x1,
+                w.y1,
+                w.x2,
+                w.y2,
+                if w.blocks_light.unwrap_or(true) { 1 } else { 0 },
+                if w.blocks_movement.unwrap_or(true) {
+                    1
+                } else {
+                    0
+                },
+            ],
+        );
+        count += 1;
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "map_id": payload.map_id,
+        "walls_saved": count
+    })))
+}

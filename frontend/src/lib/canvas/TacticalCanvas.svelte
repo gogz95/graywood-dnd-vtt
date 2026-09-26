@@ -23,6 +23,7 @@
     mapWidth = 1200,
     mapHeight = 800,
     gridSize = 50,
+    activeTool = 'select',
     onTokenMove,
     onDropMonster,
   }: {
@@ -31,6 +32,7 @@
     mapWidth?: number;
     mapHeight?: number;
     gridSize?: number;
+    activeTool?: string;
     onTokenMove?: (id: string, x: number, y: number) => void;
     onDropMonster?: (monster: unknown, x: number, y: number) => void;
   } = $props();
@@ -40,11 +42,16 @@
   let statusBanner: string | null = $state(null);
   let statusBannerTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // PixiJS layer references
+  // PixiJS semantic layer references (strict Foundry/Roll20 masking architecture)
   let stageRoot: Container;
+  let backgroundContainer: Container;
+  let gridContainer: Graphics;
   let layer0Background: Graphics;
-  let layer1Tokens: Container;
+  let wallsContainer: Container;
   let layerWalls: Container;
+  let tokensContainer: Container;
+  let layer1Tokens: Container;
+  let fogContainer: Container;
   let darknessContainer: Container;
   let layer2Darkness: Graphics;
   let layer3FogMask: Graphics;
@@ -105,41 +112,69 @@
     }
   });
 
+  // Bind interaction modes to the active drawing/canvas tool (Foundry/Roll20 masking pattern)
+  $effect(() => {
+    if (!tokensContainer) return;
+    const lower = (activeTool || 'select').toLowerCase();
+    const isDrawingOrMeasuring =
+      lower.startsWith('wall') ||
+      lower === 'ruler' ||
+      lower.startsWith('fog') ||
+      lower === 'template' ||
+      ['brush', 'circle', 'cone', 'cube', 'line'].includes(lower);
+
+    // Disable token interaction when drawing/measuring to prevent accidental selections/moves
+    tokensContainer.eventMode = isDrawingOrMeasuring ? 'none' : 'static';
+  });
+
   function setupScene() {
     if (!pixiApp) return;
 
     stageRoot = new Container();
     pixiApp.stage.addChild(stageRoot);
 
-    // Layer 0: Battle map background & grid
-    layer0Background = new Graphics();
-    stageRoot.addChild(layer0Background);
+    // Semantic Layer 1: Background & Terrain Container
+    backgroundContainer = new Container();
+    backgroundContainer.label = 'VTT_BackgroundContainer';
+    stageRoot.addChild(backgroundContainer);
+
+    // Semantic Layer 2: Grid Container
+    gridContainer = new Graphics();
+    gridContainer.label = 'VTT_GridContainer';
+    stageRoot.addChild(gridContainer);
+    layer0Background = gridContainer;
     drawDungeonBackground();
 
-    // Layer 1: Token Layer
-    layer1Tokens = new Container();
-    stageRoot.addChild(layer1Tokens);
+    // Semantic Layer 3: Walls & Doors Container
+    wallsContainer = new Container();
+    wallsContainer.label = 'VTT_WallsContainer';
+    stageRoot.addChild(wallsContainer);
+    layerWalls = wallsContainer;
 
-    // Overlay: Wall & Door Rendering
-    layerWalls = new Container();
-    stageRoot.addChild(layerWalls);
+    // Semantic Layer 4: Tokens Container
+    tokensContainer = new Container();
+    tokensContainer.label = 'VTT_TokensContainer';
+    tokensContainer.eventMode = 'static';
+    stageRoot.addChild(tokensContainer);
+    layer1Tokens = tokensContainer;
 
-    // Layer 2 & 3: Ambient Darkness & Dynamic Fog Mask Container
-    // In PixiJS v8, isRenderGroup isolates erase blend mode to its children
-    darknessContainer = new Container({ isRenderGroup: true });
-    stageRoot.addChild(darknessContainer);
+    // Semantic Layer 5: Fog & Dynamic Darkness Container
+    fogContainer = new Container({ isRenderGroup: true });
+    fogContainer.label = 'VTT_FogContainer';
+    stageRoot.addChild(fogContainer);
+    darknessContainer = fogContainer;
 
-    // Layer 2: Ambient Darkness (0x030712 at 0.95 opacity)
+    // Ambient Darkness
     layer2Darkness = new Graphics();
     layer2Darkness
       .rect(0, 0, mapWidth, mapHeight)
       .fill({ color: 0x030712, alpha: 0.95 });
-    darknessContainer.addChild(layer2Darkness);
+    fogContainer.addChild(layer2Darkness);
 
-    // Layer 3: Dynamic Fog Mask (using ERASE blend mode)
+    // Dynamic Fog Mask (using ERASE blend mode)
     layer3FogMask = new Graphics();
     layer3FogMask.blendMode = 'erase';
-    darknessContainer.addChild(layer3FogMask);
+    fogContainer.addChild(layer3FogMask);
 
     // Global pointer interaction for drag cancellation
     pixiApp.stage.eventMode = 'static';

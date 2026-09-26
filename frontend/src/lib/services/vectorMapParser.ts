@@ -336,3 +336,190 @@ export function generateDungeonCryptColliders(
 
   return walls;
 }
+
+/**
+ * Parses SVG geometry (lines, polylines, polygons, rects, and linear path commands)
+ * into canonical wall segments for battlemat line-of-sight and collision systems.
+ */
+export function parseSvgToWalls(
+  svgString: string,
+  options: VectorParseOptions = {}
+): ParsedVectorResult {
+  const rawSegments: Array<{ p1: [number, number]; p2: [number, number]; isDoor: boolean }> = [];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  function track(x: number, y: number) {
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  // 1. Line elements: <line x1="..." y1="..." x2="..." y2="...">
+  const lineRegex = /<line[^>]*x1=["']([^"']+)["'][^>]*y1=["']([^"']+)["'][^>]*x2=["']([^"']+)["'][^>]*y2=["']([^"']+)["'][^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = lineRegex.exec(svgString)) !== null) {
+    const x1 = parseFloat(match[1]);
+    const y1 = parseFloat(match[2]);
+    const x2 = parseFloat(match[3]);
+    const y2 = parseFloat(match[4]);
+    if (isValidSegment(x1, y1, x2, y2)) {
+      track(x1, y1);
+      track(x2, y2);
+      rawSegments.push({ p1: [x1, y1], p2: [x2, y2], isDoor: false });
+    }
+  }
+
+  // 2. Rect elements: <rect x="..." y="..." width="..." height="...">
+  const rectRegex = /<rect[^>]*x=["']([^"']+)["'][^>]*y=["']([^"']+)["'][^>]*width=["']([^"']+)["'][^>]*height=["']([^"']+)["'][^>]*>/gi;
+  while ((match = rectRegex.exec(svgString)) !== null) {
+    const x = parseFloat(match[1]);
+    const y = parseFloat(match[2]);
+    const w = parseFloat(match[3]);
+    const h = parseFloat(match[4]);
+    if (w > 0 && h > 0) {
+      track(x, y);
+      track(x + w, y + h);
+      rawSegments.push({ p1: [x, y], p2: [x + w, y], isDoor: false });
+      rawSegments.push({ p1: [x + w, y], p2: [x + w, y + h], isDoor: false });
+      rawSegments.push({ p1: [x + w, y + h], p2: [x, y + h], isDoor: false });
+      rawSegments.push({ p1: [x, y + h], p2: [x, y], isDoor: false });
+    }
+  }
+
+  // 3. Polyline & Polygon elements: points="x1,y1 x2,y2 ..."
+  const polyRegex = /<(polyline|polygon)[^>]*points=["']([^"']+)["'][^>]*>/gi;
+  while ((match = polyRegex.exec(svgString)) !== null) {
+    const isClosed = match[1].toLowerCase() === 'polygon';
+    const pointsStr = match[2].trim();
+    const pairs = pointsStr.split(/[\s,]+/).map(Number);
+    const coords: [number, number][] = [];
+    for (let i = 0; i < pairs.length - 1; i += 2) {
+      if (!isNaN(pairs[i]) && !isNaN(pairs[i + 1])) {
+        coords.push([pairs[i], pairs[i + 1]]);
+        track(pairs[i], pairs[i + 1]);
+      }
+    }
+    for (let i = 0; i < coords.length - 1; i++) {
+      rawSegments.push({ p1: coords[i], p2: coords[i + 1], isDoor: false });
+    }
+    if (isClosed && coords.length > 2) {
+      rawSegments.push({ p1: coords[coords.length - 1], p2: coords[0], isDoor: false });
+    }
+  }
+
+  // 4. Path elements with M/L/H/V commands: <path d="...">
+  const pathRegex = /<path[^>]*d=["']([^"']+)["'][^>]*>/gi;
+  while ((match = pathRegex.exec(svgString)) !== null) {
+    const d = match[1];
+    const cmdRegex = /([MLHVZCSQTA])\s*([^MLHVZCSQTA]*)/gi;
+    let cmdMatch: RegExpExecArray | null;
+    let currX = 0;
+    let currY = 0;
+    let startX = 0;
+    let startY = 0;
+
+    while ((cmdMatch = cmdRegex.exec(d)) !== null) {
+      const type = cmdMatch[1].toUpperCase();
+      const nums = (cmdMatch[2].match(/[-+]?(?:\d*\.\d+|\d+)/g) || []).map(Number);
+
+      if (type === 'M' && nums.length >= 2) {
+        currX = nums[0];
+        currY = nums[1];
+        startX = currX;
+        startY = currY;
+        track(currX, currY);
+      } else if (type === 'L' && nums.length >= 2) {
+        for (let i = 0; i < nums.length - 1; i += 2) {
+          const nextX = nums[i];
+          const nextY = nums[i + 1];
+          track(nextX, nextY);
+          rawSegments.push({ p1: [currX, currY], p2: [nextX, nextY], isDoor: false });
+          currX = nextX;
+          currY = nextY;
+        }
+      } else if (type === 'H' && nums.length >= 1) {
+        const nextX = nums[0];
+        track(nextX, currY);
+        rawSegments.push({ p1: [currX, currY], p2: [nextX, currY], isDoor: false });
+        currX = nextX;
+      } else if (type === 'V' && nums.length >= 1) {
+        const nextY = nums[0];
+        track(currX, nextY);
+        rawSegments.push({ p1: [currX, currY], p2: [currX, nextY], isDoor: false });
+        currY = nextY;
+      } else if (type === 'Z') {
+        if (currX !== startX || currY !== startY) {
+          rawSegments.push({ p1: [currX, currY], p2: [startX, startY], isDoor: false });
+          currX = startX;
+          currY = startY;
+        }
+      }
+    }
+  }
+
+  if (minX === Infinity || rawSegments.length === 0) {
+    return { walls: [], bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 }, featureCount: 0 };
+  }
+
+  const rawWidth = Math.max(1, maxX - minX);
+  const rawHeight = Math.max(1, maxY - minY);
+  const padding = options.padding ?? 60;
+
+  let scaleX = 1;
+  let scaleY = 1;
+
+  if (options.targetWidth && options.targetHeight) {
+    const usableW = Math.max(10, options.targetWidth - padding * 2);
+    const usableH = Math.max(10, options.targetHeight - padding * 2);
+    const uniform = Math.min(usableW / rawWidth, usableH / rawHeight);
+    scaleX = uniform;
+    scaleY = uniform;
+  } else if (options.cellSize) {
+    scaleX = options.cellSize;
+    scaleY = options.cellSize;
+  }
+
+  const walls: CanonicalWall[] = [];
+  let counter = 1;
+
+  for (const seg of rawSegments) {
+    const x1 = (seg.p1[0] - minX) * scaleX + padding;
+    const y1 = (seg.p1[1] - minY) * scaleY + padding;
+    const x2 = (seg.p2[0] - minX) * scaleX + padding;
+    const y2 = (seg.p2[1] - minY) * scaleY + padding;
+
+    if (isValidSegment(x1, y1, x2, y2, 2)) {
+      walls.push({
+        id: `wall-svg-${Date.now()}-${counter++}`,
+        x1: Math.round(x1 * 10) / 10,
+        y1: Math.round(y1 * 10) / 10,
+        x2: Math.round(x2 * 10) / 10,
+        y2: Math.round(y2 * 10) / 10,
+        blocksLight: true,
+        blocksMovement: true,
+        door: seg.isDoor
+      });
+    }
+  }
+
+  const computedBounds: BoundingBox = {
+    minX: padding,
+    minY: padding,
+    maxX: Math.round((rawWidth * scaleX + padding * 2) * 10) / 10,
+    maxY: Math.round((rawHeight * scaleY + padding * 2) * 10) / 10,
+    width: Math.round((rawWidth * scaleX + padding * 2) * 10) / 10,
+    height: Math.round((rawHeight * scaleY + padding * 2) * 10) / 10
+  };
+
+  return {
+    walls,
+    bounds: computedBounds,
+    featureCount: rawSegments.length
+  };
+}

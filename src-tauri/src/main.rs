@@ -59,6 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             graywood_vtt_lib::commands::open_projector_window,
+            graywood_vtt_lib::commands::save_map_vector_geometry,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

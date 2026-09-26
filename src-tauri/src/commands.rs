@@ -421,3 +421,69 @@ pub async fn scan_ingest_directory(
         entries,
     })
 }
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct WallColliderPayload {
+    pub id: String,
+    pub x1: f64,
+    pub y1: f64,
+    pub x2: f64,
+    pub y2: f64,
+    pub blocks_light: Option<bool>,
+    pub blocks_movement: Option<bool>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct SaveMapVectorRequest {
+    pub map_id: String,
+    pub name: String,
+    pub grid_size: u32,
+    pub walls: Vec<WallColliderPayload>,
+}
+
+#[tauri::command]
+pub async fn save_map_vector_geometry(
+    state: tauri::State<'_, crate::server::state::AppState>,
+    request: SaveMapVectorRequest,
+) -> Result<usize, String> {
+    let conn = state.db.lock().await;
+    conn.execute(
+        "INSERT INTO maps (id, name, grid_size, data_json)
+         VALUES (?1, ?2, ?3, '{}')
+         ON CONFLICT(id) DO UPDATE SET name = ?2, grid_size = ?3",
+        params![request.map_id, request.name, request.grid_size],
+    )
+    .map_err(|e| format!("Failed to upsert map: {}", e))?;
+
+    conn.execute(
+        "DELETE FROM wall_colliders WHERE map_id = ?1",
+        params![request.map_id],
+    )
+    .map_err(|e| format!("Failed to clear existing wall colliders: {}", e))?;
+
+    let mut count = 0;
+    for w in &request.walls {
+        conn.execute(
+            "INSERT INTO wall_colliders (id, map_id, x1, y1, x2, y2, blocks_light, blocks_movement)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                w.id,
+                request.map_id,
+                w.x1,
+                w.y1,
+                w.x2,
+                w.y2,
+                if w.blocks_light.unwrap_or(true) { 1 } else { 0 },
+                if w.blocks_movement.unwrap_or(true) {
+                    1
+                } else {
+                    0
+                },
+            ],
+        )
+        .map_err(|e| format!("Failed to insert wall collider {}: {}", w.id, e))?;
+        count += 1;
+    }
+
+    Ok(count)
+}

@@ -5,6 +5,7 @@
   import type { CompendiumMonster } from '../../db/compendiumDb';
   import { chatStore } from '../../stores/chatStore.svelte';
   import { bestiaryStore } from '../../stores/bestiaryStore.svelte';
+  import ClickToRollText from '../combat/ClickToRollText.svelte';
 
   let {
     monster,
@@ -225,9 +226,9 @@
         {#if showTraits}
           <div class="space-y-2 text-xs text-stone-800 font-sans">
             {#each monster.traits as trait}
-              <div>
+              <div class="leading-relaxed">
                 <strong class="text-amber-950 font-bold">{trait.name}.</strong>
-                <span class="leading-relaxed">{trait.description}</span>
+                <ClickToRollText text={trait.description} actorName={monster.name} actionName={trait.name} />
               </div>
             {/each}
           </div>
@@ -261,7 +262,9 @@
                     🎲 Roll Action
                   </button>
                 </div>
-                <p class="leading-relaxed text-stone-800 text-[11px]">{act.description}</p>
+                <div class="leading-relaxed text-stone-800 text-[11px]">
+                  <ClickToRollText text={act.description} actorName={monster.name} actionName={act.name} />
+                </div>
               </div>
             {/each}
           </div>

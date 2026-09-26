@@ -126,6 +126,7 @@
 
   // ── Tactical Operational Tools ─────────────────────────────────────────────
   let activeTool = $state<'select' | 'ruler' | 'circle' | 'cone' | 'cube' | 'line'>('select');
+  let activeDrawingTool = $state<DrawTool>('select');
   let aoePublic = $state(true);
   let rulerStart = $state<{ gx: number; gy: number } | null>(null);
   let animTime = $state(0);
@@ -503,7 +504,19 @@
         }
       }
 
-      // 5. Token drag and active turn reticle selection
+      // Strict Interaction Layer Masking (Roll20 / Foundry pattern):
+      // When active tool is wall, ruler, fog, or template: disable token click/drag listeners
+      // so clicks and drags never accidentally select or move tokens while drawing or measuring.
+      const isDrawingOrMeasuring =
+        activeTool === 'ruler' ||
+        ['circle', 'cone', 'cube', 'line'].includes(activeTool) ||
+        ['wall_line', 'wall_polygon', 'fog_carve', 'fog_conceal', 'brush', 'ruler'].includes(activeDrawingTool);
+
+      if (isDrawingOrMeasuring) {
+        return;
+      }
+
+      // 5. Token drag and active turn reticle selection (only when select/pan is active)
       const tok = tokenAt(gx, gy);
       if (tok) {
         draggingToken = tok;
@@ -1249,7 +1262,14 @@
         style={chatStore.isOpen ? 'left: calc(50% - 12rem); transform: translateX(-50%);' : 'left: 50%; transform: translateX(-50%);'}
       >
         <TacticalHotbar />
-        <CanvasDrawingToolbar />
+        <CanvasDrawingToolbar
+          bind:activeTool={activeDrawingTool}
+          onToolChange={(tool) => {
+            activeDrawingTool = tool;
+            if (tool === 'select') activeTool = 'select';
+            if (tool === 'ruler') activeTool = 'ruler';
+          }}
+        />
       </div>
 
       {#if !mapImageUrl && tokens.length === 0}

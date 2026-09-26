@@ -380,6 +380,20 @@ class ChatStore {
       });
     }
 
+    // Trigger local 3D Physics WebGL Dice Overlay simulation
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('vtt:dice-roll', {
+          detail: {
+            formula: breakdown.rawFormula,
+            result: breakdown.total,
+            character_name: actorName,
+            is_critical: breakdown.isCritical,
+          },
+        })
+      );
+    }
+
     return message;
   }
 
