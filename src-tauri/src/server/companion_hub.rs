@@ -49,17 +49,20 @@ impl ClientRole {
     }
 
     pub fn can_mutate_canvas(&self) -> bool {
-        matches!(self, ClientRole::OwnerDm | ClientRole::AssistantDm | ClientRole::Player)
+        matches!(
+            self,
+            ClientRole::OwnerDm | ClientRole::AssistantDm | ClientRole::Player
+        )
     }
 }
 
 impl std::fmt::Display for ClientRole {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            ClientRole::OwnerDm    => "owner_dm",
+            ClientRole::OwnerDm => "owner_dm",
             ClientRole::AssistantDm => "assistant_dm",
-            ClientRole::Player     => "player",
-            ClientRole::Spectator  => "spectator",
+            ClientRole::Player => "player",
+            ClientRole::Spectator => "spectator",
         };
         write!(f, "{s}")
     }
@@ -135,7 +138,11 @@ pub enum CompanionClientMsg {
     Chat { message: ChatMessage },
 
     /// Inbound token movement — only forwarded if role permits.
-    #[serde(rename = "UpdateTokenPosition", alias = "update_token_position", alias = "UPDATE_TOKEN_POSITION")]
+    #[serde(
+        rename = "UpdateTokenPosition",
+        alias = "update_token_position",
+        alias = "UPDATE_TOKEN_POSITION"
+    )]
     UpdateTokenPosition {
         token_id: String,
         x: f64,
@@ -152,7 +159,11 @@ pub enum CompanionClientMsg {
     },
 
     /// DM-only: assign owner_ids for a specific token.
-    #[serde(rename = "AssignTokenOwner", alias = "assign_token_owner", alias = "ASSIGN_TOKEN_OWNER")]
+    #[serde(
+        rename = "AssignTokenOwner",
+        alias = "assign_token_owner",
+        alias = "ASSIGN_TOKEN_OWNER"
+    )]
     AssignTokenOwner {
         token_id: String,
         owner_ids: Vec<String>,
@@ -169,7 +180,6 @@ pub struct ChatMessage {
     pub is_system: bool,
     pub timestamp: i64,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiceTrajectoryVector {
@@ -206,7 +216,6 @@ pub enum CompanionServerMsg {
         #[serde(default)]
         vectors: Vec<DiceTrajectoryVector>,
     },
-
 
     #[serde(rename = "Ping")]
     Ping,
@@ -255,9 +264,11 @@ pub enum CompanionServerMsg {
     /// Broadcast the full connected session list to DM clients.
     #[serde(rename = "SessionList")]
     SessionList { sessions: Vec<SessionSummary> },
+
+    /// Broadcast DM Staging Curtain ("Blackout Veil") state.
+    #[serde(rename = "STAGING_CURTAIN")]
+    StagingCurtain { active: bool },
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSummary {
@@ -467,6 +478,17 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
         }
     }
 
+    // Send initial StagingCurtain state
+    let initial_curtain = state
+        .curtain_active
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let curtain_frame = CompanionServerMsg::StagingCurtain {
+        active: initial_curtain,
+    };
+    if let Ok(json) = serde_json::to_string(&curtain_frame) {
+        let _ = sender.send(Message::Text(json)).await;
+    }
+
     // ── Phase 4: Bi-directional Message Forwarding & Broadcast ───────────────
     let mut rx = state.companion_hub.broadcast_tx.subscribe();
 
@@ -525,8 +547,14 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     rng_state ^= rng_state >> 17;
                                     let angle = ((rng_state % 360) as f32).to_radians();
                                     rng_state ^= rng_state << 7;
-                                    let velocity = 10.0 + ((rng_state % 1000) as f32 / 1000.0) * 8.0;
-                                    vectors.push(DiceTrajectoryVector { x, y, angle, velocity });
+                                    let velocity =
+                                        10.0 + ((rng_state % 1000) as f32 / 1000.0) * 8.0;
+                                    vectors.push(DiceTrajectoryVector {
+                                        x,
+                                        y,
+                                        angle,
+                                        velocity,
+                                    });
                                 }
 
                                 // Broadcast to all mobile companion sessions
@@ -549,7 +577,6 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     seed: Some(seed),
                                     vectors: Some(vectors),
                                 });
-
                             }
                             CompanionClientMsg::UpdateHp { entity_id, delta } => {
                                 // Notify desktop VTT of character HP modification
@@ -712,23 +739,30 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                 });
 
                                 // 5. Check if target was concentrating and took damage
-                                if delta_hp < 0 && final_conditions.iter().any(|c| c.eq_ignore_ascii_case("Concentrating")) {
+                                if delta_hp < 0
+                                    && final_conditions
+                                        .iter()
+                                        .any(|c| c.eq_ignore_ascii_case("Concentrating"))
+                                {
                                     let damage_taken = delta_hp.abs();
                                     let dc = std::cmp::max(10, damage_taken / 2);
 
-                                    hub_clone.broadcast(CompanionServerMsg::ConcentrationCheckRequired {
-                                        entity_id: target_entity_id.clone(),
-                                        entity_name: final_name.clone(),
-                                        dc,
-                                        damage_taken,
-                                    });
+                                    hub_clone.broadcast(
+                                        CompanionServerMsg::ConcentrationCheckRequired {
+                                            entity_id: target_entity_id.clone(),
+                                            entity_name: final_name.clone(),
+                                            dc,
+                                            damage_taken,
+                                        },
+                                    );
 
-                                    let _ = ws_sender_clone.send(WsEvent::ConcentrationCheckRequired {
-                                        entity_id: target_entity_id.clone(),
-                                        entity_name: final_name.clone(),
-                                        dc,
-                                        damage_taken,
-                                    });
+                                    let _ =
+                                        ws_sender_clone.send(WsEvent::ConcentrationCheckRequired {
+                                            entity_id: target_entity_id.clone(),
+                                            entity_name: final_name.clone(),
+                                            dc,
+                                            damage_taken,
+                                        });
                                 }
                             }
                             CompanionClientMsg::DropConcentration { entity_id } => {
@@ -741,10 +775,21 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     )
                                     .ok();
 
-                                if let Some((c_name, hp_curr, hp_max, ac, init, is_monster, cond_json)) = row {
-                                    let mut conds: Vec<String> = serde_json::from_str(&cond_json).unwrap_or_default();
+                                if let Some((
+                                    c_name,
+                                    hp_curr,
+                                    hp_max,
+                                    ac,
+                                    init,
+                                    is_monster,
+                                    cond_json,
+                                )) = row
+                                {
+                                    let mut conds: Vec<String> =
+                                        serde_json::from_str(&cond_json).unwrap_or_default();
                                     conds.retain(|c| !c.eq_ignore_ascii_case("Concentrating"));
-                                    let new_cond_json = serde_json::to_string(&conds).unwrap_or_else(|_| "[]".to_string());
+                                    let new_cond_json = serde_json::to_string(&conds)
+                                        .unwrap_or_else(|_| "[]".to_string());
                                     let _ = conn.execute(
                                         "UPDATE active_combatants SET conditions_json = ?1 WHERE id = ?2 OR token_id = ?2",
                                         rusqlite::params![new_cond_json, entity_id],
@@ -789,9 +834,7 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     message: message.clone(),
                                 });
                                 // Forward to desktop VTT
-                                let _ = ws_sender_clone.send(WsEvent::ChatMessage {
-                                    message,
-                                });
+                                let _ = ws_sender_clone.send(WsEvent::ChatMessage { message });
                             }
                             CompanionClientMsg::Auth { .. } => {
                                 // Redundant auth frames ignored after handshake
@@ -816,16 +859,16 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     r if r.is_dm() => true,
                                     // Players can only move tokens they own
                                     ClientRole::Player => {
-                                        owner_ids.contains(&session_id_clone)
-                                            || {
-                                                // Also check by device name stored in session
-                                                let sg = sessions_clone.read().await;
-                                                let matched = sg.get(&session_id_clone)
-                                                    .map(|s| owner_ids.contains(&s.device_name))
-                                                    .unwrap_or(false);
-                                                drop(sg);
-                                                matched
-                                            }
+                                        owner_ids.contains(&session_id_clone) || {
+                                            // Also check by device name stored in session
+                                            let sg = sessions_clone.read().await;
+                                            let matched = sg
+                                                .get(&session_id_clone)
+                                                .map(|s| owner_ids.contains(&s.device_name))
+                                                .unwrap_or(false);
+                                            drop(sg);
+                                            matched
+                                        }
                                     }
                                     // Spectators cannot move anything
                                     _ => false,
@@ -898,7 +941,8 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
 
                                 if my_role.is_dm() {
                                     // Persist to SQLite and forward to VTT
-                                    let owner_json = serde_json::to_string(&owner_ids).unwrap_or_default();
+                                    let owner_json =
+                                        serde_json::to_string(&owner_ids).unwrap_or_default();
                                     {
                                         let conn = db_clone.lock().await;
                                         let _ = conn.execute(
@@ -912,14 +956,13 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
                                     });
                                 } else {
                                     hub_clone.broadcast(CompanionServerMsg::AuthWarning {
-                                        reason: "Only DM/OwnerDm can assign token ownership".to_string(),
+                                        reason: "Only DM/OwnerDm can assign token ownership"
+                                            .to_string(),
                                         token_id: Some(token_id),
                                     });
                                 }
                             }
                         }
-
-
                     }
                 }
                 Message::Close(_) => break,
@@ -1016,9 +1059,7 @@ pub struct AssignOwnersPayload {
 }
 
 /// GET /api/companion/sessions — lists all active sessions (DM workstation use only)
-pub async fn get_active_sessions(
-    State(state): State<AppState>,
-) -> Json<Vec<SessionSummary>> {
+pub async fn get_active_sessions(State(state): State<AppState>) -> Json<Vec<SessionSummary>> {
     let sessions = state.companion_hub.sessions.read().await;
     let list: Vec<SessionSummary> = sessions
         .values()
@@ -1041,15 +1082,19 @@ pub async fn promote_session_role(
 ) -> Json<serde_json::Value> {
     let typed = ClientRole::from_str(&payload.new_role);
     if typed == ClientRole::OwnerDm {
-        return Json(serde_json::json!({ "success": false, "error": "OwnerDm cannot be granted via REST" }));
+        return Json(
+            serde_json::json!({ "success": false, "error": "OwnerDm cannot be granted via REST" }),
+        );
     }
     let mut sessions = state.companion_hub.sessions.write().await;
     if let Some(sess) = sessions.get_mut(&session_id) {
         sess.role = typed;
-        state.companion_hub.broadcast(CompanionServerMsg::RoleUpdated {
-            session_id: session_id.clone(),
-            new_role: payload.new_role,
-        });
+        state
+            .companion_hub
+            .broadcast(CompanionServerMsg::RoleUpdated {
+                session_id: session_id.clone(),
+                new_role: payload.new_role,
+            });
         Json(serde_json::json!({ "success": true }))
     } else {
         Json(serde_json::json!({ "success": false, "error": "Session not found" }))

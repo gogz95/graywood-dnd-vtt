@@ -106,8 +106,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/api/campaign/assets/upload",
-            post(crate::api::assets::upload_asset)
-                .layer(DefaultBodyLimit::max(100 * 1024 * 1024)),
+            post(crate::api::assets::upload_asset).layer(DefaultBodyLimit::max(100 * 1024 * 1024)),
         )
         .route(
             "/api/campaign/assets/*path",
@@ -128,7 +127,6 @@ pub fn create_router(state: AppState) -> Router {
         // 4c. Community Plugin Discovery & Sandbox Registry
         .route("/api/plugins", get(routes::plugins::list_plugins_route))
         // 5. DM Encounter Tracker & Monster Spawning Endpoints
-
         .route("/api/encounter/active", get(routes::encounter::get_active))
         .route(
             "/api/encounter/next_turn",
@@ -165,18 +163,16 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/api/scenes/:scene_id/tokens/:instance_id",
-            patch(crate::api::tokens::update_scene_token)
-                .get(crate::api::tokens::get_scene_token),
+            patch(crate::api::tokens::update_scene_token).get(crate::api::tokens::get_scene_token),
         )
         .route(
             "/api/scenes/:scene_id/tokens/:instance_id/lease",
             post(crate::api::tokens::request_token_lease),
         )
         // 5c. Epoch Resync (missed-event catchup for reconnecting clients)
-        .route(
-            "/api/sync/epoch",
-            get(crate::api::sync::get_epoch_delta),
-        )
+        .route("/api/sync/epoch", get(crate::api::sync::get_epoch_delta))
+        // 5d. Staging Curtain ("Blackout Veil") Control
+        .route("/api/scene/curtain", post(crate::api::curtain::set_curtain))
         // 6. Essence Crafting Matrix & Sockets Endpoints
         .route(
             "/api/crafting/essences",
@@ -227,6 +223,11 @@ pub fn create_router(state: AppState) -> Router {
             post(companion_hub::assign_token_owners),
         )
         .route("/ws/companion", get(companion_hub::companion_ws_handler))
+        // 10. System & Local Network Discovery
+        .route(
+            "/api/system/connection-info",
+            get(routes::system::get_connection_info),
+        )
         // Catch-all fallback for client-side routing
         .fallback(routes::assets::serve_index)
         .layer(cors)
@@ -275,7 +276,6 @@ pub async fn run_server(
     axum::serve(listener, router).await?;
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -508,9 +508,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_bind_dynamic_listener() {
-        let (listener, port) = bind_dynamic_listener(4242, 4252)
-            .await
-            .expect("bind_dynamic_listener should bind successfully to an available port in 4242..=4252");
+        let (listener, port) = bind_dynamic_listener(4242, 4252).await.expect(
+            "bind_dynamic_listener should bind successfully to an available port in 4242..=4252",
+        );
         assert!(port >= 4242 && port <= 4252);
         let local_addr = listener.local_addr().expect("local_addr should succeed");
         assert_eq!(local_addr.port(), port);

@@ -1,8 +1,8 @@
 // src-tauri/tests/epoch_resync.rs
 // Integration tests for the EpochBuffer ring behaviour.
 
-use graywood_vtt_lib::state::epoch::EpochBuffer;
 use graywood_vtt_lib::server::routes::ws::WsEvent;
+use graywood_vtt_lib::state::epoch::EpochBuffer;
 
 fn make_event(n: u32) -> WsEvent {
     WsEvent::TokenMove {

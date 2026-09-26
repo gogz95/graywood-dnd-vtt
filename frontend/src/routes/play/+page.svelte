@@ -36,6 +36,7 @@
   } from '../../lib/network/broadcastBridge';
   import type { TradeOfferPayload } from '../../lib/types/item';
   import { rulesEngine } from '../../lib/stores/rulesEngine.svelte';
+  import { curtainStore } from '../../lib/stores/curtainStore.svelte';
 
   interface PlayerCharacter {
     id: string;
@@ -1718,4 +1719,10 @@
   {/if}
 
 </div>
+
+{#if curtainStore.active}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black transition-opacity duration-300">
+    <span class="text-zinc-600 font-mono tracking-widest uppercase text-sm">Scene Staging in Progress</span>
+  </div>
+{/if}
 

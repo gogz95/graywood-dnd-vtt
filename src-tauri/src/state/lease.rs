@@ -42,7 +42,10 @@ pub async fn acquire_lease(leases: &LeaseMap, instance_id: &str, user_id: &str) 
     match map.get(instance_id) {
         Some(existing) if !existing.is_expired() && existing.user_id != user_id => false,
         _ => {
-            map.insert(instance_id.to_string(), TokenLease::new(user_id.to_string()));
+            map.insert(
+                instance_id.to_string(),
+                TokenLease::new(user_id.to_string()),
+            );
             true
         }
     }

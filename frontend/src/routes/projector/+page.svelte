@@ -30,6 +30,7 @@
   import { fogOfWarLayer } from '../../lib/canvas/fogOfWarLayer';
   import InitiativeRibbon from '../../lib/components/combat/InitiativeRibbon.svelte';
   import { projectorStore } from '../../lib/stores/projectorStore.svelte';
+  import { curtainStore } from '../../lib/stores/curtainStore.svelte';
   import AtlasMapView from '../../lib/components/map/AtlasMapView.svelte';
   import { broadcaster, type HandoutPayload } from '../../lib/services/broadcaster';
 
@@ -1058,4 +1059,11 @@
 
 <!-- ── 3D Synchronized Tabletop Projector Dice Overlay ────────────────────── -->
 <Dice3DOverlay theme="gold" />
+
+<!-- ── DM Staging Curtain ("Blackout Veil") Overlay ────────────────────── -->
+{#if curtainStore.active}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black transition-opacity duration-300">
+    <span class="text-zinc-600 font-mono tracking-widest uppercase text-sm">Scene Staging in Progress</span>
+  </div>
+{/if}
 

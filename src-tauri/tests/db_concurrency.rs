@@ -19,8 +19,8 @@ async fn test_concurrent_writes_zero_sqlite_busy() {
             .as_nanos()
     ));
 
-    let actor = DbWriterActor::spawn(Some(temp_db_path.clone()))
-        .expect("Failed to spawn DbWriterActor");
+    let actor =
+        DbWriterActor::spawn(Some(temp_db_path.clone())).expect("Failed to spawn DbWriterActor");
 
     // Initialize test table with counter = 0
     actor
@@ -95,9 +95,12 @@ fn test_malformed_migration_rollback_and_user_version() {
     assert_eq!(v0, 0);
 
     // 2. Run valid baseline migration v1
-    let applied =
-        run_atomic_migrations(&mut conn, &MIGRATIONS[..1]).expect("Failed to run baseline migration");
-    assert!(applied >= 1, "Baseline migration should apply at least 1 migration step");
+    let applied = run_atomic_migrations(&mut conn, &MIGRATIONS[..1])
+        .expect("Failed to run baseline migration");
+    assert!(
+        applied >= 1,
+        "Baseline migration should apply at least 1 migration step"
+    );
 
     let v1 = get_user_version(&conn).expect("Failed to read user_version after v1");
     assert_eq!(v1, 1);
@@ -110,7 +113,10 @@ fn test_malformed_migration_rollback_and_user_version() {
             |r| r.get(0),
         )
         .expect("Failed checking campaign_settings table");
-    assert!(has_campaign_settings, "campaign_settings table must be created in v1");
+    assert!(
+        has_campaign_settings,
+        "campaign_settings table must be created in v1"
+    );
 
     let has_scenes: bool = conn
         .query_row(

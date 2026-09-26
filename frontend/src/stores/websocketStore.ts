@@ -313,6 +313,9 @@ function handleIncomingWsEvent(event: WsEvent): void {
     case 'TokenUpdated':
     case 'TokenRemoved':
     case 'StateSnapshot':
+    case 'STAGING_CURTAIN':
+    case 'staging_curtain':
+    case 'StagingCurtain':
       routeInboundWsEvent(event);
       break;
 

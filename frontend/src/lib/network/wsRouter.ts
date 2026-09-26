@@ -3,6 +3,7 @@
 // Establishes authoritative unidirectional data flow: UI -> WS -> Axum -> SQLite -> Broadcast -> Svelte Stores.
 
 import { tokenStore, type TokenInstance } from '../stores/tokenStore.svelte';
+import { curtainStore } from '../stores/curtainStore.svelte';
 
 export interface WsTokenEvent {
   type: string;
@@ -81,6 +82,13 @@ export function routeInboundWsEvent(event: WsTokenEvent | any): void {
       if (Array.isArray(tokensList)) {
         tokenStore.handleStateSnapshot(tokensList);
       }
+      break;
+    }
+
+    case 'STAGING_CURTAIN':
+    case 'staging_curtain': {
+      const active = event.active ?? event.payload?.active ?? false;
+      curtainStore.set(Boolean(active));
       break;
     }
 

@@ -6,7 +6,7 @@ pub mod characters;
 pub mod compendium;
 pub mod crafting;
 pub mod encounter;
-pub mod settlement;
-pub mod ws;
 pub mod plugins;
-
+pub mod settlement;
+pub mod system;
+pub mod ws;

@@ -72,6 +72,7 @@ pub struct AppState {
     pub companion_hub: Arc<crate::server::companion_hub::CompanionHub>,
     pub lease_map: crate::state::lease::LeaseMap,
     pub epoch_buffer: crate::state::epoch::SharedEpochBuffer,
+    pub curtain_active: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl AppState {
@@ -92,6 +93,7 @@ impl AppState {
             )),
             lease_map: crate::state::lease::new_lease_map(),
             epoch_buffer: crate::state::epoch::new_epoch_buffer(),
+            curtain_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 

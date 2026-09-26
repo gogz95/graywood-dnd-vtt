@@ -41,6 +41,7 @@
   import CheatSheetModal from '../lib/components/modals/CheatSheetModal.svelte';
   import { hotkeyManager } from '../lib/services/hotkeyManager';
   import { projectorStore } from '../lib/stores/projectorStore.svelte';
+  import { curtainStore } from '../lib/stores/curtainStore.svelte';
 
   // Aleamos Downtime, Logistics & Crafting
   import AlchemyWorkbench from '../lib/components/crafting/AlchemyWorkbench.svelte';
@@ -60,6 +61,7 @@
 
   import PlayerCompanionPortalModal from '../lib/components/player/PlayerCompanionPortalModal.svelte';
   import PairingModal from '../lib/components/setup/PairingModal.svelte';
+  import JoinQrModal from '../lib/components/network/JoinQrModal.svelte';
   import { getLanIp, getLanPort } from '../lib/services/networkDiscovery';
   import Dice3DOverlay from '../lib/components/dice/Dice3DOverlay.svelte';
 
@@ -142,25 +144,24 @@
 
     // Register Tactical DM Shortcuts via HotkeyManager
     hotkeyManager.register({
-      id: 'toggle-compendium',
+      id: 'toggle-staging-curtain',
       key: 'b',
       ctrlOrMeta: true,
-      description: 'Toggle Compendium Browser Drawer',
-      category: 'navigation',
+      description: 'Toggle DM Staging Curtain ("Blackout Veil")',
+      category: 'screen' as any,
       action: () => {
-        isCompendiumTrayOpen = !isCompendiumTrayOpen;
+        curtainStore.toggle();
       }
     });
 
     hotkeyManager.register({
-      id: 'toggle-projector-blackout',
+      id: 'toggle-compendium',
       key: 'b',
-      ctrlOrMeta: true,
-      shift: true,
-      description: 'Instant Blackout Curtain toggle on /projector',
-      category: 'screen' as any,
+      alt: true,
+      description: 'Toggle Compendium Browser Drawer (Alt+B)',
+      category: 'navigation',
       action: () => {
-        projectorStore.toggleBlackout();
+        isCompendiumTrayOpen = !isCompendiumTrayOpen;
       }
     });
 
@@ -346,6 +347,7 @@
   <SettingsModal bind:isOpen={uiStore.isSettingsOpen} />
   <PlayerCompanionPortalModal bind:isOpen={isPlayerPortalOpen} />
   <PairingModal bind:isOpen={isPairingModalOpen} />
+  <JoinQrModal bind:isOpen={isPairingModalOpen} />
   <PlayerHandoutModal />
 
   <FloatingPanel id="sources" title="Local Source Engine & Rulebook Explorer" icon="📚">

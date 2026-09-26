@@ -6,6 +6,7 @@
   import { chatStore } from '../../stores/chatStore.svelte';
   import { floatingWindowsStore } from '../../stores/floatingWindowsStore.svelte';
   import { projectorStore } from '../../stores/projectorStore.svelte';
+  import { curtainStore } from '../../stores/curtainStore.svelte';
   import { broadcaster } from '../../services/broadcaster';
   import CalendarDisplayWidget from './CalendarDisplayWidget.svelte';
   import WorldClockPill from './WorldClockPill.svelte';
@@ -210,7 +211,20 @@
       {/if}
     </div>
 
-    <!-- 🏛️ Compendium Quick Tray Toggle (Ctrl+B) -->
+    <!-- 🌑 Staging Curtain Toggle ("Blackout Veil" - Ctrl+B) -->
+    <button
+      type="button"
+      onclick={() => curtainStore.toggle()}
+      class="px-2.5 py-1 text-xs font-bold rounded-lg border transition-all flex items-center gap-1.5 {curtainStore.active
+        ? 'bg-rose-950/90 text-rose-300 border-rose-500 shadow-md shadow-rose-900/50 animate-pulse'
+        : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800'}"
+      title="DM Staging Curtain / Blackout Veil (Ctrl+B)"
+    >
+      <span class={curtainStore.active ? 'text-rose-400' : 'text-slate-400'}>🌑</span>
+      <span class="hidden md:inline">{curtainStore.active ? 'Curtain Active' : 'Curtain'}</span>
+    </button>
+
+    <!-- 🏛️ Compendium Quick Tray Toggle (Alt+B) -->
     <button
       type="button"
       onclick={onToggleCompendium}

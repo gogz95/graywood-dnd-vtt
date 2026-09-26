@@ -75,8 +75,11 @@ async fn test_clone_on_spawn_sequential_numbering_and_template_immutability() {
     let spawn_res_1 = app.clone().oneshot(spawn_req_1).await.unwrap();
     assert_eq!(spawn_res_1.status(), StatusCode::OK);
 
-    let body_bytes_1 = to_bytes(spawn_res_1.into_body(), 1024 * 1024).await.unwrap();
-    let token_1: SceneToken = serde_json::from_slice(&body_bytes_1).expect("Failed parsing token 1");
+    let body_bytes_1 = to_bytes(spawn_res_1.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let token_1: SceneToken =
+        serde_json::from_slice(&body_bytes_1).expect("Failed parsing token 1");
 
     // Assert named "Orc 1" with unique instance ID and copied data
     assert_eq!(token_1.name, "Orc 1");
@@ -84,7 +87,11 @@ async fn test_clone_on_spawn_sequential_numbering_and_template_immutability() {
     assert_eq!(token_1.entity_id.as_deref(), Some("comp-orc-template"));
     assert_eq!(token_1.x, 100.0);
     assert_eq!(token_1.y, 150.0);
-    assert_eq!(token_1.instance_id.len(), 36, "Instance ID must be valid UUID format");
+    assert_eq!(
+        token_1.instance_id.len(),
+        36,
+        "Instance ID must be valid UUID format"
+    );
 
     let parsed_data_1: serde_json::Value = serde_json::from_str(&token_1.system_data_json).unwrap();
     assert_eq!(parsed_data_1["hp"], 15);
@@ -107,8 +114,11 @@ async fn test_clone_on_spawn_sequential_numbering_and_template_immutability() {
     let spawn_res_2 = app.clone().oneshot(spawn_req_2).await.unwrap();
     assert_eq!(spawn_res_2.status(), StatusCode::OK);
 
-    let body_bytes_2 = to_bytes(spawn_res_2.into_body(), 1024 * 1024).await.unwrap();
-    let token_2: SceneToken = serde_json::from_slice(&body_bytes_2).expect("Failed parsing token 2");
+    let body_bytes_2 = to_bytes(spawn_res_2.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let token_2: SceneToken =
+        serde_json::from_slice(&body_bytes_2).expect("Failed parsing token 2");
 
     // Assert named "Orc 2" with distinct instance ID
     assert_eq!(token_2.name, "Orc 2");
@@ -118,7 +128,10 @@ async fn test_clone_on_spawn_sequential_numbering_and_template_immutability() {
     // 4. Mutate "Orc 1" current HP to 8
     let mutate_req = Request::builder()
         .method("PATCH")
-        .uri(format!("/api/scenes/scene-1/tokens/{}", token_1.instance_id))
+        .uri(format!(
+            "/api/scenes/scene-1/tokens/{}",
+            token_1.instance_id
+        ))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -140,14 +153,19 @@ async fn test_clone_on_spawn_sequential_numbering_and_template_immutability() {
     // 5. Assert "Orc 2" remains unchanged (hp: 15)
     let get_token_2_req = Request::builder()
         .method("GET")
-        .uri(format!("/api/scenes/scene-1/tokens/{}", token_2.instance_id))
+        .uri(format!(
+            "/api/scenes/scene-1/tokens/{}",
+            token_2.instance_id
+        ))
         .body(Body::empty())
         .unwrap();
 
     let get_token_2_res = app.clone().oneshot(get_token_2_req).await.unwrap();
     assert_eq!(get_token_2_res.status(), StatusCode::OK);
 
-    let get_token_2_bytes = to_bytes(get_token_2_res.into_body(), 1024 * 1024).await.unwrap();
+    let get_token_2_bytes = to_bytes(get_token_2_res.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
     let fetched_token_2: SceneToken = serde_json::from_slice(&get_token_2_bytes).unwrap();
     let parsed_data_2: serde_json::Value =
         serde_json::from_str(&fetched_token_2.system_data_json).unwrap();

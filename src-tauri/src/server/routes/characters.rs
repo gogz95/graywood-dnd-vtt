@@ -268,7 +268,11 @@ pub async fn execute_character_action(
 
             conn.execute(
                 "UPDATE characters SET current_hp = ?1, hit_dice_current = ?2 WHERE id = ?3",
-                params![character.current_hp, character.hit_dice_current, character.id],
+                params![
+                    character.current_hp,
+                    character.hit_dice_current,
+                    character.id
+                ],
             )?;
 
             let _ = state.ws_sender.send(WsEvent::HpUpdate {
@@ -281,8 +285,10 @@ pub async fn execute_character_action(
             character.current_hp = character.max_hp;
             character.temp_hp = 0;
             let restored_hd = (character.hit_dice_max / 2).max(1);
-            character.hit_dice_current = (character.hit_dice_current + restored_hd).min(character.hit_dice_max);
-            character.resurrection_sickness_penalty = (character.resurrection_sickness_penalty - 1).max(0);
+            character.hit_dice_current =
+                (character.hit_dice_current + restored_hd).min(character.hit_dice_max);
+            character.resurrection_sickness_penalty =
+                (character.resurrection_sickness_penalty - 1).max(0);
 
             // Reset spell slots
             if let Ok(mut slots) = character.parse_spell_slots() {

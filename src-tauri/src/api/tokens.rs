@@ -341,13 +341,19 @@ pub async fn request_token_lease(
         crate::state::lease::acquire_lease(&state.lease_map, &instance_id, &body.user_id).await;
 
     if acquired {
-        Ok(Json(LeaseResponse { acquired: true, holder: Some(body.user_id) }))
+        Ok(Json(LeaseResponse {
+            acquired: true,
+            holder: Some(body.user_id),
+        }))
     } else {
         let holder = crate::state::lease::current_holder(&state.lease_map, &instance_id).await;
         Err((
             StatusCode::CONFLICT,
-            serde_json::to_string(&LeaseResponse { acquired: false, holder }).unwrap_or_default(),
+            serde_json::to_string(&LeaseResponse {
+                acquired: false,
+                holder,
+            })
+            .unwrap_or_default(),
         ))
     }
 }
-

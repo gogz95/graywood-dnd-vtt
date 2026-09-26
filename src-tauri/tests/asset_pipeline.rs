@@ -179,7 +179,10 @@ async fn test_upload_identical_file_deduplication() {
     let upload_res1: AssetUploadResponse = serde_json::from_slice(&body_bytes1).unwrap();
     assert_eq!(upload_res1.deduplicated, false);
     assert_eq!(upload_res1.hash, expected_hash);
-    assert_eq!(upload_res1.path, format!("assets/tokens/{}.webp", expected_hash));
+    assert_eq!(
+        upload_res1.path,
+        format!("assets/tokens/{}.webp", expected_hash)
+    );
 
     let tokens_dir = temp_dir.join("assets").join("tokens");
     let files_count_after_first = std::fs::read_dir(&tokens_dir)
@@ -209,7 +212,10 @@ async fn test_upload_identical_file_deduplication() {
         "Second upload of identical file must be marked deduplicated"
     );
     assert_eq!(upload_res2.hash, expected_hash);
-    assert_eq!(upload_res2.path, format!("assets/tokens/{}.webp", expected_hash));
+    assert_eq!(
+        upload_res2.path,
+        format!("assets/tokens/{}.webp", expected_hash)
+    );
 
     // Verify still exactly one file on disk (no duplicate file created)
     let files_count_after_second = std::fs::read_dir(&tokens_dir)
@@ -241,7 +247,10 @@ async fn test_upload_oversized_payload_returns_413() {
     for _ in 0..101 {
         chunks.push(Ok(axum::body::Bytes::from_static(CHUNK)));
     }
-    chunks.push(Ok(axum::body::Bytes::from(format!("\r\n--{}--\r\n", boundary))));
+    chunks.push(Ok(axum::body::Bytes::from(format!(
+        "\r\n--{}--\r\n",
+        boundary
+    ))));
     let body = Body::from_stream(futures_util::stream::iter(chunks));
 
     let req = Request::builder()

@@ -84,9 +84,32 @@ export class FogController {
   }
 
   /**
+   * Register a callback to recompute visibility rays (e.g. from tactical lighting engine)
+   */
+  private visibilityRecomputeCallbacks: Array<() => void> = [];
+
+  public onRecomputeVisibility(cb: () => void): () => void {
+    this.visibilityRecomputeCallbacks.push(cb);
+    return () => {
+      this.visibilityRecomputeCallbacks = this.visibilityRecomputeCallbacks.filter(c => c !== cb);
+    };
+  }
+
+  /**
+   * Triggers immediate recomputation of visibility and fog lines of sight.
+   */
+  public recomputeVisibility(): void {
+    for (const cb of this.visibilityRecomputeCallbacks) {
+      cb();
+    }
+    this.redraw();
+  }
+
+  /**
    * Tears down fog buffer and destroys the dedicated fog layer container.
    */
   public destroy(): void {
+    this.visibilityRecomputeCallbacks = [];
     this.clearFog();
     this.fogGraphics.clear();
     this.fogLayer.destroy({ children: true });

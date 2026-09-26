@@ -40,7 +40,6 @@ pub enum WsEvent {
         vectors: Option<Vec<crate::server::companion_hub::DiceTrajectoryVector>>,
     },
 
-
     #[serde(rename = "SYSTEM_MESSAGE")]
     SystemMessage { message: String, timestamp: i64 },
 
@@ -144,9 +143,10 @@ pub enum WsEvent {
         #[serde(default)]
         token_id: Option<String>,
     },
+
+    #[serde(rename = "STAGING_CURTAIN")]
+    StagingCurtain { active: bool },
 }
-
-
 
 pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     ws.on_upgrade(|socket| handle_socket(socket, state))
@@ -156,7 +156,17 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
     let mut rx = state.ws_sender.subscribe();
 
+    let initial_curtain = state
+        .curtain_active
+        .load(std::sync::atomic::Ordering::Relaxed);
     let mut send_task = tokio::spawn(async move {
+        let initial_event = WsEvent::StagingCurtain {
+            active: initial_curtain,
+        };
+        if let Ok(json_str) = serde_json::to_string(&initial_event) {
+            let _ = sender.send(Message::Text(json_str)).await;
+        }
+
         while let Ok(event) = rx.recv().await {
             match serde_json::to_string(&event) {
                 Ok(json_str) => {

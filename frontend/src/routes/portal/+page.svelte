@@ -6,6 +6,7 @@
   import { syncClient } from '$lib/services/syncClient';
   import { resolveLanAssetUrl } from '$lib/services/canvas/assetUrlResolver';
   import type { ChatMessage } from '$lib/services/chatCommandService';
+  import { curtainStore } from '$lib/stores/curtainStore.svelte';
 
   interface PortalToken {
     id: string;
@@ -621,5 +622,11 @@
         </div>
       </aside>
     {/if}
+  </div>
+{/if}
+
+{#if curtainStore.active}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black transition-opacity duration-300">
+    <span class="text-zinc-600 font-mono tracking-widest uppercase text-sm">Scene Staging in Progress</span>
   </div>
 {/if}

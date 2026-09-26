@@ -1056,12 +1056,14 @@ pub async fn advance_campaign_time_seconds(
     let formatted_time = format_clock_time(current_day_sec);
 
     // Broadcast WebSocket TIME_UPDATE event
-    let _ = state.ws_sender.send(crate::server::routes::ws::WsEvent::TimeUpdate {
-        epoch_days,
-        current_epoch_seconds: current_day_sec,
-        seconds_advanced: payload.seconds,
-        formatted_time: formatted_time.clone(),
-    });
+    let _ = state
+        .ws_sender
+        .send(crate::server::routes::ws::WsEvent::TimeUpdate {
+            epoch_days,
+            current_epoch_seconds: current_day_sec,
+            seconds_advanced: payload.seconds,
+            formatted_time: formatted_time.clone(),
+        });
 
     Ok(Json(CampaignTimeStateResponse {
         epoch_days,

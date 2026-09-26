@@ -27,9 +27,8 @@ impl PathExt for PathBuf {
     }
 }
 
-pub const ALLOWED_EXTENSIONS: &[&str] = &[
-    "webp", "png", "jpg", "jpeg", "webm", "mp3", "ogg", "opus",
-];
+pub const ALLOWED_EXTENSIONS: &[&str] =
+    &["webp", "png", "jpg", "jpeg", "webm", "mp3", "ogg", "opus"];
 
 pub const ALLOWED_CATEGORIES: &[&str] = &["maps", "tokens", "audio"];
 
@@ -182,7 +181,8 @@ pub async fn upload_asset(
         )
     })?;
 
-    let category = normalize_category(query.category.as_deref().or(form_category.as_deref()), &ext)?;
+    let category =
+        normalize_category(query.category.as_deref().or(form_category.as_deref()), &ext)?;
 
     // Resolve active campaign root
     let active_root = {
@@ -291,7 +291,10 @@ pub async fn serve_asset(
     if let Some(range_header) = headers.get(header::RANGE).and_then(|v| v.to_str().ok()) {
         if let Some(spec) = range_header.strip_prefix("bytes=") {
             let parts: Vec<&str> = spec.split('-').collect();
-            let start = parts.first().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+            let start = parts
+                .first()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
             let end = parts
                 .get(1)
                 .and_then(|s| s.parse::<u64>().ok())

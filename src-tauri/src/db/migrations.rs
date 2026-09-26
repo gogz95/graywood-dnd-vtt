@@ -218,7 +218,10 @@ pub fn run_atomic_migrations(
                 );
 
                 if let Err(rollback_err) = conn.execute_batch("ROLLBACK;") {
-                    eprintln!("[MIGRATION ERROR] ROLLBACK execution failed: {}", rollback_err);
+                    eprintln!(
+                        "[MIGRATION ERROR] ROLLBACK execution failed: {}",
+                        rollback_err
+                    );
                     return Err(DbMigrationError::RollbackFailed(rollback_err));
                 }
 
