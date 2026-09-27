@@ -13,14 +13,42 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
+    "types": [
+      "svelte"
+    ],
     "paths": {
-      "$lib": ["./src/lib"],
-      "$lib/*": ["./src/lib/*"],
-      "pixi.js": ["../node_modules/pixi.js/lib/index.d.ts"],
-      "visibility-polygon": ["../node_modules/visibility-polygon/index.d.ts"],
-      "vitest": ["../node_modules/vitest/dist/index.d.ts"]
+      "$lib": [
+        "./src/lib"
+      ],
+      "$lib/*": [
+        "./src/lib/*"
+      ],
+      "svelte": [
+        "../node_modules/svelte"
+      ],
+      "svelte/*": [
+        "../node_modules/svelte/*"
+      ],
+      "pixi.js": [
+        "../node_modules/pixi.js/lib/index.d.ts"
+      ],
+      "visibility-polygon": [
+        "../node_modules/visibility-polygon/index.d.ts"
+      ],
+      "vitest": [
+        "../node_modules/vitest/dist/index.d.ts"
+      ]
     }
   },
-  "include": ["src/**/*.d.ts", "src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "../homebrew/**/*.json"],
-  "exclude": ["src/**/*.test.ts"]
+  "include": [
+    "src/**/*.d.ts",
+    "src/**/*.ts",
+    "src/**/*.js",
+    "src/**/*.svelte",
+    "../homebrew/**/*.json"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "node_modules"
+  ]
 }

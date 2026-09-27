@@ -13,9 +13,12 @@
     "check": "npm --prefix frontend run check",
     "lint": "npm --prefix frontend run lint",
     "tauri": "npx @tauri-apps/cli",
-    "build:dist": "npm --prefix frontend run build && cargo tauri build"
+    "build:dist": "npm --prefix frontend run build && cargo tauri build",
+    "test:all": "playwright test tests/ --reporter=list",
+    "test:all:report": "playwright test tests/ --reporter=html"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.0.0"
   },
   "engines": {
