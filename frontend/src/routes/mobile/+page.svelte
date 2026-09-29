@@ -5,6 +5,12 @@
   import { onMount, onDestroy } from 'svelte';
   import MobileDiceTray, { type DiceResultItem } from '$lib/components/mobile/MobileDiceTray.svelte';
   import { broadcaster } from '$lib/services/broadcaster';
+  import {
+    broadcastAuth,
+    initCompanionSync,
+    saveLocalAuth,
+    type AuthPayload,
+  } from '$lib/services/companionSync';
 
   import MobileSpellbook from '$lib/components/mobile/MobileSpellbook.svelte';
   import MobileInventory, { type InventoryItem, type Currency } from '$lib/components/mobile/MobileInventory.svelte';
@@ -364,6 +370,16 @@
             errorMessage = null;
             reconnectAttempt = 0;
             startHeartbeat();
+
+            // Persist + fan out the companion session so sibling tabs inherit it
+            // without re-entering the Table PIN.
+            const broadcastPayload: AuthPayload = {
+              roomCode: msg.campaign_name || 'Active Campaign',
+              token: pinToUse,
+              playerId: msg.session_id,
+            };
+            saveLocalAuth(broadcastPayload);
+            broadcastAuth(broadcastPayload);
             loadCharacterState(cleanCharName).then(() => {
               persistCharacterState();
             });
@@ -620,6 +636,29 @@
 
   let unsubBroadcaster: (() => void) | null = null;
 
+  // Cross-tab session synchronization unsubscribe handle (BroadcastChannel).
+  let companionSyncUnsubscribe: (() => void) | null = null;
+
+  /**
+   * Cross-tab session adoption handler.
+   *
+   * Invoked when another authenticated surface (DM workstation, projector window,
+   * or a sibling player tab) broadcasts credentials over the `vtt_companion_sync`
+   * BroadcastChannel. The companion hub authenticates with a 4-digit Table PIN, so
+   * the inherited credential is that PIN — connect with it directly instead of
+   * making the player re-enter it.
+   */
+  function handleAdoptedAuth(authData: AuthPayload) {
+    if (activePin || connectionStatus === 'connected' || connectionStatus === 'authenticating') return;
+    if (!/^\d{4}$/.test(authData.token)) return;
+
+    pin = authData.token;
+    activePin = authData.token;
+    userDisconnected = false;
+    reconnectAttempt = 0;
+    connectWebSocket();
+  }
+
   onMount(() => {
     if (typeof window !== 'undefined') {
       document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -647,12 +686,18 @@
         userDisconnected = false;
         reconnectAttempt = 0;
         connectWebSocket();
+      } else {
+        // Cross-tab session inheritance: adopt the Table PIN broadcast by an
+        // already-authenticated surface instead of re-entering it by hand.
+        companionSyncUnsubscribe = initCompanionSync(handleAdoptedAuth);
       }
     }
   });
 
   onDestroy(() => {
     disconnectSocket();
+    companionSyncUnsubscribe?.();
+    companionSyncUnsubscribe = null;
     unsubBroadcaster?.();
     if (typeof window !== 'undefined') {
       document.removeEventListener('visibilitychange', handleVisibilityChange);

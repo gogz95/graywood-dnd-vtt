@@ -37,6 +37,13 @@
   import type { TradeOfferPayload } from '../../lib/types/item';
   import { rulesEngine } from '../../lib/stores/rulesEngine.svelte';
   import { curtainStore } from '../../lib/stores/curtainStore.svelte';
+  import {
+    broadcastAuth,
+    clearLocalAuth,
+    initCompanionSync,
+    saveLocalAuth,
+    type AuthPayload,
+  } from '../../lib/services/companionSync';
 
   interface PlayerCharacter {
     id: string;
@@ -90,6 +97,26 @@
   let isAuthenticated = $state(false);
   let isConnecting = $state(false);
   let isShaking = $state(false);
+
+  // Cross-tab session synchronization unsubscribe handle (BroadcastChannel).
+  let companionSyncUnsubscribe: (() => void) | null = null;
+
+  /**
+   * Cross-tab session adoption handler.
+   *
+   * Invoked when another authenticated surface (DM workstation, projector window,
+   * or a sibling player tab) broadcasts credentials over the
+   * `vtt_companion_sync` BroadcastChannel. This is a PIN-gated surface, so the
+   * inherited credential is the 4-digit table PIN — authenticate with it directly
+   * rather than re-prompting the player.
+   */
+  function handleAdoptedAuth(authData: AuthPayload) {
+    if (isAuthenticated || isConnecting) return;
+    if (!/^\d{4}$/.test(authData.token)) return;
+
+    enteredPin = authData.token;
+    attemptPinLogin(authData.token);
+  }
 
   // ── Active Player Session State (NULL until authenticated — ZERO DATA LEAKAGE) ─
   let character = $state<PlayerCharacter | null>(null);
@@ -338,6 +365,13 @@
       attemptPinLogin(cachedPin);
     }
 
+    // 1b. Cross-tab session inheritance: when this tab holds no credential of its
+    // own, adopt the session broadcast by an already-authenticated sibling tab
+    // instead of prompting the player for a PIN.
+    if (pinParam === null && !(cachedPin && cachedPin.length === 4)) {
+      companionSyncUnsubscribe = initCompanionSync(handleAdoptedAuth);
+    }
+
     // 2. Listen for Handout Broadcasts
     const handleBroadcast = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -444,6 +478,8 @@
     window.addEventListener('online', handleOnline);
 
     return () => {
+      companionSyncUnsubscribe?.();
+      companionSyncUnsubscribe = null;
       unbindHotkeys();
       clearInterval(heartbeatTimer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -462,6 +498,8 @@
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem('vtt_active_pin');
     }
+    // Drop adopted credentials so a rejected session cannot be inherited onward.
+    clearLocalAuth();
     authError = msg;
     isShaking = true;
     enteredPin = '';
@@ -531,6 +569,20 @@
           if (typeof localStorage !== 'undefined') {
             localStorage.setItem('vtt_active_pin', pin);
           }
+
+          // Persist the adopted credential set, then fan it out so sibling tabs
+          // (other player windows, projector, DM workstation) inherit the session.
+          const authData: AuthPayload = {
+            roomCode:
+              (typeof localStorage !== 'undefined'
+                ? localStorage.getItem('vtt_campaign_name')
+                : null) || 'Active Campaign',
+            token: pin,
+            playerId: match.id,
+          };
+          saveLocalAuth(authData);
+          broadcastAuth(authData);
+
           isAuthenticated = true;
           isConnecting = false;
           authError = '';

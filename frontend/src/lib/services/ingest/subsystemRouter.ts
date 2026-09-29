@@ -10,6 +10,7 @@ import { mapLayers } from '../../stores/mapLayerStore.svelte';
 import { parseDungeonScrawl } from '../../canvas/parsers/dungeonScrawlParser';
 import { parseWatabouGeoJson } from '../../canvas/parsers/watabouParser';
 import { sniffAndClassify, ingestClassifiedContent } from './contentClassifier';
+import { parseItemInWorker } from '../../workers/parseWorkerClient';
 import { extractAndStoreCompendiumSource } from '../../importers/pdfRuleExtractor';
 import { ingestUniversalFile } from '../../importers/universalIngestionEngine';
 import type { UVTTFormat } from '../importers/universalVttImporter';
@@ -70,16 +71,27 @@ async function blobToBase64(blob: Blob): Promise<string> {
 
 /**
  * Helper to get the contents of a queue item as string.
+ * Text extraction is offloaded to the background parse worker so large vault
+ * files never block the main UI thread. Corrupt or unreadable payloads are
+ * surfaced as thrown errors, which the queue processor converts to
+ * `{ status: 'error', error }` via its per-item error boundary.
  */
 async function getItemText(item: IngestQueueItem): Promise<string> {
+  let raw = '';
   if (item.file) {
-    return await (item.file as Blob).text();
-  }
-  if (item.fullPath) {
+    raw = await (item.file as Blob).text();
+  } else if (item.fullPath) {
     const res = await fetch(`/api/campaign/assets/${item.relativePath}`);
-    if (res.ok) return await res.text();
+    if (res.ok) raw = await res.text();
   }
-  return '';
+  if (!raw) {
+    throw new Error(`Cannot read text for ${item.name}: empty or missing content`);
+  }
+  const parsed = await parseItemInWorker(item, raw);
+  if (parsed.status === 'failed' || typeof parsed.text !== 'string') {
+    throw new Error(parsed.error || `Background parse failed for ${item.name}`);
+  }
+  return parsed.text;
 }
 
 /**
@@ -148,14 +160,36 @@ async function routeSourceMaterial(
   if (ext === 'zip') {
     onProgress?.(40, 'Extracting ZIP archive...');
     const blob = await getItemBlob(item);
-    const zip = await JSZip.loadAsync(blob);
+    let zip: Awaited<ReturnType<typeof JSZip.loadAsync>>;
+    try {
+      zip = await JSZip.loadAsync(blob);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unreadable ZIP archive';
+      throw new Error(`Corrupt archive ${item.name}: ${message}`);
+    }
     let extractedCount = 0;
 
     for (const [relativePath, fileEntry] of Object.entries(zip.files)) {
       if (fileEntry.dir) continue;
       const innerExt = relativePath.split('.').pop()?.toLowerCase() || '';
       if (['md', 'txt', 'json', 'csv'].includes(innerExt)) {
-        const text = await fileEntry.async('string');
+        let rawInner: string;
+        try {
+          rawInner = await fileEntry.async('string');
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Unreadable ZIP entry';
+          throw new Error(`Corrupt entry ${item.name}/${relativePath}: ${message}`);
+        }
+        // Normalize each archive entry off the main thread; corrupt entries
+        // resolve as failed results so the queue records `{ status: 'error' }`.
+        const workerResult = await parseItemInWorker(
+          { ...item, id: `${item.id}:${relativePath}` },
+          rawInner
+        );
+        if (workerResult.status === 'failed' || typeof workerResult.text !== 'string') {
+          throw new Error(workerResult.error || `Background parse failed for ${relativePath}`);
+        }
+        const text = workerResult.text;
         const parsed = parseDeterministic(text, `${item.name}/${relativePath}`);
         if (parsed.monsters.length > 0) {
           await compendiumDb.monsters.bulkPut(parsed.monsters);

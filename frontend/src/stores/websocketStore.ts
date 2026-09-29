@@ -3,6 +3,16 @@ import type { WsEvent } from '../types/websocket';
 import { vttTimeStore } from '../lib/stores/timeStore.svelte';
 import { routeInboundWsEvent } from '../lib/network/wsRouter';
 import {
+  broadcastAuth,
+  clearLocalAuth,
+  COMPANION_AUTH_STORAGE_KEYS,
+  initCompanionSync,
+  isValidAuthPayload,
+  readLocalAuth,
+  saveLocalAuth,
+  type AuthPayload,
+} from '../lib/services/companionSync';
+import {
   applyHpUpdateFromWs,
   applyBlackOrbToggleFromWs,
 } from './characterStore';
@@ -33,6 +43,10 @@ export interface CombatTurnSync {
 }
 
 export const isWsConnectedStore = writable<boolean>(false);
+export const connectionStatusStore = writable<'disconnected' | 'connecting' | 'connected' | 'reconnecting'>('disconnected');
+export const lastSessionIdStore = writable<string | null>(null);
+export const lastRoomCodeStore = writable<string | null>(null);
+export const lastPlayerTokenStore = writable<string | null>(null);
 export const latestDiceRollStore = writable<{
   characterId: string;
   characterName?: string;
@@ -69,61 +83,233 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
 let currentConnectedPin: string | undefined = undefined;
 
+// ── Cross-Tab Auth Synchronization (BroadcastChannel 'vtt_companion_sync') ────
+
+/** Guards {@link initCompanionSyncAdoption} against duplicate subscriptions. */
+let companionSyncInitialized = false;
+
+/**
+ * Persists a successful handshake and fans the credentials out to every other tab.
+ *
+ * `saveLocalAuth` writes the canonical keys read back by both `initWebSocket()`
+ * session recovery and the companionSync `REQUEST_AUTH` responder, so a newly
+ * opened workstation, player portal, or projector window adopts the live session
+ * instead of re-prompting for a PIN.
+ */
+export function applyAuthSuccess(credentials: {
+  sessionId?: string | null;
+  roomCode?: string | null;
+  token?: string | null;
+}): void {
+  const roomCode = String(credentials.roomCode ?? '').trim();
+  const token = String(credentials.token ?? '').trim();
+  const playerId = String(credentials.sessionId ?? '').trim();
+  const authData: AuthPayload = { roomCode, token, playerId };
+
+  if (isValidAuthPayload(authData)) {
+    saveLocalAuth(authData);
+    broadcastAuth(authData);
+  } else if (typeof sessionStorage !== 'undefined') {
+    // Partial handshake: keep the legacy reconnection bookkeeping but never
+    // broadcast an incomplete credential set to sibling tabs.
+    try {
+      sessionStorage.setItem(COMPANION_AUTH_STORAGE_KEYS.playerId, playerId);
+      sessionStorage.setItem(COMPANION_AUTH_STORAGE_KEYS.roomCode, roomCode);
+      sessionStorage.setItem(COMPANION_AUTH_STORAGE_KEYS.token, token);
+    } catch {
+      // storage unavailable / quota
+    }
+  }
+
+  lastSessionIdStore.set(playerId || null);
+  lastRoomCodeStore.set(roomCode || null);
+  lastPlayerTokenStore.set(token || null);
+  connectionStatusStore.set('connected');
+}
+
+/**
+ * Clears persisted credentials and cached session identity after an `AUTH_FAILURE`.
+ */
+export function applyAuthFailure(): void {
+  clearLocalAuth();
+  lastSessionIdStore.set(null);
+  lastRoomCodeStore.set(null);
+  lastPlayerTokenStore.set(null);
+}
+
+/**
+ * Subscribes to credentials broadcast by an already-authenticated tab so a newly
+ * opened surface inherits the session without re-prompting for a PIN.
+ *
+ * Only engages while this tab holds no credentials of its own, so a live session
+ * is never clobbered by a sibling tab. Adoption is one-shot: the subscription
+ * detaches after the first valid payload so a later unrelated `AUTH_SYNC` cannot
+ * hijack an established connection.
+ *
+ * @returns Idempotent unsubscribe callback, or a no-op when this tab already has
+ *          credentials or has already subscribed.
+ */
+export function initCompanionSyncAdoption(): () => void {
+  if (companionSyncInitialized || readLocalAuth()) {
+    return () => {};
+  }
+
+  let unsubscribe: (() => void) | null = null;
+
+  const adoptOnce = (adopted: AuthPayload): void => {
+    // One-shot: detach before reconnecting so the fan-out cannot double-fire.
+    unsubscribe?.();
+    unsubscribe = null;
+
+    saveLocalAuth(adopted);
+    lastSessionIdStore.set(adopted.playerId);
+    lastRoomCodeStore.set(adopted.roomCode);
+    lastPlayerTokenStore.set(adopted.token);
+
+    // Reconnect using the recovered session — no PIN prompt.
+    connectionStatusStore.set('reconnecting');
+    initWebSocket();
+  };
+
+  companionSyncInitialized = true;
+  unsubscribe = initCompanionSync(adoptOnce);
+
+  return () => {
+    unsubscribe?.();
+    unsubscribe = null;
+  };
+}
+
 export function initWebSocket(pin?: string): void {
+  // Adopt a session broadcast by an already-authenticated tab when this tab holds
+  // no credentials of its own. No-op once credentials exist in sessionStorage.
+  initCompanionSyncAdoption();
+
   if (pin) {
     currentConnectedPin = pin;
   }
-  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
-    if (pin && socket.readyState === WebSocket.OPEN) {
-      sendWsEvent({ type: 'AUTH_REQUEST', pin });
-    }
-    return;
-  }
 
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
+  // Try to recover session from sessionStorage on reconnect
+  const cachedSessionId = sessionStorage.getItem('vtt_last_session_id');
+  const cachedRoomCode = sessionStorage.getItem('vtt_last_room_code');
+  const cachedPlayerToken = sessionStorage.getItem('vtt_last_player_token');
 
-  const pinQuery = currentConnectedPin ? `?pin=${encodeURIComponent(currentConnectedPin)}` : '';
-  const wsUrl = `${protocol}//${host}/ws${pinQuery}`;
+  if (cachedSessionId && cachedPlayerToken) {
+    // Use cached credentials for reconnect attempt
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const wsUrl = `${protocol}//${host}/ws?session_id=${encodeURIComponent(cachedSessionId)}&token=${encodeURIComponent(cachedPlayerToken)}`;
 
-  try {
-    socket = new WebSocket(wsUrl);
+    try {
+      socket = new WebSocket(wsUrl);
 
-    socket.onopen = () => {
-      isWsConnectedStore.set(true);
-      reconnectAttempts = 0;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-      if (currentConnectedPin) {
-        sendWsEvent({ type: 'AUTH_REQUEST', pin: currentConnectedPin });
-      }
-    };
+      socket.onopen = () => {
+        isWsConnectedStore.set(true);
+        connectionStatusStore.set('connected');
+        reconnectAttempts = 0;
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        if (currentConnectedPin) {
+          sendWsEvent({ type: 'AUTH_REQUEST', pin: currentConnectedPin });
+        }
+      };
 
-    socket.onmessage = (event) => {
-      try {
-        const data: WsEvent = JSON.parse(event.data);
-        handleIncomingWsEvent(data);
-      } catch (err) {
-        console.error('Failed to parse WebSocket message:', err);
-      }
-    };
+      socket.onmessage = (event) => {
+        try {
+          const data: WsEvent = JSON.parse(event.data);
+          handleIncomingWsEvent(data);
 
-    socket.onclose = () => {
-      isWsConnectedStore.set(false);
+          // Persist credentials locally, then fan them out across tabs.
+          if (data.type === 'AUTH_SUCCESS') {
+            applyAuthSuccess({
+              sessionId: data.session_id,
+              roomCode: data.campaign_name,
+              token: data.token,
+            });
+          } else if (data.type === 'AUTH_FAILURE') {
+            applyAuthFailure();
+          }
+        } catch (err) {
+          console.error('Failed to parse WebSocket message:', err);
+        }
+      };
+
+      socket.onclose = () => {
+        isWsConnectedStore.set(false);
+        connectionStatusStore.set('disconnected');
+        scheduleReconnect();
+      };
+
+      socket.onerror = (err) => {
+        console.warn('WebSocket encountered error:', err);
+        if (socket) {
+          socket.close();
+        }
+      };
+    } catch (err) {
+      console.error('WebSocket connection failed to initialize:', err);
       scheduleReconnect();
-    };
+    }
+  } else {
+    // No cached session, use PIN-based connection
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const pinQuery = currentConnectedPin ? `?pin=${encodeURIComponent(currentConnectedPin)}` : '';
+    const wsUrl = `${protocol}//${host}/ws${pinQuery}`;
 
-    socket.onerror = (err) => {
-      console.warn('WebSocket encountered error:', err);
-      if (socket) {
-        socket.close();
-      }
-    };
-  } catch (err) {
-    console.error('WebSocket connection failed to initialize:', err);
-    scheduleReconnect();
+    try {
+      socket = new WebSocket(wsUrl);
+
+      socket.onopen = () => {
+        isWsConnectedStore.set(true);
+        connectionStatusStore.set('connecting');
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        if (currentConnectedPin) {
+          sendWsEvent({ type: 'AUTH_REQUEST', pin: currentConnectedPin });
+        }
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data: WsEvent = JSON.parse(event.data);
+          handleIncomingWsEvent(data);
+
+          // Persist credentials locally, then fan them out across tabs.
+          if (data.type === 'AUTH_SUCCESS') {
+            applyAuthSuccess({
+              sessionId: data.session_id,
+              roomCode: data.campaign_name,
+              token: data.token,
+            });
+          } else if (data.type === 'AUTH_FAILURE') {
+            applyAuthFailure();
+          }
+        } catch (err) {
+          console.error('Failed to parse WebSocket message:', err);
+        }
+      };
+
+      socket.onclose = () => {
+        isWsConnectedStore.set(false);
+        connectionStatusStore.set('disconnected');
+        scheduleReconnect();
+      };
+
+      socket.onerror = (err) => {
+        console.warn('WebSocket encountered error:', err);
+        if (socket) {
+          socket.close();
+        }
+      };
+    } catch (err) {
+      console.error('WebSocket connection failed to initialize:', err);
+      scheduleReconnect();
+    }
   }
 }
 

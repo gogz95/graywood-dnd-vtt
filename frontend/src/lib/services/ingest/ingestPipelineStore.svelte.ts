@@ -3,6 +3,10 @@
 
 import { classifyAsset } from './assetClassifier';
 import { routeAsset } from './subsystemRouter';
+import {
+  preClassifyWithWorker,
+  terminatePreClassifyWorker,
+} from './preClassifyWorkerClient';
 import { compendiumDb } from '../../db/compendiumDb';
 import { notifyMonstersUpdated } from '../ingestPipeline';
 import type {
@@ -170,6 +174,12 @@ class IngestPipelineStore {
 
   /**
    * Non-blocking queue processor with concurrency.
+   *
+   * Text-heavy source items are pre-classified inside a background Web Worker
+   * (`preClassifyWorkerClient`) so magic-byte sniffing, layout cleaning, and
+   * schema validation run off the main thread. When the worker is unavailable
+   * (SSR, unsupported runtime), items fall back to synchronous routing with a
+   * per-item error boundary that records `{ status: 'failed', error }`.
    */
   async startIngestion(concurrency = 2): Promise<void> {
     if (this.isProcessing) return;
@@ -190,6 +200,22 @@ class IngestPipelineStore {
             item.message = 'Initializing subsystem routing...';
 
             try {
+              // Background pre-classification: sniff + clean + validate off
+              // the main thread for text-bearing source items, with progress
+              // bridged back into the queue item. Any worker failure degrades
+              // to direct routing below instead of failing the job.
+              if (item.category === 'source' && item.file) {
+                try {
+                  const pre = await preClassifyWithWorker(item.file as File, item.name, (percent, msg) => {
+                    item.progress = Math.max(5, Math.round(percent * 0.3));
+                    item.message = msg;
+                  });
+                  item.message = `Worker pre-classified as ${pre.detectedFormat} (${pre.chunksCount} chunks)`;
+                } catch (workerErr) {
+                  console.warn('[IngestPipeline] Pre-classify worker unavailable, falling back to main thread:', workerErr);
+                }
+              }
+
               const result = await routeAsset(item, (percent, msg) => {
                 item.progress = percent;
                 item.message = msg;
@@ -200,9 +226,14 @@ class IngestPipelineStore {
               item.message = result.summary;
               item.resultSummary = result.summary;
             } catch (err: any) {
+              // Error boundary: corrupt files land here as a recorded failure,
+              // never as an unhandled rejection — `{ status: 'failed', error }`.
+              const errorMessage = err?.message || 'Ingestion routing failed';
+              console.error(`[IngestPipeline] Job failed for ${item.name}:`, err);
               item.status = 'error';
               item.progress = 100;
-              item.error = err?.message || 'Ingestion routing failed';
+              item.error = errorMessage;
+              item.message = `Failed: ${errorMessage}`;
             }
           })
         );
@@ -223,10 +254,11 @@ class IngestPipelineStore {
   }
 
   /**
-   * Clears the entire queue.
+   * Clears the entire queue and tears down the background pre-classify worker.
    */
   clearAll(): void {
     this.queue = [];
+    terminatePreClassifyWorker();
   }
 
   /**

@@ -9,8 +9,6 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, Mutex};
 
-/// IPC command to safely export the local campaign database, assets, and metadata
-/// into a compressed `.aleamos` archive file for disaster recovery.
 /// IPC command to launch or focus the borderless secondary projector window.
 #[tauri::command]
 pub async fn open_projector_window(app: tauri::AppHandle) -> Result<(), String> {
@@ -55,6 +53,7 @@ pub async fn export_campaign_archive_cmd(
 /// IPC command to spawn a compendium monster directly onto the PixiJS canvas coordinates.
 /// Instantiates a runtime entity in `active_combatants`, maps parsed AC, multiattack profile,
 /// and HP pool directly to a unique runtime `token_id`, and broadcasts `SPAWN_TOKEN`.
+#[tauri::command]
 pub async fn spawn_combatant_token_cmd(
     db: Arc<Mutex<Connection>>,
     ws_sender: broadcast::Sender<WsEvent>,
@@ -92,7 +91,7 @@ pub async fn spawn_combatant_token_cmd(
             id, encounter_id, token_id, name, initiative,
             hp_current, hp_max, temp_hp, ac, is_monster,
             monster_compendium_id, multiattack_profile, conditions_json, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, 1, ?9, ?10, '[]', ?11)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, '[]', ?13)",
         params![
             combatant_id,
             payload.encounter_id,
@@ -101,7 +100,9 @@ pub async fn spawn_combatant_token_cmd(
             initiative,
             monster.hp_max,
             monster.hp_max,
+            0,
             monster.ac,
+            1,
             monster.id,
             monster.multiattack_profile,
             now,
@@ -167,8 +168,50 @@ pub struct IngestedFileEntry {
     pub content: String,
 }
 
-/// Recursively scans user-selected campaign directories (e.g. Obsidian vaults)
-/// and returns parsed text/data file contents.
+/// IPC command to open a native OS file dialog for selecting image/media files.
+/// Filters: .png, .jpg, .jpeg, .webp, .webm, .mp4, .dd2vtt, .uvtt, .json
+#[tauri::command]
+pub async fn open_file_dialog(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let file_path = app
+        .dialog()
+        .file()
+        .set_title("Select Image or Media File")
+        .add_filter(
+            "Images",
+            &["png", "jpg", "jpeg", "webp"],
+        )
+        .add_filter("Video", &["mp4", "webm"])
+        .add_filter("VTT Map Formats", &["dd2vtt", "uvtt", "json"])
+        .blocking_pick_file();
+
+    match file_path {
+        Some(path) => Ok(path.to_string()),
+        None => Ok(String::new()), // User cancelled
+    }
+}
+
+/// IPC command to open a native OS directory dialog for selecting folders.
+#[tauri::command]
+pub async fn open_directory_dialog(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let folder_path = app.dialog().file().blocking_pick_folder();
+
+    match folder_path {
+        Some(path) => Ok(path.to_string()),
+        None => Ok(String::new()), // User cancelled
+    }
+}
+
+/// IPC command to read a user-selected campaign vault / lore directory and
+/// return parsed text/data file contents.
+///
+/// Runs on Tokio's blocking thread pool (`spawn_blocking`): the `rfd` folder
+/// picker and the synchronous `std::fs` walk execute off the async runtime so
+/// the Tauri IPC event loop stays responsive while a vault is scanned.
+#[tauri::command]
 pub async fn pick_and_read_campaign_folder() -> Result<Vec<IngestedFileEntry>, String> {
     let folder_handle = rfd::AsyncFileDialog::new()
         .set_title("Select Campaign Vault / Lore Directory")
@@ -180,19 +223,47 @@ pub async fn pick_and_read_campaign_folder() -> Result<Vec<IngestedFileEntry>, S
         None => return Ok(Vec::new()), // User cancelled dialog
     };
 
+    // Offload the blocking `std::fs` walk + file reads to Tokio's blocking
+    // thread pool so the Tauri async runtime (and the webview IPC loop) is
+    // never stalled by vault I/O.
+    tokio::task::spawn_blocking(move || {
+        read_campaign_folder_entries(&folder_path)
+            .map_err(|e| format!("Failed to read campaign folder: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Campaign folder scan task failed: {}", e))?
+}
+
+/// Synchronous vault walk backing [`pick_and_read_campaign_folder`].
+///
+/// Kept as a plain (non-async) helper so it can run inside
+/// `tokio::task::spawn_blocking`: every filesystem call here (`read_dir`,
+/// `read_to_string`, `metadata`) blocks its thread, which is exactly what the
+/// blocking pool is for.
+fn read_campaign_folder_entries(folder_path: &Path) -> std::io::Result<Vec<IngestedFileEntry>> {
     let mut entries = Vec::new();
-    let mut dirs_to_visit = vec![folder_path.clone()];
+    let mut dirs_to_visit = vec![folder_path.to_path_buf()];
 
     while let Some(dir) = dirs_to_visit.pop() {
         let read_dir = match std::fs::read_dir(&dir) {
             Ok(rd) => rd,
-            Err(e) => return Err(format!("Failed to read directory {:?}: {}", dir, e)),
+            Err(e) => {
+                return Err(std::io::Error::new(
+                    e.kind(),
+                    format!("Failed to read directory {:?}: {}", dir, e),
+                ))
+            }
         };
 
         for entry_res in read_dir {
             let entry = match entry_res {
                 Ok(e) => e,
-                Err(e) => return Err(format!("Directory entry error: {}", e)),
+                Err(e) => {
+                    return Err(std::io::Error::new(
+                        e.kind(),
+                        format!("Directory entry error: {}", e),
+                    ))
+                }
             };
             let path = entry.path();
 
@@ -214,7 +285,7 @@ pub async fn pick_and_read_campaign_folder() -> Result<Vec<IngestedFileEntry>, S
                             let size_bytes =
                                 metadata.map(|m| m.len()).unwrap_or(content.len() as u64);
                             let rel_path = path
-                                .strip_prefix(&folder_path)
+                                .strip_prefix(folder_path)
                                 .map(|p| p.to_string_lossy().to_string())
                                 .unwrap_or_else(|_| path.to_string_lossy().to_string());
                             let name = path
@@ -316,6 +387,12 @@ pub fn classify_ingest_file(rel_path: &Path, ext: &str, mime: &str) -> String {
 }
 
 /// Recursively scans an Ingest directory or selected folder without blocking the UI thread.
+///
+/// Runs as an async Tauri IPC command (`scan_ingest_directory`): directory
+/// traversal uses non-blocking `tokio::fs` reads, and the native folder picker
+/// (`rfd`) only opens when no explicit `target_path` was supplied, so the
+/// webview event loop is never stalled by filesystem I/O.
+#[tauri::command]
 pub async fn scan_ingest_directory(
     target_path: Option<String>,
 ) -> Result<IngestScanResult, String> {

@@ -122,6 +122,57 @@ export interface SaveMapVectorGeometryPayload {
 }
 
 /**
+ * Opens a native OS file-selection dialog (desktop) with a browser `<input>`
+ * fallback. Returns the selected path, or an empty string when cancelled.
+ */
+export async function openFileDialog(): Promise<string> {
+  if (isTauriEnvironment()) {
+    try {
+      const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: (cmd: string, args?: unknown) => Promise<string> } } }).__TAURI__;
+      if (tauri?.core?.invoke) {
+        return await tauri.core.invoke('open_file_dialog');
+      }
+    } catch (ipcErr) {
+      console.warn('Tauri IPC open_file_dialog failed, falling back to browser picker:', ipcErr);
+    }
+  }
+
+  // Browser fallback: hidden file input so web/LAN surfaces keep working.
+  return await new Promise<string>((resolve) => {
+    try {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.png,.jpg,.jpeg,.webp,.mp4,.webm,.dd2vtt,.uvtt,.json';
+      input.onchange = () => resolve(input.files?.[0]?.name ?? '');
+      input.oncancel = () => resolve('');
+      input.click();
+      // Safety net: resolve empty if the dialog never settles (e.g. headless).
+      window.setTimeout(() => resolve(''), 60000);
+    } catch {
+      resolve('');
+    }
+  });
+}
+
+/**
+ * Opens a native OS folder-selection dialog (desktop). Returns the selected
+ * directory path, or an empty string when cancelled / unavailable.
+ */
+export async function openDirectoryDialog(): Promise<string> {
+  if (isTauriEnvironment()) {
+    try {
+      const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: (cmd: string, args?: unknown) => Promise<string> } } }).__TAURI__;
+      if (tauri?.core?.invoke) {
+        return await tauri.core.invoke('open_directory_dialog');
+      }
+    } catch (ipcErr) {
+      console.warn('Tauri IPC open_directory_dialog failed:', ipcErr);
+    }
+  }
+  return '';
+}
+
+/**
  * Persists vector wall geometry to SQLite via Tauri IPC or LAN REST fallback.
  */
 export async function saveMapVectorGeometry(

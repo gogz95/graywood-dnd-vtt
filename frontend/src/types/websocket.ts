@@ -122,6 +122,12 @@ export type WsEvent =
       type: 'AUTH_SUCCESS';
       character_id: string;
       character_name?: string;
+      /** Session identity assigned by the Axum hub — persisted as `vtt_last_session_id`. */
+      session_id?: string;
+      /** Campaign / room name used as the cross-tab room code — `vtt_last_room_code`. */
+      campaign_name?: string;
+      /** Player session token used for reconnection — `vtt_last_player_token`. */
+      token?: string;
     }
   | {
       type: 'AUTH_FAILURE';
