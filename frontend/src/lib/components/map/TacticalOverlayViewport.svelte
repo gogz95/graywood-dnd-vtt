@@ -21,7 +21,7 @@
   style="touch-action: none;"
 >
   <div
-    class="absolute top-0 left-0 pointer-events-auto"
+    class="absolute top-0 left-0 pointer-events-none"
     style="width: {width}px; height: {height}px; transform: {tacticalViewport.transformStyle}; transform-origin: 0 0;"
   >
     {@render children?.()}

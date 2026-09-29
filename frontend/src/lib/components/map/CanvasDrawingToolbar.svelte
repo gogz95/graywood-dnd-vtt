@@ -77,7 +77,7 @@
   }
 </script>
 
-<div class="flex items-center gap-1.5 bg-slate-900/90 border border-slate-700/80 rounded-2xl p-1.5 shadow-2xl backdrop-blur select-none text-xs">
+<div class="flex items-center gap-1.5 bg-slate-900/90 border border-slate-700/80 rounded-2xl p-1.5 shadow-2xl backdrop-blur select-none text-xs pointer-events-auto">
   <!-- Selection / Pan -->
   <button
     onclick={() => selectTool('select')}

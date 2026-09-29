@@ -245,7 +245,13 @@
   }
 
   function rollDeathSave() {
-    const roll = Math.floor(Math.random() * 20) + 1;
+    const msg = chatStore.roll('1d20', {
+      label: `${char.name}: Death Saving Throw`,
+      actorName: char.name,
+      actionType: 'save',
+    });
+
+    const roll = msg.roll?.total ?? 10;
     let label = `${char.name}: Death Saving Throw (${roll})`;
 
     if (roll === 1) {
@@ -269,11 +275,7 @@
       label += ' — Failure.';
     }
 
-    chatStore.roll(`1d20`, {
-      label,
-      actorName: char.name,
-      actionType: 'save',
-    });
+    msg.rollLabel = label;
   }
 
   // ── Automated Rest Engine ──────────────────────────────────────────────────
@@ -287,9 +289,16 @@
     if (char.hit_dice_current <= 0) return;
 
     const dieSides = char.hit_dice_die || 10;
-    const dieRoll = Math.floor(Math.random() * dieSides) + 1;
-    const healAmount = Math.max(0, dieRoll + conMod);
+    const sign = conMod >= 0 ? `+${conMod}` : `${conMod}`;
+    const formula = `1d${dieSides}${sign}`;
 
+    const msg = chatStore.roll(formula, {
+      label: `${char.name} Short Rest: Hit Die (d${dieSides}${sign})`,
+      actorName: char.name,
+      actionType: 'custom',
+    });
+
+    const healAmount = Math.max(0, msg.roll?.total ?? 0);
     shortRestHealed += healAmount;
     shortRestDiceSpent += 1;
 
@@ -299,11 +308,7 @@
     mutateHp(char.current_hp + healAmount);
     executeShortRest(healAmount, 1);
 
-    chatStore.roll(`1d${dieSides}+${conMod}`, {
-      label: `${char.name} Short Rest: Hit Die (d${dieSides}+${conMod}) -> Recovered ${healAmount} HP`,
-      actorName: char.name,
-      actionType: 'custom',
-    });
+    msg.rollLabel = `${char.name} Short Rest: Hit Die (d${dieSides}${sign}) -> Recovered ${healAmount} HP`;
   }
 
   async function handleConfirmLongRest() {

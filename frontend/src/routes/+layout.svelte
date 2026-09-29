@@ -19,6 +19,7 @@
   import SettingsModal      from '../lib/components/settings/SettingsModal.svelte';
   import FloatingPanel      from '../lib/components/ui/FloatingPanel.svelte';
   import SourceExplorerDrawer from '../lib/components/sources/SourceExplorerDrawer.svelte';
+  import TacticalHotbar from '../lib/components/combat/TacticalHotbar.svelte';
   import { floatingWindowsStore } from '../lib/stores/floatingWindowsStore.svelte';
   import { initAutoSaver, type CampaignBundle } from '../lib/utils/campaignPersistence';
   import { registerGlobalDropZone, type DroppedAsset } from '../lib/utils/assetDrop';
@@ -177,7 +178,14 @@
   ];
 </script>
 
-<div class="h-screen w-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none overflow-hidden">
+<div
+  class="battlemap-viewport-grid bg-slate-950 text-slate-100 font-sans select-none overflow-hidden"
+  style="display: grid; grid-template-rows: 1fr 48px; width: 100vw; height: 100vh; overflow: hidden;"
+>
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       ROW 1 (1fr): TACTICAL CANVAS & WORKSPACE STAGE (WITH FLOATING HUD)
+  ════════════════════════════════════════════════════════════════════════════ -->
+  <div class="canvas-viewport-stage relative w-full h-full min-w-0 min-h-0 overflow-hidden flex flex-col" style="grid-row: 1;">
 
   <!-- ═══════════════════════════════════════════════════════════════════════
        TOP HEADER
@@ -298,11 +306,11 @@
       </div>
 
     {:else if currentView === 'DM_DASHBOARD'}
-      <!-- Unified Collapsible Sidebar Navigation -->
-      <SidebarNav bind:activeTab />
+      <!-- Unified Collapsible Sidebar Navigation (Fixed Collapsible Overlay - Zero Reflow) -->
+      <SidebarNav bind:activeTab asOverlay={true} />
 
-      <!-- Tab panel -->
-      <main class="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col">
+      <!-- Tab panel with fixed 64px rail margin to prevent canvas reflow on toggle -->
+      <main class="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col pl-16">
         <!-- Tab title bar -->
         <div class="flex items-center gap-2 px-4 h-9 border-b border-slate-800 bg-slate-900/60 shrink-0">
           <span class="text-[11px] font-bold uppercase tracking-widest text-slate-400">
@@ -380,6 +388,19 @@
       </div>
     {/if}
   </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       ROW 2 (48px): FIXED BOTTOM MACRO BAR / DOCK
+  ════════════════════════════════════════════════════════════════════════════ -->
+  <footer
+    class="bottom-macro-dock h-12 w-full bg-slate-950/95 border-t border-slate-800/90 flex items-center justify-center px-4 z-30 select-none overflow-hidden shrink-0"
+    style="grid-row: 2; height: 48px;"
+  >
+    {#if currentView === 'DM_DASHBOARD'}
+      <TacticalHotbar />
+    {/if}
+  </footer>
 
   <!-- ═══════════════════════════════════════════════════════════════════════
        GLOBAL OVERLAYS
@@ -387,7 +408,7 @@
 
   <!-- Drop toast -->
   {#if lastDrop}
-    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 border border-slate-700 shadow-2xl rounded-xl px-4 py-2.5 flex items-center gap-2.5 text-xs font-medium text-slate-200 pointer-events-none animate-pulse">
+    <div class="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 bg-slate-900 border border-slate-700 shadow-2xl rounded-xl px-4 py-2.5 flex items-center gap-2.5 text-xs font-medium text-slate-200 pointer-events-none animate-pulse">
       <span class="text-indigo-400">📂</span> Ingested: <span class="font-mono text-emerald-400">{lastDrop}</span>
     </div>
   {/if}

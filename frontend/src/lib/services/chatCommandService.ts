@@ -1,8 +1,8 @@
-// src/lib/services/chatCommandService.ts
-// Chat Command & Dice Parsing Service
-
 import { evaluateLoreCheck, type LoreResolution } from '$lib/systems/loreCheckSystem';
 import { audioEngine } from '$lib/services/audioEngine';
+import { evaluateDice, parseDiceFormula, type DiceEvaluationResult } from '$lib/services/diceEngine';
+
+export { evaluateDice, parseDiceFormula };
 
 // Safe Tauri invoke helper for browser and Tauri environments
 async function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T | undefined> {
@@ -29,26 +29,6 @@ export interface ChatMessage {
     total: number;
   };
   loreDetails?: LoreResolution;
-}
-
-export function parseDiceFormula(formula: string): { rolls: number[]; modifier: number; total: number } | null {
-  const match = formula.trim().match(/^(\d+)d(\d+)(?:([+-])(\d+))?$/i);
-  if (!match) return null;
-
-  const count = parseInt(match[1], 10);
-  const sides = parseInt(match[2], 10);
-  const sign = match[3] === '-' ? -1 : 1;
-  const modifier = match[4] ? sign * parseInt(match[4], 10) : 0;
-
-  const rolls: number[] = [];
-  let sum = 0;
-  for (let i = 0; i < count; i++) {
-    const r = Math.floor(Math.random() * sides) + 1;
-    rolls.push(r);
-    sum += r;
-  }
-
-  return { rolls, modifier, total: sum + modifier };
 }
 
 export async function processChatInput(input: string, sender = 'DM'): Promise<ChatMessage> {

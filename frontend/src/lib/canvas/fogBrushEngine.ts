@@ -4,6 +4,7 @@
 
 import { mapsDb } from '../db/mapsDb';
 import { fogOfWarLayer } from './fogOfWarLayer';
+import { clipFogUnion, clipFogDifference } from './fogBooleanClipping';
 import type { TacticalBattlemap } from '../types/maps';
 
 export type FogToolMode =
@@ -31,11 +32,22 @@ export class FogBrushEngine {
     this.activeMapId = initialMapId;
   }
 
-  setActiveMapId(mapId: string | null): void {
+  async setActiveMapId(mapId: string | null): Promise<void> {
     this.activeMapId = mapId;
     this.activePolygon = [];
     this.isDrawing = false;
     this.lastBrushPoint = null;
+
+    if (mapId) {
+      try {
+        const map = await mapsDb.tacticalMaps.get(mapId);
+        if (map?.fogOfWar?.revealedPolygons) {
+          fogOfWarLayer.loadFogPolygons(map.fogOfWar.revealedPolygons, map.fogOfWar.concealedPolygons || []);
+        }
+      } catch (err) {
+        console.warn('[FogBrushEngine] Failed loading map fog from DB:', err);
+      }
+    }
   }
 
   setMode(mode: FogToolMode): void {
@@ -166,16 +178,19 @@ export class FogBrushEngine {
   }
 
   private async commitPolygonDelta(type: 'reveal' | 'conceal', points: FogPoint[]): Promise<void> {
-    if (!this.activeMapId) return;
+    if (!this.activeMapId || points.length < 3) return;
     const map = await mapsDb.tacticalMaps.get(this.activeMapId);
     if (!map) return;
 
     const fow = map.fogOfWar || { revealedPolygons: [], concealedPolygons: [] };
+    const currentRevealed = fow.revealedPolygons || [];
+
     if (type === 'reveal') {
-      fow.revealedPolygons.push(points);
+      fow.revealedPolygons = clipFogUnion(currentRevealed, points);
     } else {
-      fow.concealedPolygons.push(points);
+      fow.revealedPolygons = clipFogDifference(currentRevealed, points);
     }
+    fow.concealedPolygons = []; // Algebraic boolean resolution bakes all cuts into revealedPolygons
 
     await mapsDb.tacticalMaps.update(this.activeMapId, {
       fogOfWar: fow,

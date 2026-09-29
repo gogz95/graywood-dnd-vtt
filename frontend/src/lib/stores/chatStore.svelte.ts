@@ -5,22 +5,29 @@
 import { audioEngine } from '../audio/AudioEngine';
 import { soundboardEngine } from '../audio/soundboardEngine';
 import { sendWsEvent, latestDiceRollStore } from '../../stores/websocketStore';
+import { evaluateDice, type DiceEvaluationResult, type DiceRollTerm, type ExplicitTerm } from '../services/diceEngine';
 
 export interface RollTerm {
   label: string;
-  type: 'die' | 'modifier';
+  type: 'die' | 'modifier' | 'dice' | 'flat';
   dieSides?: number;
   rolls?: number[];
+  diceResults?: number[];
+  kept?: number[];
+  dropped?: number[];
+  modifier?: number;
   value: number;
 }
 
 export interface RollBreakdown {
   rawFormula: string;
+  formula?: string;
   terms: RollTerm[];
   total: number;
   formattedBreakdown: string; // e.g. "[1d20 (14) + 3 (DEX) + 2 (Prof)] = 19"
-  isCritical: boolean; // Natural 20 on first d20
-  isFumble: boolean;   // Natural 1 on first d20
+  isCritical: boolean; // Natural 20 on d20
+  isFumble: boolean;   // Natural 1 on d20
+  isCrit?: boolean;
 }
 
 export type MessageChannel = 'public' | 'whisper' | 'system';
@@ -213,108 +220,23 @@ class ChatStore {
 
   /**
    * Universal Dice Expression Evaluator & Arithmetic Breakdown Engine
-   * Parses standard 5e dice formulas e.g. "1d20 + 3 + 2" or "2d6 + 4"
+   * Evaluates standard 5e dice algebra, keep/drop (kh/kl), exploding dice (!),
+   * and arithmetic operations with exact structured breakdowns.
    */
   evaluateFormula(
     formula: string,
     explicitTerms?: Array<{ label: string; value: number }>
   ): RollBreakdown {
-    const cleanFormula = formula.trim();
-    const terms: RollTerm[] = [];
-    let isCritical = false;
-    let isFumble = false;
-
-    // Pattern to match standard dice terms: (sign)? (X)d(Y) or (sign)? (X)
-    const tokenRegex = /([+-]?)\s*(?:(\d*)d(\d+)|(\d+))/gi;
-    let match: RegExpExecArray | null;
-    let termIndex = 0;
-
-    while ((match = tokenRegex.exec(cleanFormula)) !== null) {
-      const sign = match[1] === '-' ? -1 : 1;
-      if (match[3] !== undefined) {
-        // Dice term: e.g. 1d20, 2d6, d8
-        const count = match[2] ? parseInt(match[2], 10) : 1;
-        const sides = parseInt(match[3], 10);
-        const rolls: number[] = [];
-        let subtotal = 0;
-
-        for (let i = 0; i < count; i++) {
-          const r = Math.floor(Math.random() * sides) + 1;
-          rolls.push(r);
-          subtotal += r;
-        }
-
-        if (sides === 20 && rolls.length > 0) {
-          if (rolls[0] === 20) isCritical = true;
-          if (rolls[0] === 1) isFumble = true;
-        }
-
-        terms.push({
-          label: `${count}d${sides}`,
-          type: 'die',
-          dieSides: sides,
-          rolls,
-          value: sign * subtotal,
-        });
-      } else if (match[4] !== undefined) {
-        // Modifier term: e.g. +3, -2
-        const rawVal = parseInt(match[4], 10);
-        const modVal = sign * rawVal;
-
-        // Associate with explicit label if provided (e.g. DEX, Prof)
-        let label = explicitTerms && explicitTerms[termIndex] ? explicitTerms[termIndex].label : '';
-        if (!label) {
-          label = modVal >= 0 ? `+${modVal}` : `${modVal}`;
-        }
-
-        terms.push({
-          label,
-          type: 'modifier',
-          value: modVal,
-        });
-        termIndex++;
-      }
-    }
-
-    // Fallback if formula was empty or malformed
-    if (terms.length === 0) {
-      const r = Math.floor(Math.random() * 20) + 1;
-      terms.push({
-        label: '1d20',
-        type: 'die',
-        dieSides: 20,
-        rolls: [r],
-        value: r,
-      });
-      if (r === 20) isCritical = true;
-      if (r === 1) isFumble = true;
-    }
-
-    const total = terms.reduce((acc, t) => acc + t.value, 0);
-
-    // Format breakdown string: "[1d20 (14) + 3 (DEX) + 2 (Prof)] = 19"
-    const breakdownParts = terms.map((t, idx) => {
-      if (t.type === 'die') {
-        const rollsStr = t.rolls && t.rolls.length > 0 ? ` (${t.rolls.join(', ')})` : '';
-        const prefix = idx > 0 && t.value >= 0 ? '+ ' : idx > 0 && t.value < 0 ? '- ' : '';
-        return `${prefix}${t.label}${rollsStr}`;
-      } else {
-        const valAbs = Math.abs(t.value);
-        const sign = t.value >= 0 ? '+ ' : '- ';
-        const labelStr = t.label && !t.label.includes(valAbs.toString()) ? ` (${t.label})` : '';
-        return `${idx > 0 ? sign : t.value < 0 ? '-' : ''}${valAbs}${labelStr}`;
-      }
-    });
-
-    const formattedBreakdown = `[${breakdownParts.join(' ')}] = ${total}`;
-
+    const result = evaluateDice(formula, explicitTerms);
     return {
-      rawFormula: cleanFormula,
-      terms,
-      total,
-      formattedBreakdown,
-      isCritical,
-      isFumble,
+      rawFormula: result.rawFormula,
+      formula: result.formula,
+      terms: result.terms as RollTerm[],
+      total: result.total,
+      formattedBreakdown: result.formattedBreakdown,
+      isCritical: result.isCrit,
+      isFumble: result.isFumble,
+      isCrit: result.isCrit,
     };
   }
 
@@ -487,7 +409,7 @@ class ChatStore {
         sender_id: senderId,
         sender_name: sender,
         channel: 'whisper',
-        text: whisperContent,
+        text: `(To ${target}) ${whisperContent}`,
         content: whisperContent,
         recipient_id: target,
         recipient_name: target,

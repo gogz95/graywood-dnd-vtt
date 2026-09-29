@@ -7,6 +7,13 @@
   import { parseWatabouGeoJson, hitTestBuildingParcel, assignParcelEntity, type WatabouCityMap, type BuildingParcel, type SettlementEntityType } from '../../canvas/parsers/watabouParser';
   import { renderDynamicLighting, renderWallSegments, renderDoors, renderWatabouDistricts, type VisionSource } from '../../canvas/LightShadowRenderer';
   import MapImportModal from './MapImportModal.svelte';
+  import {
+    executeLayerStackRender,
+    type LayerStackRenderContext,
+    type OverheadTile,
+    type DmSecretItem,
+    type DrawingShape
+  } from '../../canvas/layerStack';
   import { canvasStore, type CanvasToken, type SpellAoeTemplate, type SpellAoeType } from '../../../stores/canvasStore.svelte';
   import {
     renderAoeTemplateOnCanvas,
@@ -27,7 +34,6 @@
   import { pushMapToBattlemat } from '../../services/mapDispatchService';
   import { mapsDb } from '../../db/mapsDb';
   import { WeatherCanvasRenderer } from '../../canvas/weatherCanvasRenderer';
-  import TacticalHotbar from '../combat/TacticalHotbar.svelte';
   import SceneEnvironmentWidget from '../dm/SceneEnvironmentWidget.svelte';
   import type { WeatherType } from '../../types/maps';
 
@@ -174,132 +180,166 @@
     ctx.fillStyle = '#0d0f1a';
     ctx.fillRect(-vpX / vpZoom, -vpY / vpZoom, w / vpZoom, h / vpZoom);
 
-    // Map image
-    if (mapImg?.complete && mapImg.naturalWidth > 0) {
-      ctx.globalAlpha = 1;
-      ctx.drawImage(mapImg, 0, 0);
-    }
+    // AABB Viewport Frustum Bounds in world space (with 2-cell buffer padding)
+    const frustumPadding = gridSize * 2;
+    const frustumMinX = -vpX / vpZoom - frustumPadding;
+    const frustumMinY = -vpY / vpZoom - frustumPadding;
+    const frustumMaxX = (-vpX + w) / vpZoom + frustumPadding;
+    const frustumMaxY = (-vpY + h) / vpZoom + frustumPadding;
 
-    // Watabou City Districts, Walls & Parcels
-    if (cityMap) {
-      renderWatabouDistricts(ctx, cityMap, selectedParcel?.id, vpZoom);
-    }
-
-    // Dungeon Scrawl Walls
-    if (wallVisibilityEnabled && walls.length > 0) {
-      renderWallSegments(ctx, walls, vpZoom);
-    }
-
-    // Dungeon Scrawl Doors
-    if (doors.length > 0) {
-      renderDoors(ctx, doors, vpZoom);
-    }
-
-    // 2D Raycast Dynamic Lighting & Shadows
-    if (dynamicLightingEnabled && (walls.length > 0 || doors.length > 0 || tokens.length > 0)) {
-      const viewBounds = {
-        x: -vpX / vpZoom,
-        y: -vpY / vpZoom,
-        width: w / vpZoom,
-        height: h / vpZoom,
-      };
-
-      const visionSources: VisionSource[] = tokens.map(t => ({
+    const layerRenderContext: LayerStackRenderContext = {
+      ctx,
+      viewport: { x: vpX, y: vpY, zoom: vpZoom },
+      canvasWidth: w,
+      canvasHeight: h,
+      isDm: true,
+      gridSize,
+      gridOpacity,
+      gridColor: `rgba(99, 102, 241, ${gridOpacity})`,
+      mapImage: mapImg?.complete && mapImg.naturalWidth > 0 ? mapImg : null,
+      tokens: canvasStore.tokens.length > 0 ? canvasStore.tokens : tokens.map(t => ({
         id: t.id,
-        x: t.x * gridSize + gridSize / 2,
-        y: t.y * gridSize + gridSize / 2,
-        radius: gridSize * 5,
-        color: t.isPlayer ? 'rgba(251, 191, 36, 0.2)' : 'rgba(239, 68, 68, 0.15)',
-      }));
+        name: t.name,
+        x: t.x,
+        y: t.y,
+        color: t.color,
+        isPlayer: t.isPlayer,
+        hp: t.hp,
+        maxHp: t.maxHp,
+        isVisible: true,
+        conditions: [],
+        isOrbSealed: false,
+        sizeInCells: t.size || 1,
+        sightRadiusFeet: 30,
+      })),
+      overheadTiles: [],
+      dmSecrets: [],
+      drawings: [],
+      weather: {
+        type: 'none',
+        intensity: 0,
+        speed: 1,
+      },
+      timeMs: performance.now(),
+    };
 
-      if (visionSources.length === 0 && walls.length > 0) {
-        visionSources.push({
-          id: 'ambient-explorer-light',
-          x: gridSize * 3,
-          y: gridSize * 3,
-          radius: gridSize * 6,
-          color: 'rgba(251, 191, 36, 0.25)',
-        });
+    executeLayerStackRender(layerRenderContext, () => {
+      // Watabou City Districts, Walls & Parcels
+      if (cityMap) {
+        renderWatabouDistricts(ctx, cityMap, selectedParcel?.id, vpZoom);
       }
 
-      renderDynamicLighting(ctx, viewBounds, visionSources, walls, doors, 0.65);
-    }
-
-    // Grid
-    const cols = Math.ceil(w / vpZoom / gridSize) + 2;
-    const rows = Math.ceil(h / vpZoom / gridSize) + 2;
-    const startCol = Math.floor(-vpX / vpZoom / gridSize) - 1;
-    const startRow = Math.floor(-vpY / vpZoom / gridSize) - 1;
-
-    ctx.strokeStyle = `rgba(99, 102, 241, ${gridOpacity})`;
-    ctx.lineWidth = 0.75;
-    for (let c = startCol; c <= startCol + cols; c++) {
-      ctx.beginPath();
-      ctx.moveTo(c * gridSize, startRow * gridSize);
-      ctx.lineTo(c * gridSize, (startRow + rows) * gridSize);
-      ctx.stroke();
-    }
-    for (let r = startRow; r <= startRow + rows; r++) {
-      ctx.beginPath();
-      ctx.moveTo(startCol * gridSize, r * gridSize);
-      ctx.lineTo((startCol + cols) * gridSize, r * gridSize);
-      ctx.stroke();
-    }
-
-    // Hovered cell highlight
-    if (hoveredCell && !isPanning) {
-      ctx.fillStyle = 'rgba(99,102,241,0.08)';
-      ctx.fillRect(hoveredCell.gx * gridSize, hoveredCell.gy * gridSize, gridSize, gridSize);
-    }
-
-    // Public & Private Spell AOE Overlays
-    for (const aoe of canvasStore.aoeTemplates) {
-      renderAoeTemplateOnCanvas(ctx, aoe, gridSize);
-    }
-
-    // Active Vector Ruler Measurement
-    if (canvasStore.ruler) {
-      renderRulerOnCanvas(ctx, canvasStore.ruler, gridSize);
-    }
-
-    // Drag ghost
-    if (draggingToken && dragCurrentGrid) {
-      ctx.globalAlpha = 0.4;
-      ctx.fillStyle = draggingToken.color;
-      const pad = gridSize * 0.1;
-      ctx.beginPath();
-      ctx.roundRect(dragCurrentGrid.gx * gridSize + pad, dragCurrentGrid.gy * gridSize + pad, gridSize - pad * 2, gridSize - pad * 2, 6);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    // Active Turn Reticle (Rendered beneath active token)
-    if (canvasStore.activeTokenId) {
-      const activeTok = tokens.find(t => t.id === canvasStore.activeTokenId);
-      if (activeTok) {
-        const cx = (activeTok.x + 0.5) * gridSize;
-        const cy = (activeTok.y + 0.5) * gridSize;
-        const radius = (gridSize * 0.45);
-        renderTurnReticleOnCanvas(ctx, cx, cy, radius, animTime);
+      // Dungeon Scrawl Walls
+      if (wallVisibilityEnabled && walls.length > 0) {
+        renderWallSegments(ctx, walls, vpZoom);
       }
-    }
 
-    // Active Combat Target Reticle (Rendered around currently targeted token)
-    if (targetingStore.activeTargetTokenId) {
-      const targetTok = tokens.find(t => t.id === targetingStore.activeTargetTokenId);
-      if (targetTok) {
-        const cx = (targetTok.x + 0.5) * gridSize;
-        const cy = (targetTok.y + 0.5) * gridSize;
-        const radius = (gridSize * 0.45);
-        renderTargetingReticleOnCanvas(ctx, cx, cy, radius, animTime);
+      // Dungeon Scrawl Doors
+      if (doors.length > 0) {
+        renderDoors(ctx, doors, vpZoom);
       }
-    }
 
-    // Tokens
-    for (const tok of tokens) {
-      if (draggingToken?.id === tok.id) continue; // skip — drawn as ghost
-      drawToken(ctx, tok);
-    }
+      // 2D Raycast Dynamic Lighting & Shadows
+      if (dynamicLightingEnabled && (walls.length > 0 || doors.length > 0 || tokens.length > 0)) {
+        const viewBounds = {
+          x: -vpX / vpZoom,
+          y: -vpY / vpZoom,
+          width: w / vpZoom,
+          height: h / vpZoom,
+        };
+
+        const visionSources: VisionSource[] = tokens.map(t => ({
+          id: t.id,
+          x: t.x * gridSize + gridSize / 2,
+          y: t.y * gridSize + gridSize / 2,
+          radius: gridSize * 5,
+          color: t.isPlayer ? 'rgba(251, 191, 36, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+        }));
+
+        if (visionSources.length === 0 && walls.length > 0) {
+          visionSources.push({
+            id: 'ambient-explorer-light',
+            x: gridSize * 3,
+            y: gridSize * 3,
+            radius: gridSize * 6,
+            color: 'rgba(251, 191, 36, 0.25)',
+          });
+        }
+
+        renderDynamicLighting(ctx, viewBounds, visionSources, walls, doors, 0.65);
+      }
+
+      // Hovered cell highlight
+      if (hoveredCell && !isPanning) {
+        ctx.fillStyle = 'rgba(99,102,241,0.08)';
+        ctx.fillRect(hoveredCell.gx * gridSize, hoveredCell.gy * gridSize, gridSize, gridSize);
+      }
+
+      // Public & Private Spell AOE Overlays
+      for (const aoe of canvasStore.aoeTemplates) {
+        renderAoeTemplateOnCanvas(ctx, aoe, gridSize);
+      }
+
+      // Active Vector Ruler Measurement
+      if (canvasStore.ruler) {
+        renderRulerOnCanvas(ctx, canvasStore.ruler, gridSize);
+      }
+
+      // Drag ghost
+      if (draggingToken && dragCurrentGrid) {
+        ctx.globalAlpha = 0.4;
+        ctx.fillStyle = draggingToken.color;
+        const pad = gridSize * 0.1;
+        ctx.beginPath();
+        ctx.roundRect(dragCurrentGrid.gx * gridSize + pad, dragCurrentGrid.gy * gridSize + pad, gridSize - pad * 2, gridSize - pad * 2, 6);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      // Active Turn Reticle (Rendered beneath active token)
+      if (canvasStore.activeTokenId) {
+        const activeTok = tokens.find(t => t.id === canvasStore.activeTokenId);
+        if (activeTok) {
+          const cx = (activeTok.x + 0.5) * gridSize;
+          const cy = (activeTok.y + 0.5) * gridSize;
+          const radius = (gridSize * 0.45);
+          renderTurnReticleOnCanvas(ctx, cx, cy, radius, animTime);
+        }
+      }
+
+      // Active Combat Target Reticle (Rendered around currently targeted token)
+      if (targetingStore.activeTargetTokenId) {
+        const targetTok = tokens.find(t => t.id === targetingStore.activeTargetTokenId);
+        if (targetTok) {
+          const cx = (targetTok.x + 0.5) * gridSize;
+          const cy = (targetTok.y + 0.5) * gridSize;
+          const radius = (gridSize * 0.45);
+          renderTargetingReticleOnCanvas(ctx, cx, cy, radius, animTime);
+        }
+      }
+
+      // Tokens with AABB Viewport Frustum Culling
+      for (const tok of tokens) {
+        if (draggingToken?.id === tok.id) continue; // skip — drawn as ghost
+        const tokSize = (tok.size || 1) * gridSize;
+        const tokMinX = tok.x * gridSize;
+        const tokMinY = tok.y * gridSize;
+        const tokMaxX = tokMinX + tokSize;
+        const tokMaxY = tokMinY + tokSize;
+
+        // Skip tokens whose AABB falls completely outside the padded viewport frustum
+        if (
+          tokMaxX < frustumMinX ||
+          tokMinX > frustumMaxX ||
+          tokMaxY < frustumMinY ||
+          tokMinY > frustumMaxY
+        ) {
+          continue;
+        }
+
+        drawToken(ctx, tok);
+      }
+    });
 
     ctx.restore();
     animTime = performance.now() / 1000;
@@ -1251,35 +1291,37 @@
         class="absolute inset-0 pointer-events-none touch-none select-none z-10"
       ></canvas>
 
-      <!-- Top-Right Floating Scene Weather & Environment Widget -->
-      <div class="absolute top-3 right-4 z-20 pointer-events-auto">
-        <SceneEnvironmentWidget />
-      </div>
-
-      <!-- Floating Vector Drawing, Weather & Macro Hotbar Overlays (dynamically offset from Chat & Dice Drawer) -->
-      <div
-        class="absolute bottom-4 z-30 pointer-events-auto flex flex-col items-center gap-2 transition-all duration-300 max-w-[calc(100%-6rem)]"
-        style={chatStore.isOpen ? 'left: calc(50% - 12rem); transform: translateX(-50%);' : 'left: 50%; transform: translateX(-50%);'}
-      >
-        <TacticalHotbar />
-        <CanvasDrawingToolbar
-          bind:activeTool={activeDrawingTool}
-          onToolChange={(tool) => {
-            activeDrawingTool = tool;
-            if (tool === 'select') activeTool = 'select';
-            if (tool === 'ruler') activeTool = 'ruler';
-          }}
-        />
-      </div>
-
-      {#if !mapImageUrl && tokens.length === 0}
-        <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div class="text-center space-y-2">
-            <p class="text-4xl opacity-20">🗺️</p>
-            <p class="text-xs text-slate-600">Load a map image via the toolbar, or spawn tokens to begin.</p>
-          </div>
+      <!-- Full-Screen Floating HUD Layer Wrapper (strictly pointer-events: none) -->
+      <div class="hud-overlay-wrapper absolute inset-0 pointer-events-none overflow-hidden z-20" aria-label="Tactical HUD Layer">
+        <!-- Top-Right Floating Scene Weather & Environment Widget -->
+        <div class="absolute top-3 right-4 z-20 pointer-events-auto">
+          <SceneEnvironmentWidget />
         </div>
-      {/if}
+
+        <!-- Floating Vector Drawing Toolbar (pointer-events: auto) -->
+        <div
+          class="absolute bottom-3 z-20 pointer-events-auto flex flex-col items-center gap-2 transition-all duration-300 max-w-[calc(100%-6rem)]"
+          style={chatStore.isOpen ? 'left: calc(50% - 12rem); transform: translateX(-50%);' : 'left: 50%; transform: translateX(-50%);'}
+        >
+          <CanvasDrawingToolbar
+            bind:activeTool={activeDrawingTool}
+            onToolChange={(tool) => {
+              activeDrawingTool = tool;
+              if (tool === 'select') activeTool = 'select';
+              if (tool === 'ruler') activeTool = 'ruler';
+            }}
+          />
+        </div>
+
+        {#if !mapImageUrl && tokens.length === 0}
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div class="text-center space-y-2">
+              <p class="text-4xl opacity-20">🗺️</p>
+              <p class="text-xs text-slate-600">Load a map image via the toolbar, or spawn tokens to begin.</p>
+            </div>
+          </div>
+        {/if}
+      </div>
     </div>
 
     <!-- Token sidebar -->

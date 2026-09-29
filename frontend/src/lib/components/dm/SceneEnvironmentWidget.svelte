@@ -73,7 +73,7 @@
 </script>
 
 <div
-  class="flex items-center gap-3 p-2 bg-slate-900/95 backdrop-blur-md border border-slate-800 rounded-2xl shadow-2xl text-xs select-none"
+  class="flex items-center gap-3 p-2 bg-slate-900/95 backdrop-blur-md border border-slate-800 rounded-2xl shadow-2xl text-xs select-none pointer-events-auto"
   role="toolbar"
   aria-label="Scene Environment Controls"
 >

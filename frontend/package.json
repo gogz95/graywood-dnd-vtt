@@ -24,6 +24,7 @@
     "jszip": "^3.10.2",
     "pdfjs-dist": "^6.3.289",
     "pixi.js": "^8.21.0",
+    "polygon-clipping": "^0.15.7",
     "tailwind-merge": "^2.3.0",
     "visibility-polygon": "^1.1.0"
   },

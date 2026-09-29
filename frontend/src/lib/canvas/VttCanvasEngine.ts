@@ -209,9 +209,10 @@ export class VttCanvasEngine {
     this.fogContainer = this.fogController.fogLayer;
     this.fogContainer.label = 'VTT_FogContainer';
 
-    // Dynamic grid line rendering when viewport bounds change
+    // Dynamic grid line rendering and AABB viewport frustum culling when camera bounds change
     this.on('viewport:change', () => {
       this.gridController?.redraw();
+      this.updateFrustumCulling();
     });
 
     // Reattach any pre-registered ticker callbacks
@@ -246,6 +247,15 @@ export class VttCanvasEngine {
       tokens: this.tokenController,
       fog: this.fogController,
     });
+  }
+
+  /**
+   * Evaluates AABB frustum culling across tokens and props based on current camera viewport bounds.
+   */
+  public updateFrustumCulling(paddingPx: number = 100): number {
+    if (!this.viewportController || !this.tokenController) return 0;
+    const bounds = this.viewportController.getVisibleWorldBounds(paddingPx);
+    return this.tokenController.cullTokens(bounds);
   }
 
   /**

@@ -62,8 +62,8 @@ export function calculate5eDistanceFeet(
 
 /**
  * Standard 5e Cone geometry:
- * A 60-degree arc spreading outward from the origin point.
- * Half-spread angle = 30° (π/6 rad).
+ * In 5e SRD, a cone's width at any point along its length equals its distance from origin.
+ * Half-spread angle = atan(0.5) ≈ 26.565° (53.13° total cone).
  */
 export function calculateConeVertices(
   originPx: PixelPoint,
@@ -73,7 +73,7 @@ export function calculateConeVertices(
   const dx = targetPx.x - originPx.x;
   const dy = targetPx.y - originPx.y;
   const angle = Math.atan2(dy, dx);
-  const halfSpread = Math.PI / 6; // 30° (60° total cone)
+  const halfSpread = Math.atan(0.5);
 
   const leftAngle = angle - halfSpread;
   const rightAngle = angle + halfSpread;

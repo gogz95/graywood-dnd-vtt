@@ -299,6 +299,17 @@ export class FogOfWarLayer {
     this.syncFullState(state.operations);
   }
 
+  loadFogPolygons(revealed: FogPoint[][], concealed: FogPoint[][] = []) {
+    this.resetFog(true, false);
+    for (const poly of revealed) {
+      this.revealPolygon(poly, false);
+    }
+    for (const poly of concealed) {
+      this.concealPolygon(poly, false);
+    }
+    this.broadcastFullState();
+  }
+
   destroy() {
     this.broadcastBus?.close();
   }

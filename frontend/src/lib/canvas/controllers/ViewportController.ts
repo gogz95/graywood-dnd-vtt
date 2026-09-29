@@ -226,6 +226,25 @@ export class ViewportController {
   }
 
   /**
+   * Calculates the world-space bounding box of the currently visible viewport frustum,
+   * expanded by an optional padding in pixels.
+   */
+  public getVisibleWorldBounds(paddingPx: number = 100): { minX: number; minY: number; maxX: number; maxY: number } {
+    const { width, height } = this.getScreenSize();
+    const tl = this.screenToWorld(-paddingPx, -paddingPx);
+    const tr = this.screenToWorld(width + paddingPx, -paddingPx);
+    const bl = this.screenToWorld(-paddingPx, height + paddingPx);
+    const br = this.screenToWorld(width + paddingPx, height + paddingPx);
+
+    return {
+      minX: Math.min(tl.x, tr.x, bl.x, br.x),
+      minY: Math.min(tl.y, tr.y, bl.y, br.y),
+      maxX: Math.max(tl.x, tr.x, bl.x, br.x),
+      maxY: Math.max(tl.y, tr.y, bl.y, br.y),
+    };
+  }
+
+  /**
    * Resets viewport camera to origin (0, 0) and default zoom (1.0).
    */
   public reset(x: number = 0, y: number = 0, zoom: number = 1.0): void {

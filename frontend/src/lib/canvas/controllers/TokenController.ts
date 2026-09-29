@@ -179,6 +179,33 @@ export class TokenController {
   }
 
   /**
+   * Performs Axis-Aligned Bounding Box (AABB) viewport frustum culling on all registered tokens.
+   * Sets container.visible = false for tokens outside visible bounds, skipping rendering and transform updates.
+   * Returns the count of culled (hidden) tokens.
+   */
+  public cullTokens(visibleBounds: { minX: number; minY: number; maxX: number; maxY: number }): number {
+    let culledCount = 0;
+    for (const [_, entry] of this.tokenMap) {
+      const { x, y, size = 60 } = entry.data;
+      const r = size / 2;
+      const tokMinX = x - r;
+      const tokMaxX = x + r;
+      const tokMinY = y - r;
+      const tokMaxY = y + r;
+
+      const isVisible =
+        tokMaxX >= visibleBounds.minX &&
+        tokMinX <= visibleBounds.maxX &&
+        tokMaxY >= visibleBounds.minY &&
+        tokMinY <= visibleBounds.maxY;
+
+      entry.container.visible = isVisible;
+      if (!isVisible) culledCount++;
+    }
+    return culledCount;
+  }
+
+  /**
    * Deep destroy of the token layer container and all child sprites/graphics.
    */
   public destroy(): void {

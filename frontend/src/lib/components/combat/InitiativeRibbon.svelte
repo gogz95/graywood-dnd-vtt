@@ -158,7 +158,7 @@
   {@const activeCombatant = liveCombat.combatants[activeIdx]}
 
   <div
-    class="w-full bg-slate-950/90 backdrop-blur-md border-b border-slate-800 px-4 py-2 flex items-center justify-between gap-3 text-xs select-none shadow-xl z-20"
+    class="w-full bg-slate-950/90 backdrop-blur-md border-b border-slate-800 px-4 py-2 flex items-center justify-between gap-3 text-xs select-none shadow-xl z-20 pointer-events-auto"
   >
     <!-- Left: Round Counter & Controls -->
     <div class="flex items-center gap-2 shrink-0">
