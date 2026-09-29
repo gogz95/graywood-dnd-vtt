@@ -79,13 +79,14 @@
     }
   }
 
-  // Native Tauri dialog for file selection (desktop only)
   async function handleOpenFileDialog() {
     try {
       const path = await openFileDialog();
       if (path && path !== "") {
+        const res = await fetch(path);
+        const blob = await res.blob();
         const file = new File(
-          [await fetch(path)],
+          [blob],
           path.split("/").pop() || path.split("\\").pop() || "map",
           { type: "application/json" },
         );

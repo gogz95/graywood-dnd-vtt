@@ -2,11 +2,44 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
-  import { tokenStore, type VttToken } from '../../stores/tokenStore.svelte';
+  import { tokenStore, type TokenInstance, type VttToken, parseSizeToCells } from '../../stores/tokenStore.svelte';
   import type { WallSegment, DoorPrimitive } from '../../canvas/parsers/dungeonScrawlParser';
 
   // ── Types ──────────────────────────────────────────────────────────────────
   export type FogTool = 'auto_vision' | 'reveal_brush' | 'hide_brush' | 'polygon_reveal';
+
+  // TokenInstance (authoritative store shape) uses optional hp/maxHp/size/conditions,
+  // while the vision engine expects the strict VttToken shape. Adapt locally so
+  // strictNullChecks passes without widening the shared vision service types.
+  function toVisionToken(t: TokenInstance): VttToken {
+    const revealed = (t as unknown as Partial<VttToken>).isRevealed;
+    const sizeCategory = (t as unknown as Partial<VttToken>).sizeCategory;
+    const color = (t as unknown as Partial<VttToken>).color;
+    return {
+      id: t.instance_id ?? t.id,
+      name: t.name ?? 'Token',
+      x: t.x ?? 0,
+      y: t.y ?? 0,
+      hp: t.hp ?? t.maxHp ?? 10,
+      maxHp: t.maxHp ?? t.hp ?? 10,
+      tempHp: t.tempHp,
+      ac: t.ac,
+      size: t.size_cells ?? parseSizeToCells(t.size),
+      sizeCategory,
+      conditions: t.conditions ?? [],
+      isRevealed: revealed ?? true,
+      isGmOnly: t.isGmOnly,
+      imageUrl: t.imageUrl,
+      color,
+      elevation: t.elevation,
+      rotation: t.rotation,
+      isPlayer: t.isPlayer,
+      visionType: t.visionType,
+      visionRange: t.visionRange,
+      lightEmission: t.lightEmission,
+      auras: t.auras,
+    };
+  }
 
   import {
     computeCollectiveVision,
@@ -127,7 +160,11 @@
     const obstacles = extractVisionObstacles(canvasStore.walls || [], canvasStore.doors || []);
 
     // 2. Compute Collective Vision and Light Emission Polygons
-    const collective = computeCollectiveVision(tokenStore.tokens, obstacles, gridSize);
+    const collective = computeCollectiveVision(
+      tokenStore.tokens.map(toVisionToken),
+      obstacles,
+      gridSize
+    );
 
     // 3. Permanently carve active vision into explored memory shroud
     const allActiveVisiblePolygons = [

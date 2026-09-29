@@ -1,6 +1,7 @@
 <!-- src/lib/components/system/ErrorBoundary.svelte -->
 <!-- Resilient UI crash wrapper around critical routes with emergency backup options -->
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { Snippet } from 'svelte';
   import { exportCampaignBundle } from '../../services/campaignBundleService';
 
@@ -14,14 +15,19 @@
   let errorMessage = $state<string>('');
   let isBackingUp = $state<boolean>(false);
 
-  function handleError(event: ErrorEvent) {
+  function handleError(event: Event) {
     hasError = true;
-    errorMessage = event.message || 'An unexpected rendering error occurred in the scene.';
+    errorMessage =
+      (event as ErrorEvent).message ||
+      'An unexpected rendering error occurred in the scene.';
   }
 
-  function handleUnhandledRejection(event: PromiseRejectionEvent) {
+  function handleUnhandledRejection(event: Event) {
+    const reason = (event as PromiseRejectionEvent).reason;
     hasError = true;
-    errorMessage = event.reason?.message || String(event.reason) || 'Unhandled async runtime error.';
+    errorMessage =
+      (reason as Error | undefined)?.message ||
+      String(reason ?? 'Unhandled async runtime error.');
   }
 
   function handleReloadScene(): void {
@@ -48,9 +54,17 @@
       isBackingUp = false;
     }
   }
-</script>
 
-<svelte:window onerror={handleError} onunhandledrejection={handleUnhandledRejection} />
+  onMount(() => {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  });
+</script>
 
 {#if hasError}
   <div class="fixed top-0 left-0 right-0 z-50 bg-rose-950/95 border-b-2 border-rose-500 text-rose-100 px-4 py-3 shadow-2xl backdrop-blur-md flex flex-wrap items-center justify-between gap-4 font-sans text-xs select-none">

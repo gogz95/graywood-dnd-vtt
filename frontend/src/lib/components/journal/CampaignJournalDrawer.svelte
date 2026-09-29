@@ -598,6 +598,8 @@ Upon inspecting the altar, the adventurers locate a [[Potion of Healing]] and a 
             <!-- Rendered Markdown & Compendium Chip View -->
             {#if viewMode === 'preview' || viewMode === 'split'}
               <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_mouse_events_have_key_events -->
               <div
                 class="flex-1 overflow-y-auto p-4 bg-zinc-950/80"
                 onclick={handlePreviewClick}

@@ -2,7 +2,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { combatStore, type Combatant } from '../../stores/combatStore.svelte';
-  import { tokenStore } from '../../stores/tokenStore.svelte';
+  import { tokenStore, parseSizeToCells } from '../../stores/tokenStore.svelte';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
   import { audioEngine } from '../../audio/AudioEngine';
   import DiceResultFeed from './DiceResultFeed.svelte';
@@ -66,10 +66,10 @@
     cx: number,
     cy: number,
     r: number,
-    tok: { x: number; y: number; size: number }
+    tok: { x: number; y: number; size?: string | number; size_cells?: number }
   ): boolean {
     const gridSize = canvasStore.gridSize || 60;
-    const footprint = (tok.size || 1) * gridSize;
+    const footprint = (tok.size_cells ?? parseSizeToCells(tok.size)) * gridSize;
     const xMin = tok.x - footprint / 2;
     const xMax = tok.x + footprint / 2;
     const yMin = tok.y - footprint / 2;
@@ -200,10 +200,10 @@
           name: tok.name,
           initiative: Math.floor(Math.random() * 20) + 1,
           dexModifier: 0,
-          hp: tok.hp,
-          maxHp: tok.maxHp,
-          conditions: [...tok.conditions],
-          isDefeated: tok.hp <= 0,
+          hp: tok.hp ?? tok.maxHp ?? 10,
+          maxHp: tok.maxHp ?? tok.hp ?? 10,
+          conditions: [...(tok.conditions ?? [])],
+          isDefeated: (tok.hp ?? tok.maxHp ?? 10) <= 0,
         };
         combatStore.combatants.push(combatant);
       }

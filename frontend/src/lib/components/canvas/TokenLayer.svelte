@@ -175,12 +175,12 @@
     <div class="py-2 border-b border-slate-800">
       <div class="flex items-center justify-between text-[11px] mb-1">
         <span class="text-slate-400 font-medium">Hit Points</span>
-        <span class="font-mono font-bold text-emerald-400">{selectedToken.hp} / {selectedToken.maxHp} HP</span>
+        <span class="font-mono font-bold text-emerald-400">{selectedToken.hp ?? 0} / {selectedToken.maxHp ?? 0} HP</span>
       </div>
       <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-2">
         <div
-          class="h-full transition-all duration-300 {selectedToken.hp / selectedToken.maxHp > 0.5 ? 'bg-emerald-500' : selectedToken.hp / selectedToken.maxHp > 0.2 ? 'bg-amber-500' : 'bg-rose-500'}"
-          style="width: {Math.max(0, Math.min(100, (selectedToken.hp / selectedToken.maxHp) * 100))}%;"
+          class="h-full transition-all duration-300 {(selectedToken.hp ?? 0) / (selectedToken.maxHp || 1) > 0.5 ? 'bg-emerald-500' : (selectedToken.hp ?? 0) / (selectedToken.maxHp || 1) > 0.2 ? 'bg-amber-500' : 'bg-rose-500'}"
+          style="width: {Math.max(0, Math.min(100, (((selectedToken.hp ?? 0) / (selectedToken.maxHp || 1)) * 100)))}%;"
         ></div>
       </div>
       <div class="flex items-center justify-between gap-1">

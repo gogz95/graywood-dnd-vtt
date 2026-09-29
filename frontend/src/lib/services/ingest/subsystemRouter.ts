@@ -16,6 +16,8 @@ import { ingestUniversalFile } from '../../importers/universalIngestionEngine';
 import type { UVTTFormat } from '../importers/universalVttImporter';
 import type { TacticalBattlemap, MapWall } from '../../types/maps';
 import type { IngestQueueItem } from './ingestTypes';
+import type { VisionSource } from '../../canvas/LightShadowRenderer';
+import { canvasStore } from '../../../stores/canvasStore.svelte';
 import JSZip from 'jszip';
 
 function createTacticalMapRecord(
@@ -437,7 +439,26 @@ async function routeImageOrMap(
       }
     }
 
-    const lightsCount = Array.isArray(uvtt.lights) ? uvtt.lights.length : 0;
+    // Map UVTT light emitters → VisionSource[] and push into the canvas lighting pipeline
+    const sceneLights: VisionSource[] = [];
+    for (const light of uvtt.lights || []) {
+      if (!light?.position) continue;
+      // Parse color: hex string '#rrggbb' or 'rgba(...)' → CSS color string
+      const color = light.color
+        ? (light.color.startsWith('#') ? light.color : light.color)
+        : 'rgba(251, 191, 36, 0.4)';
+      sceneLights.push({
+        id: `uvtt-light-${sceneLights.length}-${Date.now()}`,
+        x: light.position.x * ppg,
+        y: light.position.y * ppg,
+        radius: (light.range || 5) * ppg,
+        color,
+        intensity: Math.min(1, Math.max(0, light.intensity ?? 1)),
+      });
+    }
+    if (sceneLights.length > 0) {
+      canvasStore.setSceneLights(sceneLights);
+    }
 
     await mapsDb.tacticalMaps.put(
       createTacticalMapRecord(mapId, item.name.replace(/\.[^/.]+$/, ''), ppg, walls, blob)
@@ -445,7 +466,7 @@ async function routeImageOrMap(
 
     return {
       success: true,
-      summary: `Imported Universal VTT (${cols}x${rows} @ ${ppg} DPI, ${walls.length} LOS walls/doors, ${lightsCount} lights)`,
+      summary: `Imported Universal VTT (${cols}x${rows} @ ${ppg} DPI, ${walls.length} LOS walls/doors, ${sceneLights.length} lights)`,
     };
   }
 

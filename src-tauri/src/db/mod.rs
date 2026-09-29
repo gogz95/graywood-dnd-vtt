@@ -8,11 +8,6 @@ use tokio::sync::{mpsc, oneshot};
 
 pub mod migrations;
 
-pub use migrations::{
-    get_user_version, run_atomic_migrations, set_user_version, DbMigrationError, MigrationStep,
-    MIGRATIONS,
-};
-
 /// Configures SQLite WAL mode, synchronous=NORMAL, busy_timeout=5000, and foreign_keys=ON.
 pub fn apply_wal_pragmas(conn: &Connection) -> rusqlite::Result<()> {
     let _: Result<String, _> = conn.query_row("PRAGMA journal_mode = WAL;", [], |r| r.get(0));
@@ -36,15 +31,10 @@ pub fn init_in_memory_db() -> rusqlite::Result<Connection> {
     Ok(conn)
 }
 
-/// Configures WAL PRAGMAs and executes all pending atomic schema migrations.
+/// Configures WAL PRAGMAs then executes all pending versioned schema migrations.
+/// Single authoritative runner: tracks via `schema_migrations` table, file-backed SQL.
 pub fn configure_and_migrate(conn: &mut Connection) -> rusqlite::Result<()> {
     apply_wal_pragmas(conn)?;
-    run_atomic_migrations(conn, MIGRATIONS).map_err(|e| match e {
-        DbMigrationError::Sqlite { source, .. } => source,
-        DbMigrationError::RollbackFailed(e) => e,
-        DbMigrationError::VersionReadFailed(e) => e,
-        DbMigrationError::VersionUpdateFailed(e) => e,
-    })?;
     crate::migrations::run_versioned_migrations(conn)?;
     Ok(())
 }

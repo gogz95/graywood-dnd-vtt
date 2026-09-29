@@ -5,6 +5,7 @@ import type { WallSegment, DoorPrimitive } from '../lib/canvas/parsers/dungeonSc
 import type { WatabouCityMap } from '../lib/canvas/parsers/watabouParser';
 import type { OverheadTile } from '../lib/types/map';
 import type { TriggerZone } from '../lib/types/trigger';
+import type { VisionSource } from '../lib/canvas/LightShadowRenderer';
 
 
 export interface CanvasToken {
@@ -194,6 +195,8 @@ class CanvasStoreClass {
   effects = $state<VisualEffectOverlay[]>([]);
   overheadTiles = $state<OverheadTile[]>([]);
   triggerZones = $state<TriggerZone[]>([]);
+  /** Imported point-light emitters from UVTT/map files. Fed directly into renderDynamicLighting. */
+  sceneLights = $state<VisionSource[]>([]);
 
   private channel: BroadcastChannel | null = null;
   private isBroadcasting = false;
@@ -465,6 +468,11 @@ class CanvasStoreClass {
     this.walls = walls;
     this.doors = doors;
     this.broadcast('WALLS_DOORS_SYNC', { walls, doors });
+  }
+
+  /** Replaces the set of imported scene point-lights (UVTT torches, ambient emitters). */
+  setSceneLights(lights: VisionSource[]) {
+    this.sceneLights = lights;
   }
 
   toggleDoor(doorId: string) {

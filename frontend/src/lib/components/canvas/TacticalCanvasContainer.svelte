@@ -168,17 +168,18 @@
 
   function render() {
     if (!ctx || !canvasEl) return;
+    const renderCtx = ctx;
     const w = canvasEl.width;
     const h = canvasEl.height;
 
-    ctx.clearRect(0, 0, w, h);
-    ctx.save();
-    ctx.translate(vpX, vpY);
-    ctx.scale(vpZoom, vpZoom);
+    renderCtx.clearRect(0, 0, w, h);
+    renderCtx.save();
+    renderCtx.translate(vpX, vpY);
+    renderCtx.scale(vpZoom, vpZoom);
 
     // Background
-    ctx.fillStyle = '#0d0f1a';
-    ctx.fillRect(-vpX / vpZoom, -vpY / vpZoom, w / vpZoom, h / vpZoom);
+    renderCtx.fillStyle = '#0d0f1a';
+    renderCtx.fillRect(-vpX / vpZoom, -vpY / vpZoom, w / vpZoom, h / vpZoom);
 
     // AABB Viewport Frustum Bounds in world space (with 2-cell buffer padding)
     const frustumPadding = gridSize * 2;
@@ -188,7 +189,7 @@
     const frustumMaxY = (-vpY + h) / vpZoom + frustumPadding;
 
     const layerRenderContext: LayerStackRenderContext = {
-      ctx,
+      ctx: renderCtx,
       viewport: { x: vpX, y: vpY, zoom: vpZoom },
       canvasWidth: w,
       canvasHeight: h,
@@ -226,17 +227,17 @@
     executeLayerStackRender(layerRenderContext, () => {
       // Watabou City Districts, Walls & Parcels
       if (cityMap) {
-        renderWatabouDistricts(ctx, cityMap, selectedParcel?.id, vpZoom);
+        renderWatabouDistricts(renderCtx, cityMap, selectedParcel?.id, vpZoom);
       }
 
       // Dungeon Scrawl Walls
       if (wallVisibilityEnabled && walls.length > 0) {
-        renderWallSegments(ctx, walls, vpZoom);
+        renderWallSegments(renderCtx, walls, vpZoom);
       }
 
       // Dungeon Scrawl Doors
       if (doors.length > 0) {
-        renderDoors(ctx, doors, vpZoom);
+        renderDoors(renderCtx, doors, vpZoom);
       }
 
       // 2D Raycast Dynamic Lighting & Shadows
@@ -256,6 +257,11 @@
           color: t.isPlayer ? 'rgba(251, 191, 36, 0.2)' : 'rgba(239, 68, 68, 0.15)',
         }));
 
+        // Merge imported UVTT/map point-light emitters into the vision pass
+        for (const sceneLight of canvasStore.sceneLights) {
+          visionSources.push(sceneLight);
+        }
+
         if (visionSources.length === 0 && walls.length > 0) {
           visionSources.push({
             id: 'ambient-explorer-light',
@@ -266,34 +272,34 @@
           });
         }
 
-        renderDynamicLighting(ctx, viewBounds, visionSources, walls, doors, 0.65);
+        renderDynamicLighting(renderCtx, viewBounds, visionSources, walls, doors, 0.65);
       }
 
       // Hovered cell highlight
       if (hoveredCell && !isPanning) {
-        ctx.fillStyle = 'rgba(99,102,241,0.08)';
-        ctx.fillRect(hoveredCell.gx * gridSize, hoveredCell.gy * gridSize, gridSize, gridSize);
+        renderCtx.fillStyle = 'rgba(99,102,241,0.08)';
+        renderCtx.fillRect(hoveredCell.gx * gridSize, hoveredCell.gy * gridSize, gridSize, gridSize);
       }
 
       // Public & Private Spell AOE Overlays
       for (const aoe of canvasStore.aoeTemplates) {
-        renderAoeTemplateOnCanvas(ctx, aoe, gridSize);
+        renderAoeTemplateOnCanvas(renderCtx, aoe, gridSize);
       }
 
       // Active Vector Ruler Measurement
       if (canvasStore.ruler) {
-        renderRulerOnCanvas(ctx, canvasStore.ruler, gridSize);
+        renderRulerOnCanvas(renderCtx, canvasStore.ruler, gridSize);
       }
 
       // Drag ghost
       if (draggingToken && dragCurrentGrid) {
-        ctx.globalAlpha = 0.4;
-        ctx.fillStyle = draggingToken.color;
+        renderCtx.globalAlpha = 0.4;
+        renderCtx.fillStyle = draggingToken.color;
         const pad = gridSize * 0.1;
-        ctx.beginPath();
-        ctx.roundRect(dragCurrentGrid.gx * gridSize + pad, dragCurrentGrid.gy * gridSize + pad, gridSize - pad * 2, gridSize - pad * 2, 6);
-        ctx.fill();
-        ctx.globalAlpha = 1;
+        renderCtx.beginPath();
+        renderCtx.roundRect(dragCurrentGrid.gx * gridSize + pad, dragCurrentGrid.gy * gridSize + pad, gridSize - pad * 2, gridSize - pad * 2, 6);
+        renderCtx.fill();
+        renderCtx.globalAlpha = 1;
       }
 
       // Active Turn Reticle (Rendered beneath active token)
@@ -303,7 +309,7 @@
           const cx = (activeTok.x + 0.5) * gridSize;
           const cy = (activeTok.y + 0.5) * gridSize;
           const radius = (gridSize * 0.45);
-          renderTurnReticleOnCanvas(ctx, cx, cy, radius, animTime);
+          renderTurnReticleOnCanvas(renderCtx, cx, cy, radius, animTime);
         }
       }
 
@@ -314,7 +320,7 @@
           const cx = (targetTok.x + 0.5) * gridSize;
           const cy = (targetTok.y + 0.5) * gridSize;
           const radius = (gridSize * 0.45);
-          renderTargetingReticleOnCanvas(ctx, cx, cy, radius, animTime);
+          renderTargetingReticleOnCanvas(renderCtx, cx, cy, radius, animTime);
         }
       }
 
@@ -337,11 +343,11 @@
           continue;
         }
 
-        drawToken(ctx, tok);
+        drawToken(renderCtx, tok);
       }
     });
 
-    ctx.restore();
+    renderCtx.restore();
     animTime = performance.now() / 1000;
     rafId = requestAnimationFrame(render);
   }
@@ -548,7 +554,6 @@
       // When active tool is wall, ruler, fog, or template: disable token click/drag listeners
       // so clicks and drags never accidentally select or move tokens while drawing or measuring.
       const isDrawingOrMeasuring =
-        activeTool === 'ruler' ||
         ['circle', 'cone', 'cube', 'line'].includes(activeTool) ||
         ['wall_line', 'wall_polygon', 'fog_carve', 'fog_conceal', 'brush', 'ruler'].includes(activeDrawingTool);
 

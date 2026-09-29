@@ -137,8 +137,9 @@
     }
   }
 
-  function tick(delta: number) {
+  function tick(ticker: Ticker) {
     if (!pixiApp || !weatherContainer) return;
+    const delta = ticker.deltaTime;
     const mode = vttTimeStore.weather;
     if (mode === 'none') return;
 

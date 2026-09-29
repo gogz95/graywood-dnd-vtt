@@ -154,7 +154,7 @@
     newCombatantName = m.name;
     newCombatantHp = m.hp;
     newCombatantAc = m.ac;
-    const dex = m.stats?.dex ?? 10;
+    const dex = m.dex ?? 10;
     const dexMod = Math.floor((dex - 10) / 2);
     newCombatantInit = 10 + dexMod;
     newIsMonster = true;

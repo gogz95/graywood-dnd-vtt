@@ -31,8 +31,8 @@ export interface VttToken {
   size: number; // grid cell footprint: 1=Med/Small, 2=Large, 3=Huge, 4=Gargantuan
   sizeCategory?: 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan';
   conditions: string[];
-  isRevealed: boolean;
-  isGmOnly: boolean;
+  isRevealed?: boolean;
+  isGmOnly?: boolean;
   imageUrl?: string;
   color?: string;
   elevation?: number; // In feet (e.g. +20 flying, -10 burrowed)

@@ -4,6 +4,11 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [svelte()],
+  test: {
+    include: ['src/**/*.{test,spec}.{ts,js}'],
+    exclude: ['**/node_modules/**', '**/dist/**'],
+    globals: true,
+  },
   resolve: {
     alias: {
       $lib: path.resolve(import.meta.dirname, './src/lib'),

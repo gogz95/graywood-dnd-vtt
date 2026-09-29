@@ -1,5 +1,17 @@
 // src/lib/services/visionRaycaster.ts
 // 2D Radial Sweep Raycasting, Visibility Polygon & Light Emission Union Engine
+// Single source-of-truth: re-exports canonical engine primitives from raycastVisionEngine.
+
+// --- Canonical engine re-exports (use these in preference to direct canvas imports) ---
+export {
+  computeRaycastVisibility,
+  wallsToLineSegments,
+  tickFogAnimation,
+  resetFogAnimationClock,
+  type VisionResult,
+  type PointLightEmitter,
+  type LineSegment as EngineLineSegment,
+} from '../canvas/raycastVisionEngine';
 
 import type { VttToken } from '../types/token';
 import type { WallSegment, DoorPrimitive } from '../canvas/parsers/dungeonScrawlParser';

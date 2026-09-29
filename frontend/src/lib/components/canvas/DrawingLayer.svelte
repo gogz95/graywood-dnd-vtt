@@ -683,7 +683,6 @@
           bind:value={textInputPrompt}
           placeholder="e.g. Secret Door, Trap, High Ground…"
           class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-          autofocus
           onkeydown={(e) => {
             if (e.key === 'Enter') commitTextAnnotation();
           }}

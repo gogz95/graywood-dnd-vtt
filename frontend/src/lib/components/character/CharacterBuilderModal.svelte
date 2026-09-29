@@ -264,7 +264,7 @@
   }
 
   function handleRollAllAttributes() {
-    rolledPool = [1, 2, 3, 4, 5, 6].map(() => roll4d6DropLowest());
+    const rolledPool = [1, 2, 3, 4, 5, 6].map(() => roll4d6DropLowest());
     rolledPool.sort((a, b) => b - a);
     baseScores = {
       str: rolledPool[0] || 15,

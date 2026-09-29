@@ -85,7 +85,7 @@
           imageUrl: t.imageUrl,
           x: t.x,
           y: t.y,
-          size: t.size ? t.size * initialGridSize : initialGridSize,
+          size: (typeof t.size === 'number' ? t.size : 1) * initialGridSize,
           elevation: t.elevation ?? 0,
           color: t.color,
         });

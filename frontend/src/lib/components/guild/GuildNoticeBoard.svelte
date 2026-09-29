@@ -421,7 +421,7 @@
       {/if}
 
       {#each filteredContracts as contract (contract.id)}
-        {@const style = CATEGORY_COLORS[contract.classification]}
+        {@const style = CONTRACT_BADGES[contract.classification]}
         <div
           role="button"
           tabindex="0"
