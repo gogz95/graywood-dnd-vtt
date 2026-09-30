@@ -22,17 +22,24 @@ pub fn apply_wal_pragmas(conn: &Connection) -> rusqlite::Result<()> {
 /// If corruption or incomplete WAL lock states are detected, logs the error,
 /// creates an automatic timestamped backup of the `.db` file (if file-backed),
 /// and executes `PRAGMA wal_checkpoint(TRUNCATE);` before booting services.
-pub fn verify_and_recover_db(conn: &mut Connection, db_path: Option<&Path>) -> rusqlite::Result<()> {
+pub fn verify_and_recover_db(
+    conn: &mut Connection,
+    db_path: Option<&Path>,
+) -> rusqlite::Result<()> {
     conn.busy_timeout(std::time::Duration::from_millis(5000))?;
 
-    let integrity_status: Result<String, _> = conn.query_row("PRAGMA integrity_check;", [], |r| r.get(0));
+    let integrity_status: Result<String, _> =
+        conn.query_row("PRAGMA integrity_check;", [], |r| r.get(0));
 
     match integrity_status {
         Ok(ref s) if s == "ok" => {
             // Database integrity verified clean
         }
         status => {
-            eprintln!("[SQLite Auto-Recovery] Database integrity issue detected: {:?}", status);
+            eprintln!(
+                "[SQLite Auto-Recovery] Database integrity issue detected: {:?}",
+                status
+            );
 
             if let Some(path) = db_path {
                 if path.exists() {
@@ -49,16 +56,18 @@ pub fn verify_and_recover_db(conn: &mut Connection, db_path: Option<&Path>) -> r
                     if let Err(e) = std::fs::copy(path, &backup_path) {
                         eprintln!("[SQLite Auto-Recovery] Failed to create backup: {}", e);
                     } else {
-                        eprintln!("[SQLite Auto-Recovery] Created corrupted DB backup at {:?}", backup_path);
+                        eprintln!(
+                            "[SQLite Auto-Recovery] Created corrupted DB backup at {:?}",
+                            backup_path
+                        );
                     }
                 }
             }
 
-            let _: Result<(i32, i32, i32), _> = conn.query_row(
-                "PRAGMA wal_checkpoint(TRUNCATE);",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            );
+            let _: Result<(i32, i32, i32), _> =
+                conn.query_row("PRAGMA wal_checkpoint(TRUNCATE);", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                });
         }
     }
 

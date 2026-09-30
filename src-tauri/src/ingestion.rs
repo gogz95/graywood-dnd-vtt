@@ -2,8 +2,8 @@
 // High-performance Native Ingestion Engine for .dd2vtt / .uvtt Universal VTT Battlemaps
 // Parses resolution, grid scale, line-of-sight walls, portals/doors, and point lights.
 
-use serde::{Deserialize, Serialize};
 use crate::commands::WallColliderPayload;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UvttPoint {
@@ -68,10 +68,11 @@ pub struct ParsedUvttMap {
 
 /// Parses raw UVTT JSON string into structured geometry and colliders.
 pub fn parse_uvtt_map_geometry(raw_json: &str) -> Result<ParsedUvttMap, String> {
-    let payload: UvttPayload = serde_json::from_str(raw_json)
-        .map_err(|e| format!("Failed to parse UVTT JSON: {}", e))?;
+    let payload: UvttPayload =
+        serde_json::from_str(raw_json).map_err(|e| format!("Failed to parse UVTT JSON: {}", e))?;
 
-    let grid_size = payload.resolution
+    let grid_size = payload
+        .resolution
         .as_ref()
         .and_then(|r| r.pixels_per_grid)
         .unwrap_or(70);
@@ -149,18 +150,33 @@ mod tests {
         let mut los = Vec::new();
         for i in 0..52 {
             los.push(vec![
-                UvttPoint { x: i as f64, y: 0.0 },
-                UvttPoint { x: (i + 1) as f64, y: 1.0 },
+                UvttPoint {
+                    x: i as f64,
+                    y: 0.0,
+                },
+                UvttPoint {
+                    x: (i + 1) as f64,
+                    y: 1.0,
+                },
             ]);
         }
 
         let mut portals = Vec::new();
         for i in 0..4 {
             portals.push(UvttPortal {
-                position: Some(UvttPoint { x: i as f64, y: 5.0 }),
+                position: Some(UvttPoint {
+                    x: i as f64,
+                    y: 5.0,
+                }),
                 bounds: vec![
-                    UvttPoint { x: i as f64, y: 4.5 },
-                    UvttPoint { x: i as f64, y: 5.5 },
+                    UvttPoint {
+                        x: i as f64,
+                        y: 4.5,
+                    },
+                    UvttPoint {
+                        x: i as f64,
+                        y: 5.5,
+                    },
                 ],
                 closed: Some(i % 2 == 0),
                 freestanding: Some(false),
@@ -170,7 +186,10 @@ mod tests {
         let mut lights = Vec::new();
         for i in 0..6 {
             lights.push(UvttLight {
-                position: UvttPoint { x: (i * 5) as f64, y: 10.0 },
+                position: UvttPoint {
+                    x: (i * 5) as f64,
+                    y: 10.0,
+                },
                 range: 15.0,
                 intensity: 0.85,
                 color: Some("#ff9933".to_string()),

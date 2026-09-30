@@ -122,7 +122,10 @@ pub async fn prune_expired(leases: &LeaseMap) -> Vec<String> {
 
 /// Spawns a background Tokio task that prunes expired leases every second,
 /// broadcasting LEASE_RELEASED payloads to inform all connected clients.
-pub fn spawn_lease_pruner(leases: LeaseMap, ws_sender: Option<tokio::sync::broadcast::Sender<crate::server::routes::ws::WsEvent>>) {
+pub fn spawn_lease_pruner(
+    leases: LeaseMap,
+    ws_sender: Option<tokio::sync::broadcast::Sender<crate::server::routes::ws::WsEvent>>,
+) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         loop {
@@ -130,7 +133,8 @@ pub fn spawn_lease_pruner(leases: LeaseMap, ws_sender: Option<tokio::sync::broad
             let expired_ids = prune_expired(&leases).await;
             if let Some(ref sender) = ws_sender {
                 for token_id in expired_ids {
-                    let _ = sender.send(crate::server::routes::ws::WsEvent::LeaseReleased { token_id });
+                    let _ =
+                        sender.send(crate::server::routes::ws::WsEvent::LeaseReleased { token_id });
                 }
             }
         }

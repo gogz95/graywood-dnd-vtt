@@ -46,14 +46,20 @@ pub fn parse_pdf_bytes(file_name: &str, bytes: &[u8]) -> Result<PdfImportReport,
     // Fast-scan stream tokens between BT and ET
     while i < len {
         // Match 'BT' (Begin Text)
-        if i + 2 <= len && &bytes[i..i + 2] == b"BT" && (i == 0 || bytes[i - 1].is_ascii_whitespace()) {
+        if i + 2 <= len
+            && &bytes[i..i + 2] == b"BT"
+            && (i == 0 || bytes[i - 1].is_ascii_whitespace())
+        {
             in_text_block = true;
             i += 2;
             continue;
         }
 
         // Match 'ET' (End Text)
-        if i + 2 <= len && &bytes[i..i + 2] == b"ET" && (i == 0 || bytes[i - 1].is_ascii_whitespace()) {
+        if i + 2 <= len
+            && &bytes[i..i + 2] == b"ET"
+            && (i == 0 || bytes[i - 1].is_ascii_whitespace())
+        {
             in_text_block = false;
             i += 2;
             continue;
@@ -144,7 +150,11 @@ pub fn parse_pdf_bytes(file_name: &str, bytes: &[u8]) -> Result<PdfImportReport,
             || line.starts_with("Part ")
             || line.starts_with("PART ")
             || line.starts_with("Act ")
-            || (line.len() > 3 && line.len() < 40 && line.chars().all(|c| c.is_uppercase() || c.is_whitespace() || c.is_ascii_punctuation()));
+            || (line.len() > 3
+                && line.len() < 40
+                && line
+                    .chars()
+                    .all(|c| c.is_uppercase() || c.is_whitespace() || c.is_ascii_punctuation()));
 
         if is_heading {
             if !current_chapter_lines.is_empty() {
@@ -167,7 +177,10 @@ pub fn parse_pdf_bytes(file_name: &str, bytes: &[u8]) -> Result<PdfImportReport,
                 cr: "1".to_string(),
                 ac: 12,
                 hp: 20,
-                raw_markdown: format!("> ### {}\n> *Medium humanoid, unaligned*\n> ---\n> {}", current_chapter_title, line),
+                raw_markdown: format!(
+                    "> ### {}\n> *Medium humanoid, unaligned*\n> ---\n> {}",
+                    current_chapter_title, line
+                ),
             };
             current_statblock = Some(sb);
         }

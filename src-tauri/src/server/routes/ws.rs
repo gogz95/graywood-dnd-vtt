@@ -158,7 +158,11 @@ pub enum WsEvent {
     #[serde(rename = "LEASE_RELEASE")]
     LeaseRelease { token_id: String, user_id: String },
 
-    #[serde(rename = "STATE_SNAPSHOT", alias = "StateSnapshot", alias = "tokens:snapshot")]
+    #[serde(
+        rename = "STATE_SNAPSHOT",
+        alias = "StateSnapshot",
+        alias = "tokens:snapshot"
+    )]
     StateSnapshot { tokens: Vec<serde_json::Value> },
 
     #[serde(rename = "SCENE_UPDATE", alias = "SceneUpdate", alias = "scene:update")]
@@ -200,11 +204,17 @@ pub async fn ws_handler(
 }
 
 fn is_token_secret(t: &serde_json::Value) -> bool {
-    t.get("is_hidden").and_then(|v| v.as_bool()).unwrap_or(false)
+    t.get("is_hidden")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
         || t.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false)
-        || t.get("invisible").and_then(|v| v.as_bool()).unwrap_or(false)
+        || t.get("invisible")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
         || t.get("isGmOnly").and_then(|v| v.as_bool()).unwrap_or(false)
-        || t.get("is_gm_only").and_then(|v| v.as_bool()).unwrap_or(false)
+        || t.get("is_gm_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
         || t.get("isVisible").and_then(|v| v.as_bool()) == Some(false)
         || t.get("is_visible").and_then(|v| v.as_bool()) == Some(false)
         || t.get("name")
@@ -219,22 +229,32 @@ fn is_token_secret(t: &serde_json::Value) -> bool {
 fn is_drawing_secret(d: &serde_json::Value) -> bool {
     d.get("layer").and_then(|v| v.as_str()) == Some("dm")
         || d.get("isSecret").and_then(|v| v.as_bool()).unwrap_or(false)
-        || d.get("is_secret").and_then(|v| v.as_bool()).unwrap_or(false)
+        || d.get("is_secret")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
 }
 
 fn is_note_secret(n: &serde_json::Value) -> bool {
-    n.get("is_secret").and_then(|v| v.as_bool()).unwrap_or(false)
+    n.get("is_secret")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
         || n.get("isSecret").and_then(|v| v.as_bool()).unwrap_or(false)
         || n.get("dm_only").and_then(|v| v.as_bool()).unwrap_or(false)
         || n.get("layer").and_then(|v| v.as_str()) == Some("dm")
 }
 
 fn is_wall_unrevealed_or_secret(w: &serde_json::Value) -> bool {
-    w.get("is_secret").and_then(|v| v.as_bool()).unwrap_or(false)
+    w.get("is_secret")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
         || w.get("isSecret").and_then(|v| v.as_bool()).unwrap_or(false)
         || w.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false)
-        || w.get("is_hidden").and_then(|v| v.as_bool()).unwrap_or(false)
-        || w.get("is_unrevealed").and_then(|v| v.as_bool()).unwrap_or(false)
+        || w.get("is_hidden")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        || w.get("is_unrevealed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
         || w.get("revealed").and_then(|v| v.as_bool()) == Some(false)
 }
 
@@ -305,8 +325,11 @@ pub fn sanitize_event_for_player(event: &WsEvent) -> Option<WsEvent> {
             }
         }
         WsEvent::StateSnapshot { tokens } => {
-            let filtered: Vec<serde_json::Value> =
-                tokens.iter().filter(|t| !is_token_secret(t)).cloned().collect();
+            let filtered: Vec<serde_json::Value> = tokens
+                .iter()
+                .filter(|t| !is_token_secret(t))
+                .cloned()
+                .collect();
             Some(WsEvent::StateSnapshot { tokens: filtered })
         }
         WsEvent::SceneUpdate {
@@ -318,16 +341,28 @@ pub fn sanitize_event_for_player(event: &WsEvent) -> Option<WsEvent> {
             notes,
         } => {
             let filtered_tokens = tokens.as_ref().map(|list| {
-                list.iter().filter(|t| !is_token_secret(t)).cloned().collect()
+                list.iter()
+                    .filter(|t| !is_token_secret(t))
+                    .cloned()
+                    .collect()
             });
             let filtered_drawings = drawings.as_ref().map(|list| {
-                list.iter().filter(|d| !is_drawing_secret(d)).cloned().collect()
+                list.iter()
+                    .filter(|d| !is_drawing_secret(d))
+                    .cloned()
+                    .collect()
             });
             let filtered_notes = notes.as_ref().map(|list| {
-                list.iter().filter(|n| !is_note_secret(n)).cloned().collect()
+                list.iter()
+                    .filter(|n| !is_note_secret(n))
+                    .cloned()
+                    .collect()
             });
             let filtered_walls = walls.as_ref().map(|list| {
-                list.iter().filter(|w| !is_wall_unrevealed_or_secret(w)).cloned().collect()
+                list.iter()
+                    .filter(|w| !is_wall_unrevealed_or_secret(w))
+                    .cloned()
+                    .collect()
             });
             let sanitized_fog = fog.as_ref().map(|f| sanitize_fog_for_player(f));
 
@@ -375,9 +410,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, query: WsQuery) {
 
     let is_dm = Arc::new(AtomicBool::new(initial_is_dm));
     let is_dm_send = is_dm.clone();
-    let client_user_id = Arc::new(tokio::sync::RwLock::new(
-        query.user_id.or(query.session_id),
-    ));
+    let client_user_id = Arc::new(tokio::sync::RwLock::new(query.user_id.or(query.session_id)));
     let client_user_id_recv = client_user_id.clone();
     let client_user_id_cleanup = client_user_id.clone();
 
@@ -450,10 +483,17 @@ async fn handle_socket(socket: WebSocket, state: AppState, query: WsQuery) {
                                     let mut uid_guard = client_user_id_recv.write().await;
                                     *uid_guard = Some(user_id.clone());
                                 }
-                                crate::state::lease::acquire_lease(&lease_map, token_id, user_id).await;
+                                crate::state::lease::acquire_lease(&lease_map, token_id, user_id)
+                                    .await;
                             }
                             WsEvent::LeaseRelease { token_id, user_id } => {
-                                if crate::state::lease::release_lease(&lease_map, token_id, Some(user_id)).await {
+                                if crate::state::lease::release_lease(
+                                    &lease_map,
+                                    token_id,
+                                    Some(user_id),
+                                )
+                                .await
+                                {
                                     let _ = broadcast_tx.send(WsEvent::LeaseReleased {
                                         token_id: token_id.clone(),
                                     });

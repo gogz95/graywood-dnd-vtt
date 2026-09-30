@@ -20,11 +20,16 @@ fn test_clean_slate_migration_and_wal_teardown() {
 
     // Stage 1: Instantiate isolated temporary file-backed SQLite instance
     {
-        let mut conn = Connection::open(&temp_db_path).expect("Failed to create temporary SQLite database file");
+        let mut conn = Connection::open(&temp_db_path)
+            .expect("Failed to create temporary SQLite database file");
         apply_wal_pragmas(&conn).expect("Failed to apply initial WAL pragmas");
 
-        let initial_version = get_user_version(&conn).expect("Failed to query initial user_version");
-        assert_eq!(initial_version, 0, "Clean database must start at user_version 0");
+        let initial_version =
+            get_user_version(&conn).expect("Failed to query initial user_version");
+        assert_eq!(
+            initial_version, 0,
+            "Clean database must start at user_version 0"
+        );
 
         // Stage 2: Execute all pending migrations sequentially from revision 0 to latest
         let applied_count = run_atomic_migrations(&mut conn, MIGRATIONS)
@@ -32,7 +37,8 @@ fn test_clean_slate_migration_and_wal_teardown() {
         assert!(applied_count > 0, "Must apply all pending migrations");
 
         // Also run versioned migrations runner to ensure compatibility across both migration pathways
-        let _ = configure_and_migrate(&mut conn).expect("configure_and_migrate should succeed on initialized db");
+        let _ = configure_and_migrate(&mut conn)
+            .expect("configure_and_migrate should succeed on initialized db");
 
         // Verify final user_version matches latest migration
         let latest_version = get_user_version(&conn).expect("Failed to read latest user_version");
@@ -82,32 +88,43 @@ fn test_clean_slate_migration_and_wal_teardown() {
                     |r| r.get(0),
                 )
                 .unwrap_or(false);
-            assert!(exists, "Expected table or virtual table '{}' to exist after full migration", table);
+            assert!(
+                exists,
+                "Expected table or virtual table '{}' to exist after full migration",
+                table
+            );
         }
 
         // Verify FTS5 virtual tables can execute queries without error
         let lore_fts_count: i64 = conn
             .query_row("SELECT count(*) FROM lore_fts", [], |r| r.get(0))
             .expect("lore_fts must be queryable");
-        assert!(lore_fts_count >= 0, "lore_fts should return non-negative row count");
+        assert!(
+            lore_fts_count >= 0,
+            "lore_fts should return non-negative row count"
+        );
 
         let campaign_fts_count: i64 = conn
             .query_row("SELECT count(*) FROM campaign_fts", [], |r| r.get(0))
             .expect("campaign_fts must be queryable");
-        assert!(campaign_fts_count >= 0, "campaign_fts should return non-negative row count");
+        assert!(
+            campaign_fts_count >= 0,
+            "campaign_fts should return non-negative row count"
+        );
 
         // Flush and checkpoint WAL to disk prior to closing connection
-        let _: Result<(i32, i32, i32), _> = conn.query_row(
-            "PRAGMA wal_checkpoint(TRUNCATE);",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        );
+        let _: Result<(i32, i32, i32), _> =
+            conn.query_row("PRAGMA wal_checkpoint(TRUNCATE);", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            });
     }
 
     // Stage 4: Re-open sequence to confirm WAL journal tears down cleanly without orphan locks
     {
-        let mut reopened_conn = Connection::open(&temp_db_path).expect("Failed to re-open temporary SQLite database");
-        apply_wal_pragmas(&reopened_conn).expect("Failed to re-apply WAL pragmas on re-opened database");
+        let mut reopened_conn =
+            Connection::open(&temp_db_path).expect("Failed to re-open temporary SQLite database");
+        apply_wal_pragmas(&reopened_conn)
+            .expect("Failed to re-apply WAL pragmas on re-opened database");
 
         // Verify integrity and auto-recovery succeeds with clean status
         verify_and_recover_db(&mut reopened_conn, Some(&temp_db_path))
@@ -116,17 +133,30 @@ fn test_clean_slate_migration_and_wal_teardown() {
         let integrity_result: String = reopened_conn
             .query_row("PRAGMA integrity_check;", [], |r| r.get(0))
             .expect("Integrity check query failed");
-        assert_eq!(integrity_result, "ok", "Database integrity check must report 'ok'");
+        assert_eq!(
+            integrity_result, "ok",
+            "Database integrity check must report 'ok'"
+        );
 
-        let final_version = get_user_version(&reopened_conn).expect("Failed reading user_version on re-opened DB");
+        let final_version =
+            get_user_version(&reopened_conn).expect("Failed reading user_version on re-opened DB");
         let expected_latest = MIGRATIONS.last().map(|m| m.version).unwrap_or(0);
-        assert_eq!(final_version, expected_latest, "Version must persist accurately across re-open");
+        assert_eq!(
+            final_version, expected_latest,
+            "Version must persist accurately across re-open"
+        );
     }
 
     // Clean up temporary database files
     let _ = std::fs::remove_file(&temp_db_path);
-    let wal_path = temp_db_path.with_file_name(format!("{}-wal", temp_db_path.file_name().unwrap().to_string_lossy()));
-    let shm_path = temp_db_path.with_file_name(format!("{}-shm", temp_db_path.file_name().unwrap().to_string_lossy()));
+    let wal_path = temp_db_path.with_file_name(format!(
+        "{}-wal",
+        temp_db_path.file_name().unwrap().to_string_lossy()
+    ));
+    let shm_path = temp_db_path.with_file_name(format!(
+        "{}-shm",
+        temp_db_path.file_name().unwrap().to_string_lossy()
+    ));
     let _ = std::fs::remove_file(wal_path);
     let _ = std::fs::remove_file(shm_path);
 }

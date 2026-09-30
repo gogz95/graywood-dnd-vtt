@@ -178,10 +178,7 @@ pub async fn open_file_dialog(app: tauri::AppHandle) -> Result<String, String> {
         .dialog()
         .file()
         .set_title("Select Image or Media File")
-        .add_filter(
-            "Images",
-            &["png", "jpg", "jpeg", "webp"],
-        )
+        .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
         .add_filter("Video", &["mp4", "webm"])
         .add_filter("VTT Map Formats", &["dd2vtt", "uvtt", "json"])
         .blocking_pick_file();
