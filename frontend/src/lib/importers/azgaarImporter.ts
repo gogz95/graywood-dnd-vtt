@@ -25,34 +25,34 @@ export async function importAzgaarGeoJson(file: File, atlasName: string): Promis
   const borderFeatures: any[] = [];
   const routeFeatures: any[] = [];
 
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  function expandBounds(x: number, y: number) {
+    if (isNaN(x) || isNaN(y)) return;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+
+  function scanCoords(coords: any) {
+    if (!Array.isArray(coords)) return;
+    if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+      expandBounds(coords[0], coords[1]);
+    } else {
+      for (const c of coords) {
+        scanCoords(c);
+      }
+    }
+  }
+
   for (let i = 0; i < features.length; i++) {
     const f = features[i];
     const props = f.properties || {};
     const geom = f.geometry || {};
-
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-
-    function expandBounds(x: number, y: number) {
-      if (isNaN(x) || isNaN(y)) return;
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-    }
-
-    function scanCoords(coords: any) {
-      if (!Array.isArray(coords)) return;
-      if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-        expandBounds(coords[0], coords[1]);
-      } else {
-        for (const c of coords) {
-          scanCoords(c);
-        }
-      }
-    }
 
     if (geom.coordinates) {
       scanCoords(geom.coordinates);

@@ -4,9 +4,10 @@
   import PlayerCompanionPortal from './routes/play/+page.svelte';
   import ProjectorBattleMatView from './routes/projector/+page.svelte';
   import MobileCompanionView from './routes/mobile/+page.svelte';
+  import PlayerPortalReceiver from './routes/portal/+page.svelte';
   import ErrorBoundary from './lib/components/system/ErrorBoundary.svelte';
 
-  type Route = 'workspace' | 'play' | 'projector' | 'mobile';
+  type Route = 'workspace' | 'play' | 'projector' | 'mobile' | 'portal';
 
   let currentRoute = $state<Route>('workspace');
 
@@ -18,6 +19,8 @@
 
     if (path.startsWith('/mobile') || hash.startsWith('#/mobile')) {
       currentRoute = 'mobile';
+    } else if (path.startsWith('/portal') || hash.startsWith('#/portal')) {
+      currentRoute = 'portal';
     } else if (path.startsWith('/projector') || hash.startsWith('#/projector')) {
       currentRoute = 'projector';
     } else if (path.startsWith('/play') || hash.startsWith('#/play') || search.includes('pin=')) {
@@ -42,6 +45,8 @@
 <ErrorBoundary>
   {#if currentRoute === 'mobile'}
     <MobileCompanionView />
+  {:else if currentRoute === 'portal'}
+    <PlayerPortalReceiver />
   {:else if currentRoute === 'projector'}
     <ProjectorBattleMatView />
   {:else if currentRoute === 'play'}

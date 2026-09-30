@@ -122,7 +122,7 @@ export function renderGridLayer(rc: LayerStackRenderContext): void {
   ctx.strokeStyle = gridColor || `rgba(99, 102, 241, ${gridOpacity * 0.75})`;
   ctx.lineWidth = 0.6 / vp.zoom;
 
-  if (rc.gridType === 'hex_pointy' || rc.gridType === 'hex-v') {
+  if ((rc.gridType as string) === 'hex_pointy' || rc.gridType === 'hex-v') {
     const radius = gridSize / Math.sqrt(3);
     const deltaX = gridSize;
     const deltaY = 1.5 * radius;
@@ -148,7 +148,7 @@ export function renderGridLayer(rc: LayerStackRenderContext): void {
         ctx.stroke();
       }
     }
-  } else if (rc.gridType === 'hex_flat' || rc.gridType === 'hex-h') {
+  } else if ((rc.gridType as string) === 'hex_flat' || rc.gridType === 'hex-h') {
     const radius = gridSize / Math.sqrt(3);
     const deltaX = 1.5 * radius;
     const deltaY = gridSize;

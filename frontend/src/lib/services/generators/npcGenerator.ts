@@ -588,7 +588,7 @@ export async function persistNpcToCompendium(actor: ActorSchema): Promise<void> 
 
   // 2. Local characterStore update
   const character = actorToCharacter(actor);
-  characterStore.set(character);
+  characterStore.set(character as any);
 
   // 3. Optional SQLite backend persistence via REST
   if (typeof fetch !== 'undefined') {

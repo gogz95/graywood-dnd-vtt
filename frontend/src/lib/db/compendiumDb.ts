@@ -627,6 +627,7 @@ export const SRD_RULES: CompendiumRule[] = [
 export interface CampaignFlag {
   key: string;
   value: any;
+  updatedAt?: number;
 }
 
 export interface CompanionCharacterState {
