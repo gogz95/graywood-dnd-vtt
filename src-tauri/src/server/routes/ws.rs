@@ -364,7 +364,7 @@ pub fn sanitize_event_for_player(event: &WsEvent) -> Option<WsEvent> {
                     .cloned()
                     .collect()
             });
-            let sanitized_fog = fog.as_ref().map(|f| sanitize_fog_for_player(f));
+            let sanitized_fog = fog.as_ref().map(sanitize_fog_for_player);
 
             Some(WsEvent::SceneUpdate {
                 scene_id: scene_id.clone(),
