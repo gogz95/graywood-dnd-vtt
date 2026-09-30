@@ -1,6 +1,8 @@
 // frontend/src/lib/services/hotkeyManager.ts
 // Global Keyboard Shortcut Manager for Graywood VTT DM Workstation
 
+import { hotbarStore } from '../stores/hotbarStore.svelte';
+
 export type HotkeyHandler = (e: KeyboardEvent) => void;
 
 interface RegisteredHotkey {
@@ -65,10 +67,7 @@ class HotkeyManager {
         }
 
         if (slotIndex !== null) {
-          // Import dynamically or check store to trigger slot execution
-          import('../stores/hotbarStore.svelte').then(({ hotbarStore }) => {
-            hotbarStore.executeSlot(slotIndex!);
-          });
+          hotbarStore.executeSlot(slotIndex);
           e.preventDefault();
           return;
         }

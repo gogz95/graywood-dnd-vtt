@@ -1,4 +1,5 @@
 import { writable, get } from 'svelte/store';
+import { compendiumDb } from '$lib/db/compendiumDb';
 import type {
   Character,
   PublicRosterEntry,
@@ -338,7 +339,6 @@ export async function executeShortRest(hpRecovered: number, hitDiceSpent: number
 
   // Sync to Dexie
   try {
-    const { compendiumDb } = await import('$lib/db/compendiumDb');
     await compendiumDb.characterState.put({
       characterName: current.name,
       spellSlots: get(spellSlotsStore) as any,
@@ -401,7 +401,6 @@ export async function executeLongRest(): Promise<void> {
 
   // Sync to Dexie
   try {
-    const { compendiumDb } = await import('$lib/db/compendiumDb');
     await compendiumDb.characterState.put({
       characterName: current.name,
       spellSlots: get(spellSlotsStore) as any,

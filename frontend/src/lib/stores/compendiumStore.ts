@@ -3,6 +3,7 @@
 
 import { writable } from 'svelte/store';
 import type { CustomItemDefinition } from '../types/item';
+import { compendiumDb } from '../db/compendiumDb';
 
 const DB_NAME = 'vtt_compendium_db';
 const DB_VERSION = 2;
@@ -148,7 +149,6 @@ export async function addCustomItem(item: CustomItemDefinition): Promise<CustomI
 export async function saveCompendiumItem(item: CustomItemDefinition): Promise<CustomItemDefinition> {
   const saved = await addCustomItem(item);
   try {
-    const { compendiumDb } = await import('../db/compendiumDb');
     await compendiumDb.items.put({
       id: saved.id,
       name: saved.name,

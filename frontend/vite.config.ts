@@ -17,7 +17,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    chunkSizeWarningLimit: 1000,
+    chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -25,7 +25,7 @@ export default defineConfig({
             return 'compendium-data';
           }
           if (id.includes('pdfjs-dist')) {
-            return 'pdf-engine';
+            return 'pdf-vendor';
           }
           if (id.includes('pixi.js') || id.includes('@pixi')) {
             return 'pixi-vendor';
@@ -38,6 +38,9 @@ export default defineConfig({
           }
           if (id.includes('/routes/mobile/') || id.includes('\\routes\\mobile\\')) {
             return 'route-mobile';
+          }
+          if (id.includes('/routes/portal/') || id.includes('\\routes\\portal\\')) {
+            return 'route-portal';
           }
           if (id.includes('node_modules')) {
             if (id.includes('jszip')) return 'jszip-vendor';
