@@ -3,6 +3,7 @@
 // Computes visibility polygons with radial ray offsets, vertex corner penetration,
 // darkvision grayscale radii, and point-light emitters (torch/light cantrip).
 
+import RBush from 'rbush';
 import type { MapWall } from '../types/maps';
 
 export interface Point2D {
@@ -73,6 +74,71 @@ export function wallsToLineSegments(walls: (MapWall | any)[]): LineSegment[] {
     });
 }
 
+// ---------------------------------------------------------------------------
+// R-Tree Spatial Index — broad-phase for wall/door line segments
+// ---------------------------------------------------------------------------
+
+interface WallTreeItem {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  seg: LineSegment;
+}
+
+/**
+ * Per-array R-Tree cache keyed on the source segment array identity. Wall/door
+ * systems rebuild their segment arrays whenever geometry changes, so a stale
+ * index can never be served; repeated vision/light queries within a frame
+ * reuse the index built on first access.
+ */
+const wallTreeCache = new WeakMap<LineSegment[], RBush<WallTreeItem>>();
+
+/** Builds (or returns the cached) R-Tree for a wall/door segment array. */
+export function getWallRTree(walls: LineSegment[]): RBush<WallTreeItem> {
+  let tree = wallTreeCache.get(walls);
+  if (!tree) {
+    tree = new RBush<WallTreeItem>();
+    const items: WallTreeItem[] = [];
+    for (const seg of walls) {
+      if (!seg || !seg.p1 || !seg.p2) continue;
+      if (isNaN(seg.p1.x) || isNaN(seg.p1.y) || isNaN(seg.p2.x) || isNaN(seg.p2.y)) continue;
+      items.push({
+        minX: Math.min(seg.p1.x, seg.p2.x),
+        minY: Math.min(seg.p1.y, seg.p2.y),
+        maxX: Math.max(seg.p1.x, seg.p2.x),
+        maxY: Math.max(seg.p1.y, seg.p2.y),
+        seg,
+      });
+    }
+    tree.load(items);
+    wallTreeCache.set(walls, tree);
+  }
+  return tree;
+}
+
+/**
+ * Spatial query for the emitter bounding box `[x - radius, y - radius, x + radius, y + radius]`.
+ * Returns only the wall segments whose bounding box intersects that box; every
+ * other segment is provably out of reach of any ray shorter than `radius`, so
+ * the radial sweep below only ever tests this reduced candidate set.
+ */
+export function queryWallsInRadius(
+  walls: LineSegment[],
+  origin: Point2D,
+  radius: number
+): LineSegment[] {
+  if (!walls || !Array.isArray(walls) || walls.length === 0) return [];
+  return getWallRTree(walls)
+    .search({
+      minX: origin.x - radius,
+      minY: origin.y - radius,
+      maxX: origin.x + radius,
+      maxY: origin.y + radius,
+    })
+    .map((item) => item.seg);
+}
+
 /**
  * Computes ray-segment intersection distance t.
  * Returns null if no intersection or if intersection is outside segment bounds.
@@ -140,10 +206,11 @@ export function computeRaycastVisibility(
     return { origin, maxRadiusPx, polygon: fallbackPolygon };
   }
 
-  const validWalls = walls.filter(
-    (w) => w && w.p1 && w.p2 && !isNaN(w.p1.x) && !isNaN(w.p1.y) && !isNaN(w.p2.x) && !isNaN(w.p2.y)
-  );
-  const visionWalls = validWalls.filter((w) => w.blocksVision);
+  // R-Tree broad-phase: only segments whose bounding box intersects the emitter
+  // bounding box `[x - radius, y - radius, x + radius, y + radius]` can occlude
+  // a ray within `maxRadiusPx`. Invalid segments are skipped when the index is built.
+  const candidateWalls = queryWallsInRadius(walls, origin, maxRadiusPx);
+  const visionWalls = candidateWalls.filter((w) => w.blocksVision);
 
   // Define circular / rectangular boundary perimeter to constrain rays
   const bounds = boundingBounds || {

@@ -17,6 +17,7 @@ export interface Character {
   speed: number;
   passive_perception: number;
   spell_slots_json: string;
+  spell_slots?: Record<number, { current: number; max: number }>;
   inventory_json: string;
   is_orb_sealed: boolean;
   resurrection_sickness_penalty: number;

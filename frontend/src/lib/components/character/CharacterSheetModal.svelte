@@ -165,6 +165,7 @@
     atkBonus: number;
     damageFormula: string;
     damageType: string;
+    spellLevel?: number; // 0 for cantrips, 1-9 for leveled spells
   }
 
   let attacks = $state<AttackAction[]>([
@@ -188,11 +189,92 @@
       id: 'atk-3',
       name: 'Sacred Flame',
       type: 'spell',
+      spellLevel: 0,
       atkBonus: 6,
       damageFormula: '2d8',
       damageType: 'Radiant (DEX DC 14)',
     },
+    {
+      id: 'atk-4',
+      name: 'Guiding Bolt',
+      type: 'spell',
+      spellLevel: 1,
+      atkBonus: 6,
+      damageFormula: '4d6',
+      damageType: 'Radiant',
+    },
+    {
+      id: 'atk-5',
+      name: 'Spiritual Weapon',
+      type: 'spell',
+      spellLevel: 2,
+      atkBonus: 6,
+      damageFormula: '1d8 + 3',
+      damageType: 'Force',
+    },
   ]);
+
+  function getRemainingSlots(level: number): number {
+    const tracker = $spellSlotsStore.find((s) => s.level === level);
+    if (!tracker) return 0;
+    return Math.max(0, tracker.total - tracker.used);
+  }
+
+  function canCastAttackSpell(atk: AttackAction): boolean {
+    if (atk.type !== 'spell' || atk.spellLevel === undefined || atk.spellLevel === 0) {
+      return true;
+    }
+    return getRemainingSlots(atk.spellLevel) > 0;
+  }
+
+  function castActionSpell(atk: AttackAction): void {
+    const isCantrip = atk.spellLevel === undefined || atk.spellLevel === 0;
+    if (isCantrip) {
+      audioEngine.triggerSfx('sfx-spell');
+      chatStore.sendMessage(
+        `✨ **${char.name}** casts **${atk.name}** (Cantrip). No spell slot expended.`,
+        char.name
+      );
+      return;
+    }
+
+    const lvl = atk.spellLevel!;
+    const remainingBefore = getRemainingSlots(lvl);
+    if (remainingBefore <= 0) {
+      chatStore.sendMessage(
+        `⛔ **${char.name}** cannot cast **${atk.name}** — Out of Level ${lvl} spell slots!`,
+        char.name
+      );
+      return;
+    }
+
+    // Decrement matching slot level by 1
+    spellSlotsStore.update((slots) =>
+      slots.map((s) => (s.level === lvl ? { ...s, used: Math.min(s.total, s.used + 1) } : s))
+    );
+
+    const remainingAfter = remainingBefore - 1;
+    audioEngine.triggerSfx('sfx-spell');
+    chatStore.sendMessage(
+      `✨ **${char.name}** casts **${atk.name}** (Level ${lvl} Spell). Remaining Level ${lvl} slots: **${remainingAfter}**.`,
+      char.name
+    );
+  }
+
+  function castSpellFromTracker(level: number): void {
+    const remainingBefore = getRemainingSlots(level);
+    if (remainingBefore <= 0) return;
+
+    spellSlotsStore.update((slots) =>
+      slots.map((s) => (s.level === level ? { ...s, used: Math.min(s.total, s.used + 1) } : s))
+    );
+    const remainingAfter = remainingBefore - 1;
+    audioEngine.triggerSfx('sfx-spell');
+    chatStore.sendMessage(
+      `✨ **${char.name}** expends a **Level ${level}** spell slot. Remaining Level ${level} slots: **${remainingAfter}**.`,
+      char.name
+    );
+  }
 
   // ── One-Click Rollable Trigger Engine ───────────────────────────────────────
   function triggerRoll(
@@ -756,10 +838,24 @@
                   </div>
 
                   <div class="flex items-center gap-2">
+                    {#if atk.type === 'spell'}
+                      <button
+                        type="button"
+                        onclick={() => castActionSpell(atk)}
+                        disabled={!canCastAttackSpell(atk)}
+                        class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:border disabled:border-rose-900/50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center gap-1"
+                        title={canCastAttackSpell(atk)
+                          ? (atk.spellLevel === 0 ? 'Cast Cantrip (Unlimited)' : `Cast Level ${atk.spellLevel} Spell — Decrements 1 slot`)
+                          : `Out of Slots: No Level ${atk.spellLevel} slots remaining!`}
+                      >
+                        <span>✨</span>
+                        <span>Cast{atk.spellLevel !== undefined && atk.spellLevel > 0 ? ` (L${atk.spellLevel})` : ''}</span>
+                      </button>
+                    {/if}
                     <button
                       type="button"
                       onclick={(e) => triggerAttackRoll(atk, e)}
-                      class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
+                      class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold rounded-xl transition-colors shadow-sm"
                       title="Roll To-Hit (Shift for Advantage)"
                     >
                       Attack ({formatMod(atk.atkBonus)})
@@ -845,26 +941,55 @@
                 <span>Spell Slots</span>
               </h3>
 
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {#each $spellSlotsStore as slot}
-                  <div class="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between">
-                    <div>
-                      <span class="text-[10px] font-bold uppercase text-slate-500 block">Level {slot.level}</span>
-                      <span class="text-sm font-bold font-mono text-indigo-300">
-                        {slot.total - slot.used} / {slot.total}
+                  {@const remaining = Math.max(0, slot.total - slot.used)}
+                  <div class="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex flex-col justify-between gap-2 hover:border-slate-700 transition-colors">
+                    <div class="flex items-center justify-between">
+                      <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Level {slot.level}</span>
+                      <span class="text-xs font-mono font-bold {remaining > 0 ? 'text-indigo-300' : 'text-rose-400'}">
+                        {remaining} / {slot.total}
                       </span>
                     </div>
 
-                    <div class="flex items-center gap-1">
+                    <div class="flex items-center justify-between gap-1 pt-1 border-t border-slate-800/60">
+                      <!-- Stepper controls: increment/decrement available slots -->
+                      <div class="flex items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={slot.used >= slot.total}
+                          onclick={() => {
+                            spellSlotsStore.update((slots) =>
+                              slots.map((s) => (s.level === slot.level ? { ...s, used: Math.min(s.total, s.used + 1) } : s))
+                            );
+                          }}
+                          class="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-300 flex items-center justify-center transition-colors"
+                          title="Expend slot (-1)"
+                        >
+                          -
+                        </button>
+                        <button
+                          type="button"
+                          disabled={slot.used <= 0}
+                          onclick={() => {
+                            spellSlotsStore.update((slots) =>
+                              slots.map((s) => (s.level === slot.level ? { ...s, used: Math.max(0, s.used - 1) } : s))
+                            );
+                          }}
+                          class="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-xs font-bold text-slate-300 flex items-center justify-center transition-colors"
+                          title="Recover slot (+1)"
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      <!-- Cast button: decrements slot and emits audited chat message -->
                       <button
                         type="button"
-                        disabled={slot.used >= slot.total}
-                        onclick={() => {
-                          spellSlotsStore.update((slots) =>
-                            slots.map((s) => (s.level === slot.level ? { ...s, used: s.used + 1 } : s))
-                          );
-                        }}
-                        class="w-6 h-6 rounded-lg bg-indigo-950 border border-indigo-800/60 hover:bg-indigo-900 disabled:opacity-40 text-xs font-bold text-indigo-200 flex items-center justify-center"
+                        disabled={remaining <= 0}
+                        onclick={() => castSpellFromTracker(slot.level)}
+                        class="px-2 py-1 rounded-lg bg-indigo-950 border border-indigo-700/60 hover:bg-indigo-900 disabled:opacity-30 disabled:border-slate-800 disabled:cursor-not-allowed text-[11px] font-bold text-indigo-200 transition-colors shadow-sm"
+                        title={remaining > 0 ? `Expend 1 Level ${slot.level} slot` : `Out of Slots: Level ${slot.level} exhausted`}
                       >
                         Cast
                       </button>

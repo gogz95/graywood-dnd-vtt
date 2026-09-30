@@ -270,8 +270,9 @@ pub async fn run_server(
     state: AppState,
     _bind_addr: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Clone the Arc before state is moved into create_router.
+    // Clone the Arc and ws_sender before state is moved into create_router.
     let lease_map = state.lease_map.clone();
+    let ws_sender = state.ws_sender.clone();
     let router = create_router(state);
 
     let (listener, port) = bind_dynamic_listener(4242, 4252).await?;
@@ -283,7 +284,7 @@ pub async fn run_server(
     );
 
     // Spawn ephemeral lease pruner – removes expired token leases every second.
-    crate::state::lease::spawn_lease_pruner(lease_map);
+    crate::state::lease::spawn_lease_pruner(lease_map, Some(ws_sender));
 
     let res = axum::serve(listener, router).await;
     let _ = std::fs::remove_file(&port_file);

@@ -200,6 +200,7 @@ export class TokenController {
         tokMinY <= visibleBounds.maxY;
 
       entry.container.visible = isVisible;
+      entry.container.renderable = isVisible;
       if (!isVisible) culledCount++;
     }
     return culledCount;

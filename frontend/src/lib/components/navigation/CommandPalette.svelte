@@ -20,9 +20,11 @@
     type EstablishmentType,
   } from '../../services/nameGeneratorService';
 
+  import { searchCampaignFts } from '../../ipc/tauriBridge';
+
   export interface CommandItem {
     id: string;
-    category: 'spell' | 'monster' | 'item' | 'map' | 'combat' | 'audio' | 'navigation' | 'generator';
+    category: 'spell' | 'monster' | 'item' | 'map' | 'combat' | 'audio' | 'navigation' | 'generator' | 'fts';
     icon: string;
     title: string;
     subtitle: string;
@@ -147,6 +149,54 @@
         query = 'roll ';
         inputEl?.focus();
       }
+    },
+    {
+      id: 'cmd-npc-generator',
+      category: 'generator',
+      icon: '🧙‍♂️',
+      title: 'Generator: Procedural 5e NPC & Markov Names',
+      subtitle: 'Open NPC persona generator, statblock synthesis, and canvas spawner',
+      badge: 'Gen',
+      action: () => {
+        window.dispatchEvent(new CustomEvent('vtt:open-npc-generator'));
+        close();
+      }
+    },
+    {
+      id: 'cmd-merchant-shop',
+      category: 'generator',
+      icon: '⚖️',
+      title: 'Marketplace: Procedural Merchant Shop',
+      subtitle: 'Open shopkeeper generator, dynamic inventory, and coin transaction drawer',
+      badge: 'Shop',
+      action: () => {
+        window.dispatchEvent(new CustomEvent('vtt:open-merchant-shop'));
+        close();
+      }
+    },
+    {
+      id: 'cmd-calendar-timeline',
+      category: 'navigation',
+      icon: '📅',
+      title: 'Calendar: Campaign Timeline & Moon Phases',
+      subtitle: 'Advance world time, monitor multi-moon celestial cycles and spell timers',
+      badge: 'Time',
+      action: () => {
+        window.dispatchEvent(new CustomEvent('vtt:open-calendar'));
+        close();
+      }
+    },
+    {
+      id: 'cmd-quest-tracker',
+      category: 'navigation',
+      icon: '📜',
+      title: 'Quests: Campaign Dependency DAG Tracker',
+      subtitle: 'Inspect branching questlines, evaluate prerequisite unlocks, and manage objectives',
+      badge: 'Quest',
+      action: () => {
+        window.dispatchEvent(new CustomEvent('vtt:open-quests'));
+        close();
+      }
     }
   ];
 
@@ -253,6 +303,36 @@
       }
 
       try {
+        // SQLite FTS5 Full-Text Campaign Search
+        const ftsResults = await searchCampaignFts(q);
+        for (const fts of ftsResults) {
+          const cleanSnippet = fts.snippet ? fts.snippet.replace(/<[^>]*>/g, '') : '';
+          const icon = fts.category === 'monster' ? '🐉'
+            : fts.category === 'spell' ? '✨'
+            : fts.category === 'item' ? '🛡️'
+            : '📜';
+          items.push({
+            id: `fts-${fts.entity_id || fts.title}`,
+            category: 'fts',
+            icon,
+            title: fts.title,
+            subtitle: cleanSnippet || `Ranked match in ${fts.category}`,
+            badge: fts.category.toUpperCase(),
+            action: async () => {
+              if (fts.category === 'monster') {
+                const mon = await compendiumDb.monsters.filter(m => m.name.toLowerCase() === fts.title.toLowerCase()).first();
+                if (mon) inspectingMonster = mon;
+              } else if (fts.category === 'spell') {
+                const sp = await compendiumDb.spells.filter(s => s.name.toLowerCase() === fts.title.toLowerCase()).first();
+                if (sp) inspectingSpell = sp;
+              } else {
+                chatStore.sendMessage(`🔍 **${fts.title}** (${fts.category})\n${cleanSnippet}`, 'System');
+              }
+              close();
+            }
+          });
+        }
+
         // 4. Ingested Maps
         const tacticalMaps = await mapsDb.tacticalMaps.toArray();
         for (const map of tacticalMaps) {

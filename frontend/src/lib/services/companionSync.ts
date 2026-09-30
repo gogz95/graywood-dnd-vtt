@@ -33,9 +33,25 @@ export interface AuthPayload {
   playerId: string;
 }
 
+export interface ViewportPayload {
+  x: number;
+  y: number;
+  zoom: number;
+  followDm?: boolean;
+}
+
+export interface PingSyncPayload {
+  x: number;
+  y: number;
+  color?: string;
+  sender_name?: string;
+}
+
 export type CompanionSyncMessage =
   | { type: 'REQUEST_AUTH' }
-  | { type: 'AUTH_SYNC'; payload: AuthPayload };
+  | { type: 'AUTH_SYNC'; payload: AuthPayload }
+  | { type: 'VIEWPORT_SYNC'; payload: ViewportPayload }
+  | { type: 'PING_SYNC'; payload: PingSyncPayload };
 
 export const COMPANION_SYNC_CHANNEL_NAME = 'vtt_companion_sync';
 
@@ -50,6 +66,8 @@ export const COMPANION_AUTH_STORAGE_KEYS = {
 } as const;
 
 type AuthListener = (authData: AuthPayload) => void;
+type ViewportListener = (vp: ViewportPayload) => void;
+type PingListener = (ping: PingSyncPayload) => void;
 
 /** Live channel singleton. Created lazily on first subscribe, closed when idle. */
 let channel: BroadcastChannel | null = null;
@@ -57,6 +75,8 @@ let messageHandler: ((event: MessageEvent) => void) | null = null;
 
 /** Registered subscribers. The channel is only kept alive while this is non-empty. */
 const subscribers = new Set<AuthListener>();
+const viewportSubscribers = new Set<ViewportListener>();
+const pingSubscribers = new Set<PingListener>();
 
 /** BroadcastChannel is unavailable in SSR / Node-only execution and old engines. */
 function isBroadcastSupported(): boolean {
@@ -173,6 +193,25 @@ function handleMessage(event: MessageEvent): void {
         // isolate subscriber faults so one bad listener cannot break the fan-out
       }
     }
+    return;
+  }
+
+  if (data.type === 'VIEWPORT_SYNC') {
+    for (const listener of Array.from(viewportSubscribers)) {
+      try {
+        listener(data.payload);
+      } catch {}
+    }
+    return;
+  }
+
+  if (data.type === 'PING_SYNC') {
+    for (const listener of Array.from(pingSubscribers)) {
+      try {
+        listener(data.payload);
+      } catch {}
+    }
+    return;
   }
 }
 
@@ -196,7 +235,14 @@ function attachChannel(): boolean {
 
 /** Removes the listener and closes the channel once no subscribers remain. */
 function detachChannelIfIdle(): void {
-  if (!channel || subscribers.size > 0) return;
+  if (
+    !channel ||
+    subscribers.size > 0 ||
+    viewportSubscribers.size > 0 ||
+    pingSubscribers.size > 0
+  ) {
+    return;
+  }
 
   try {
     if (messageHandler) {
@@ -289,6 +335,68 @@ export function broadcastAuth(authData: AuthPayload): boolean {
  * Number of live subscribers. Exposed for diagnostics and test assertions.
  */
 export function companionSyncSubscriberCount(): number {
-  return subscribers.size;
+  return subscribers.size + viewportSubscribers.size + pingSubscribers.size;
+}
+
+/**
+ * Subscribes to cross-tab viewport synchronization (camera pan/zoom follow DM).
+ */
+export function initViewportSync(onViewportChange: ViewportListener): () => void {
+  attachChannel();
+  viewportSubscribers.add(onViewportChange);
+  return () => {
+    viewportSubscribers.delete(onViewportChange);
+    detachChannelIfIdle();
+  };
+}
+
+/**
+ * Broadcasts viewport changes across tabs and windows.
+ */
+export function broadcastViewport(payload: ViewportPayload): boolean {
+  if (!isBroadcastSupported()) return false;
+  const message: CompanionSyncMessage = { type: 'VIEWPORT_SYNC', payload };
+  if (channel) {
+    return postToChannel(message);
+  }
+  try {
+    const transient = new BroadcastChannel(COMPANION_SYNC_CHANNEL_NAME);
+    transient.postMessage(message);
+    transient.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Subscribes to cross-tab attention pings.
+ */
+export function initCompanionPingSync(onPing: PingListener): () => void {
+  attachChannel();
+  pingSubscribers.add(onPing);
+  return () => {
+    pingSubscribers.delete(onPing);
+    detachChannelIfIdle();
+  };
+}
+
+/**
+ * Broadcasts an attention ping across tabs and windows.
+ */
+export function broadcastCompanionPing(payload: PingSyncPayload): boolean {
+  if (!isBroadcastSupported()) return false;
+  const message: CompanionSyncMessage = { type: 'PING_SYNC', payload };
+  if (channel) {
+    return postToChannel(message);
+  }
+  try {
+    const transient = new BroadcastChannel(COMPANION_SYNC_CHANNEL_NAME);
+    transient.postMessage(message);
+    transient.close();
+    return true;
+  } catch {
+    return false;
+  }
 }
 

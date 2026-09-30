@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use tokio::sync::{mpsc, oneshot};
 
 pub mod migrations;
+pub use migrations::{get_user_version, run_atomic_migrations, MigrationStep, MIGRATIONS};
 
 /// Configures SQLite WAL mode, synchronous=NORMAL, busy_timeout=5000, and foreign_keys=ON.
 pub fn apply_wal_pragmas(conn: &Connection) -> rusqlite::Result<()> {
@@ -17,9 +18,58 @@ pub fn apply_wal_pragmas(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// Initializes a file-based SQLite database with WAL pragmas and applies atomic migrations.
+/// Runs integrity check on the SQLite connection.
+/// If corruption or incomplete WAL lock states are detected, logs the error,
+/// creates an automatic timestamped backup of the `.db` file (if file-backed),
+/// and executes `PRAGMA wal_checkpoint(TRUNCATE);` before booting services.
+pub fn verify_and_recover_db(conn: &mut Connection, db_path: Option<&Path>) -> rusqlite::Result<()> {
+    conn.busy_timeout(std::time::Duration::from_millis(5000))?;
+
+    let integrity_status: Result<String, _> = conn.query_row("PRAGMA integrity_check;", [], |r| r.get(0));
+
+    match integrity_status {
+        Ok(ref s) if s == "ok" => {
+            // Database integrity verified clean
+        }
+        status => {
+            eprintln!("[SQLite Auto-Recovery] Database integrity issue detected: {:?}", status);
+
+            if let Some(path) = db_path {
+                if path.exists() {
+                    let timestamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let backup_name = format!(
+                        "{}.backup_{}.corrupted",
+                        path.file_name().unwrap_or_default().to_string_lossy(),
+                        timestamp
+                    );
+                    let backup_path = path.with_file_name(backup_name);
+                    if let Err(e) = std::fs::copy(path, &backup_path) {
+                        eprintln!("[SQLite Auto-Recovery] Failed to create backup: {}", e);
+                    } else {
+                        eprintln!("[SQLite Auto-Recovery] Created corrupted DB backup at {:?}", backup_path);
+                    }
+                }
+            }
+
+            let _: Result<(i32, i32, i32), _> = conn.query_row(
+                "PRAGMA wal_checkpoint(TRUNCATE);",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Initializes a file-based SQLite database with WAL pragmas, auto-recovery checks, and atomic migrations.
 pub fn init_database(db_path: &Path) -> rusqlite::Result<Connection> {
     let mut conn = Connection::open(db_path)?;
+    apply_wal_pragmas(&conn)?;
+    verify_and_recover_db(&mut conn, Some(db_path))?;
     configure_and_migrate(&mut conn)?;
     Ok(conn)
 }
@@ -27,6 +77,8 @@ pub fn init_database(db_path: &Path) -> rusqlite::Result<Connection> {
 /// Initializes an in-memory SQLite database for testing and server execution.
 pub fn init_in_memory_db() -> rusqlite::Result<Connection> {
     let mut conn = Connection::open_in_memory()?;
+    apply_wal_pragmas(&conn)?;
+    verify_and_recover_db(&mut conn, None)?;
     configure_and_migrate(&mut conn)?;
     Ok(conn)
 }
@@ -36,6 +88,7 @@ pub fn init_in_memory_db() -> rusqlite::Result<Connection> {
 pub fn configure_and_migrate(conn: &mut Connection) -> rusqlite::Result<()> {
     apply_wal_pragmas(conn)?;
     crate::migrations::run_versioned_migrations(conn)?;
+    let _ = run_atomic_migrations(conn, MIGRATIONS);
     Ok(())
 }
 
@@ -64,6 +117,7 @@ impl DbWriterActor {
         };
 
         apply_wal_pragmas(&conn)?;
+        let _ = verify_and_recover_db(&mut conn, db_path.as_deref());
         let _ = configure_and_migrate(&mut conn);
 
         std::thread::Builder::new()

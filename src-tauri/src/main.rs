@@ -7,6 +7,25 @@ use std::path::{Path, PathBuf};
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Initializing Graywood VTT DM Desktop Workstation...");
 
+    // Crash Telemetry: Global panic hook for crash reporting and diagnostics
+    std::panic::set_hook(Box::new(|panic_info| {
+        let payload = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Unknown panic payload".to_string()
+        };
+        let location = panic_info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown location".to_string());
+        eprintln!(
+            "[CRITICAL CRASH TELEMETRY] Panic caught at {}: {}",
+            location, payload
+        );
+    }));
+
     // --- Dev-mode devUrl reachability pre-check (non-fatal) ---
     #[cfg(debug_assertions)]
     {
@@ -64,6 +83,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             graywood_vtt_lib::commands::open_directory_dialog,
             graywood_vtt_lib::commands::pick_and_read_campaign_folder,
             graywood_vtt_lib::commands::scan_ingest_directory,
+            graywood_vtt_lib::commands::search_campaign_fts,
+            graywood_vtt_lib::services::pdf_importer::parse_adventure_pdf,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

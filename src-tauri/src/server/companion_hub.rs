@@ -269,6 +269,10 @@ pub enum CompanionServerMsg {
     /// Broadcast DM Staging Curtain ("Blackout Veil") state.
     #[serde(rename = "STAGING_CURTAIN")]
     StagingCurtain { active: bool },
+
+    /// Broadcast token lease release to allow instant client interaction.
+    #[serde(rename = "LEASE_RELEASED")]
+    LeaseReleased { token_id: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -450,7 +454,7 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
     let session = CompanionSession {
         session_id: session_id.clone(),
         device_name: device_name.clone(),
-        role,
+        role: role.clone(),
         owner_ids: Vec::new(),
         connected_at: current_unix_secs(),
     };
@@ -493,12 +497,41 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
     // ── Phase 4: Bi-directional Message Forwarding & Broadcast ───────────────
     let mut rx = state.companion_hub.broadcast_tx.subscribe();
 
-    // Outbound server message forwarding task
+    // Outbound server message forwarding task with player-side secret filtering
+    let my_role = role.clone();
     let mut send_task = tokio::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(msg) => {
-                    if let Ok(json) = serde_json::to_string(&msg) {
+                    let sanitized = if !my_role.is_dm() {
+                        match msg {
+                            CompanionServerMsg::CombatantSync { combatants } => {
+                                let filtered: Vec<CombatantSummary> = combatants
+                                    .into_iter()
+                                    .filter(|c| {
+                                        if c.is_player {
+                                            return true;
+                                        }
+                                        let name_lower = c.name.to_lowercase();
+                                        !name_lower.contains("(hidden)")
+                                            && !name_lower.contains("[secret]")
+                                            && !c
+                                                .conditions
+                                                .iter()
+                                                .any(|cond| cond.eq_ignore_ascii_case("invisible"))
+                                    })
+                                    .collect();
+                                CompanionServerMsg::CombatantSync {
+                                    combatants: filtered,
+                                }
+                            }
+                            other => other,
+                        }
+                    } else {
+                        msg
+                    };
+
+                    if let Ok(json) = serde_json::to_string(&sanitized) {
                         if sender.send(Message::Text(json)).await.is_err() {
                             break;
                         }
@@ -994,6 +1027,20 @@ async fn handle_companion_socket(socket: WebSocket, state: AppState) {
         .write()
         .await
         .remove(&session_id);
+
+    // Release all token leases held by this companion session and notify all clients
+    let released_tokens =
+        crate::state::lease::release_all_for_user(&state.lease_map, &session_id).await;
+    for token_id in released_tokens {
+        let _ = state
+            .ws_sender
+            .send(crate::server::routes::ws::WsEvent::LeaseReleased {
+                token_id: token_id.clone(),
+            });
+        state
+            .companion_hub
+            .broadcast(CompanionServerMsg::LeaseReleased { token_id });
+    }
 }
 
 // ── 4. Lightweight LAN Discovery & Configuration Endpoints ──────────────────

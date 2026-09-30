@@ -122,22 +122,76 @@ export function renderGridLayer(rc: LayerStackRenderContext): void {
   ctx.strokeStyle = gridColor || `rgba(99, 102, 241, ${gridOpacity * 0.75})`;
   ctx.lineWidth = 0.6 / vp.zoom;
 
-  const startCol = Math.floor(-vp.x / vp.zoom / gridSize) - 1;
-  const startRow = Math.floor(-vp.y / vp.zoom / gridSize) - 1;
-  const cols = Math.ceil(w / vp.zoom / gridSize) + 2;
-  const rows = Math.ceil(h / vp.zoom / gridSize) + 2;
+  if (rc.gridType === 'hex_pointy' || rc.gridType === 'hex-v') {
+    const radius = gridSize / Math.sqrt(3);
+    const deltaX = gridSize;
+    const deltaY = 1.5 * radius;
+    const startC = Math.floor((-vp.x / vp.zoom - gridSize) / deltaX) - 1;
+    const endC = Math.ceil((w - vp.x) / vp.zoom / deltaX) + 1;
+    const startR = Math.floor((-vp.y / vp.zoom - gridSize) / deltaY) - 1;
+    const endR = Math.ceil((h - vp.y) / vp.zoom / deltaY) + 1;
 
-  for (let c = startCol; c <= startCol + cols; c++) {
-    ctx.beginPath();
-    ctx.moveTo(c * gridSize, startRow * gridSize);
-    ctx.lineTo(c * gridSize, (startRow + rows) * gridSize);
-    ctx.stroke();
-  }
-  for (let r = startRow; r <= startRow + rows; r++) {
-    ctx.beginPath();
-    ctx.moveTo(startCol * gridSize, r * gridSize);
-    ctx.lineTo((startCol + cols) * gridSize, r * gridSize);
-    ctx.stroke();
+    for (let c = startC; c <= endC; c++) {
+      const cx = c * deltaX;
+      const yOffset = (Math.abs(c) % 2 === 1) ? deltaY / 2 : 0;
+      for (let r = startR; r <= endR; r++) {
+        const cy = r * deltaY + yOffset;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 180) * (60 * i - 30);
+          const px = cx + radius * Math.cos(a);
+          const py = cy + radius * Math.sin(a);
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      }
+    }
+  } else if (rc.gridType === 'hex_flat' || rc.gridType === 'hex-h') {
+    const radius = gridSize / Math.sqrt(3);
+    const deltaX = 1.5 * radius;
+    const deltaY = gridSize;
+    const startR = Math.floor((-vp.y / vp.zoom - gridSize) / deltaY) - 1;
+    const endR = Math.ceil((h - vp.y) / vp.zoom / deltaY) + 1;
+    const startC = Math.floor((-vp.x / vp.zoom - gridSize) / deltaX) - 1;
+    const endC = Math.ceil((w - vp.x) / vp.zoom / deltaX) + 1;
+
+    for (let r = startR; r <= endR; r++) {
+      const cy = r * deltaY;
+      const xOffset = (Math.abs(r) % 2 === 1) ? deltaX / 2 : 0;
+      for (let c = startC; c <= endC; c++) {
+        const cx = c * deltaX + xOffset;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 180) * (60 * i);
+          const px = cx + radius * Math.cos(a);
+          const py = cy + radius * Math.sin(a);
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      }
+    }
+  } else {
+    const startCol = Math.floor(-vp.x / vp.zoom / gridSize) - 1;
+    const startRow = Math.floor(-vp.y / vp.zoom / gridSize) - 1;
+    const cols = Math.ceil(w / vp.zoom / gridSize) + 2;
+    const rows = Math.ceil(h / vp.zoom / gridSize) + 2;
+
+    for (let c = startCol; c <= startCol + cols; c++) {
+      ctx.beginPath();
+      ctx.moveTo(c * gridSize, startRow * gridSize);
+      ctx.lineTo(c * gridSize, (startRow + rows) * gridSize);
+      ctx.stroke();
+    }
+    for (let r = startRow; r <= startRow + rows; r++) {
+      ctx.beginPath();
+      ctx.moveTo(startCol * gridSize, r * gridSize);
+      ctx.lineTo((startCol + cols) * gridSize, r * gridSize);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }

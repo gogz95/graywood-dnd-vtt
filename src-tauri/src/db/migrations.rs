@@ -299,6 +299,31 @@ pub const MIGRATIONS: &[MigrationStep] = &[
             CREATE INDEX IF NOT EXISTS idx_map_pins_category ON map_pins(category);
         "#,
     },
+    MigrationStep {
+        version: 5,
+        name: "005_campaign_search_fts5",
+        sql: r#"
+            -- SQLite FTS5 Full-Text Search Virtual Table for Campaign Journals, Monsters, and Spells
+            CREATE VIRTUAL TABLE IF NOT EXISTS campaign_fts USING fts5(
+                title,
+                content,
+                category,
+                entity_id UNINDEXED
+            );
+
+            -- Initial indexing of lore documents into FTS5 index
+            INSERT INTO campaign_fts (title, content, category, entity_id)
+            SELECT document_title, content_text, 'lore', id FROM lore_documents;
+
+            -- Initial indexing of monsters
+            INSERT INTO campaign_fts (title, content, category, entity_id)
+            SELECT name, coalesce(traits_json || ' ' || actions_json, ''), 'monster', id FROM monsters;
+
+            -- Initial indexing of spells
+            INSERT INTO campaign_fts (title, content, category, entity_id)
+            SELECT name, coalesce(description_text, ''), 'spell', id FROM spells;
+        "#,
+    },
 ];
 
 /// Retrieves current schema version from PRAGMA user_version.

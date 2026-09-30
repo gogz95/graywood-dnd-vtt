@@ -140,6 +140,26 @@
     if (!selectedToken) return;
     tokenStore.removeAura(selectedToken.id, auraId);
   }
+
+  // ── Pathfinding Waypoints & Traversal Overlay ──────────────────────────────
+  let pathPlanningMode = $state(false);
+  let activePath = $state<Array<{ gx: number; gy: number; costFeet: number }>>([]);
+
+  export function setPath(waypoints: Array<{ gx: number; gy: number; costFeet: number }>) {
+    activePath = waypoints;
+  }
+
+  export function clearPath() {
+    activePath = [];
+  }
+
+  export function togglePathPlanningMode() {
+    pathPlanningMode = !pathPlanningMode;
+    if (!pathPlanningMode) {
+      activePath = [];
+    }
+    return pathPlanningMode;
+  }
 </script>
 
 
@@ -159,16 +179,29 @@
         </span>
       </div>
 
-      <button
-        type="button"
-        class="text-slate-400 hover:text-rose-400 p-1 rounded transition-colors"
-        onclick={() => tokenStore.deleteToken(selectedToken.id)}
-        title="Delete Token (Delete / Backspace)"
-      >
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-        </svg>
-      </button>
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          class="p-1 rounded transition-colors {pathPlanningMode ? 'text-sky-400 bg-sky-950/80 border border-sky-600/50' : 'text-slate-400 hover:text-slate-200'}"
+          onclick={togglePathPlanningMode}
+          title="Toggle A* Path Planning (Shift+Drag)"
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="text-slate-400 hover:text-rose-400 p-1 rounded transition-colors"
+          onclick={() => tokenStore.deleteToken(selectedToken.id)}
+          title="Delete Token (Delete / Backspace)"
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- Health Controls -->

@@ -2,6 +2,7 @@
 <!-- Dedicated 5e SRD Spellbook Drawer for Casting Classes with DC, Attack Bonus, Slots 1-9 & Components -->
 <script lang="ts">
   import { audioEngine } from '../../audio/AudioEngine';
+  import { chatStore } from '../../stores/chatStore.svelte';
 
   export interface SpellDefinition {
     id: string;
@@ -26,6 +27,7 @@
     isOpen = $bindable(false),
     characterClass = 'Wizard',
     characterLevel = 1,
+    characterName = 'Adventurer',
     spellcastingMod = 3, // e.g. INT mod +3
     proficiencyBonus = 2,
     spellSlots = $bindable<SpellSlotTracker[]>([
@@ -43,6 +45,7 @@
     isOpen?: boolean;
     characterClass?: string;
     characterLevel?: number;
+    characterName?: string;
     spellcastingMod?: number;
     proficiencyBonus?: number;
     spellSlots?: SpellSlotTracker[];
@@ -204,6 +207,58 @@
   function togglePrepared(spell: SpellDefinition) {
     spell.isPrepared = !spell.isPrepared;
   }
+
+  function getSlot(level: number): SpellSlotTracker | undefined {
+    return spellSlots.find((s) => s.level === level);
+  }
+
+  /** Ritual tag is carried either in the casting time ('10 minutes (Ritual)') or the school ('Divination (Ritual)'). */
+  function isRitualSpell(spell: SpellDefinition): boolean {
+    return /ritual/i.test(spell.castingTime) || /ritual/i.test(spell.school);
+  }
+
+  /** Cantrips (level 0) never need a slot; leveled casts require `current > 0`. */
+  function canCastSpell(spell: SpellDefinition): boolean {
+    if (spell.level === 0) return true;
+    return (getSlot(spell.level)?.current ?? 0) > 0;
+  }
+
+  /**
+   * Functional Cast action: expends the matching slot level and posts the cast
+   * (spell name, level, remaining slots) to the active chat store.
+   * Blocked when the slot level is exhausted, unless the spell is a cantrip
+   * (level 0) or is cast as a ritual.
+   */
+  function castSpell(spell: SpellDefinition, asRitual = false): void {
+    const isCantrip = spell.level === 0;
+    const ritual = asRitual && !isCantrip && isRitualSpell(spell);
+    const slot = getSlot(spell.level);
+
+    if (!isCantrip && !ritual) {
+      // Prevent casting when current <= 0.
+      if (!slot || slot.current <= 0) {
+        chatStore.sendMessage(
+          `⛔ **${characterName}** cannot cast **${spell.name}** — no Level ${spell.level} spell slots remaining.`,
+          characterName
+        );
+        return;
+      }
+      slot.current -= 1;
+    }
+
+    audioEngine.triggerSfx('sfx-spell');
+
+    const slotReport = isCantrip
+      ? 'Cantrip — no slot expended'
+      : ritual
+        ? `Ritual cast — no slot expended (L${spell.level}: ${slot?.current ?? 0}/${slot?.max ?? 0} remaining)`
+        : `Level ${spell.level} slot expended (L${spell.level}: ${slot?.current ?? 0}/${slot?.max ?? 0} remaining)`;
+
+    chatStore.sendMessage(
+      `✨ **${characterName}** casts **${spell.name}** (Level ${spell.level}${isCantrip ? ' Cantrip' : ''}${ritual ? ' ritual' : ''}). ${slotReport}.`,
+      characterName
+    );
+  }
 </script>
 
 {#if isOpen}
@@ -303,6 +358,14 @@
                     {cantrip.school}
                   </span>
                 </div>
+                <button
+                  type="button"
+                  onclick={() => castSpell(cantrip)}
+                  class="px-2 py-0.5 rounded text-[10px] font-bold border transition-colors bg-emerald-600/30 border-emerald-500 text-emerald-200 hover:bg-emerald-600/50"
+                  title="Cast cantrip — no spell slot required"
+                >
+                  ⚡ Cast
+                </button>
                 <div class="flex items-center gap-3 text-[10px] text-slate-400 font-mono">
                   <span>⏱️ {cantrip.castingTime}</span>
                   <span>🎯 {cantrip.range}</span>
@@ -350,12 +413,36 @@
                       Level {spell.level} {spell.school}
                     </span>
                   </div>
-                  <button
-                    onclick={() => togglePrepared(spell)}
-                    class="px-2 py-0.5 rounded text-[10px] font-bold border transition-colors {spell.isPrepared ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200' : 'bg-slate-800 border-slate-700 text-slate-400'}"
-                  >
-                    {spell.isPrepared ? '✓ Prepared' : 'Prepare'}
-                  </button>
+                  <div class="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onclick={() => castSpell(spell)}
+                      disabled={!canCastSpell(spell)}
+                      class="px-2 py-0.5 rounded text-[10px] font-bold border transition-colors bg-emerald-600/30 border-emerald-500 text-emerald-200 hover:bg-emerald-600/50 disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={canCastSpell(spell)
+                        ? `Cast — expends one Level ${spell.level} spell slot`
+                        : `No Level ${spell.level} slots remaining${isRitualSpell(spell) ? ' — cast as a Ritual instead' : ''}`}
+                    >
+                      ⚡ Cast
+                    </button>
+                    {#if isRitualSpell(spell)}
+                      <button
+                        type="button"
+                        onclick={() => castSpell(spell, true)}
+                        class="px-2 py-0.5 rounded text-[10px] font-bold border transition-colors bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700"
+                        title="Ritual cast (10 minutes) — no spell slot expended"
+                      >
+                        ⟳ Ritual
+                      </button>
+                    {/if}
+                    <button
+                      type="button"
+                      onclick={() => togglePrepared(spell)}
+                      class="px-2 py-0.5 rounded text-[10px] font-bold border transition-colors {spell.isPrepared ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200' : 'bg-slate-800 border-slate-700 text-slate-400'}"
+                    >
+                      {spell.isPrepared ? '✓ Prepared' : 'Prepare'}
+                    </button>
+                  </div>
                 </div>
                 <div class="flex items-center gap-3 text-[10px] text-slate-400 font-mono">
                   <span>⏱️ {spell.castingTime}</span>

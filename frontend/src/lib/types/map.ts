@@ -27,3 +27,21 @@ export interface OverheadTile {
   name?: string;
 }
 
+export type HexOrientation = 'flat' | 'pointy' | 'hex_flat' | 'hex_pointy';
+
+export interface HexGridConfig {
+  type: 'hex_pointy' | 'hex_flat';
+  radius: number;
+  cellSize: number;
+  offsetX?: number;
+  offsetY?: number;
+}
+
+export interface VideoBackgroundConfig {
+  videoUrl: string;
+  loop?: boolean;
+  muted?: boolean;
+  playbackRate?: number;
+  autoPlay?: boolean;
+}
+

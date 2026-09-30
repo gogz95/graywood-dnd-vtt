@@ -13,6 +13,7 @@ export {
   type LineSegment as EngineLineSegment,
 } from '../canvas/raycastVisionEngine';
 
+import RBush from 'rbush';
 import type { VttToken } from '../types/token';
 import type { WallSegment, DoorPrimitive } from '../canvas/parsers/dungeonScrawlParser';
 
@@ -164,6 +165,72 @@ export function raySegmentIntersect(
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// R-Tree Spatial Index — broad-phase for obstacle (wall/door) segments
+// ---------------------------------------------------------------------------
+
+interface ObstacleTreeItem {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  seg: LineSegment;
+}
+
+/**
+ * Per-array R-Tree cache keyed on the source segment array identity. Callers
+ * pass freshly-built obstacle arrays after wall/door edits, so a stale index is
+ * never served, while every polygon computed for the same frame/array reuses
+ * the single index built on first access.
+ */
+const obstacleTreeCache = new WeakMap<LineSegment[], RBush<ObstacleTreeItem>>();
+
+/** Builds (or returns the cached) R-Tree for an obstacle segment array. */
+export function getObstacleRTree(obstacles: LineSegment[]): RBush<ObstacleTreeItem> {
+  let tree = obstacleTreeCache.get(obstacles);
+  if (!tree) {
+    tree = new RBush<ObstacleTreeItem>();
+    const items: ObstacleTreeItem[] = [];
+    for (const seg of obstacles) {
+      if (!seg) continue;
+      if (isNaN(seg.x1) || isNaN(seg.y1) || isNaN(seg.x2) || isNaN(seg.y2)) continue;
+      items.push({
+        minX: Math.min(seg.x1, seg.x2),
+        minY: Math.min(seg.y1, seg.y2),
+        maxX: Math.max(seg.x1, seg.x2),
+        maxY: Math.max(seg.y1, seg.y2),
+        seg,
+      });
+    }
+    tree.load(items);
+    obstacleTreeCache.set(obstacles, tree);
+  }
+  return tree;
+}
+
+/**
+ * Spatial query for the emitter bounding box `[x - radius, y - radius, x + radius, y + radius]`.
+ * Only the returned segments can intersect a ray shorter than `radius`, so the
+ * radial sweep tests rays exclusively against this candidate set instead of the
+ * entire map's wall list.
+ */
+export function queryObstaclesInRadius(
+  obstacles: LineSegment[],
+  originX: number,
+  originY: number,
+  radius: number
+): LineSegment[] {
+  if (!obstacles || !Array.isArray(obstacles) || obstacles.length === 0) return [];
+  return getObstacleRTree(obstacles)
+    .search({
+      minX: originX - radius,
+      minY: originY - radius,
+      maxX: originX + radius,
+      maxY: originY + radius,
+    })
+    .map((item) => item.seg);
+}
+
 /**
  * Computes 2D visibility polygon via radial sweep line against obstacles with endpoint epsilon perturbation.
  */
@@ -184,28 +251,22 @@ export function computeRaycastPolygon(
     rawAngles.add((i / samples) * Math.PI * 2 - Math.PI);
   }
 
-  // Filter obstacles roughly within reach to minimize intersection tests
-  const rSq = maxRadiusPx * maxRadiusPx;
-  const nearbyObstacles: LineSegment[] = [];
+  // R-Tree broad-phase: query only the segments whose bounding box intersects the
+  // emitter bounding box `[x - radius, y - radius, x + radius, y + radius]`, then
+  // sweep rays exclusively against that candidate set (never the full wall list).
+  const nearbyObstacles = queryObstaclesInRadius(obstacles, originX, originY, maxRadiusPx);
 
-  for (const seg of obstacles) {
-    const d1 = (seg.x1 - originX) ** 2 + (seg.y1 - originY) ** 2;
-    const d2 = (seg.x2 - originX) ** 2 + (seg.y2 - originY) ** 2;
+  for (const seg of nearbyObstacles) {
+    const a1 = Math.atan2(seg.y1 - originY, seg.x1 - originX);
+    const a2 = Math.atan2(seg.y2 - originY, seg.x2 - originX);
 
-    if (d1 <= rSq * 2.25 || d2 <= rSq * 2.25) {
-      nearbyObstacles.push(seg);
+    rawAngles.add(a1);
+    rawAngles.add(a1 - epsilon);
+    rawAngles.add(a1 + epsilon);
 
-      const a1 = Math.atan2(seg.y1 - originY, seg.x1 - originX);
-      const a2 = Math.atan2(seg.y2 - originY, seg.x2 - originX);
-
-      rawAngles.add(a1);
-      rawAngles.add(a1 - epsilon);
-      rawAngles.add(a1 + epsilon);
-
-      rawAngles.add(a2);
-      rawAngles.add(a2 - epsilon);
-      rawAngles.add(a2 + epsilon);
-    }
+    rawAngles.add(a2);
+    rawAngles.add(a2 - epsilon);
+    rawAngles.add(a2 + epsilon);
   }
 
   interface Hit {

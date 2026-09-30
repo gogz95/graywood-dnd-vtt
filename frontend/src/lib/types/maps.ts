@@ -59,6 +59,8 @@ export interface TacticalBattlemap {
   tokens: MapPlacedToken[];
   textureBlob?: Blob;
   textureUrl?: string;
+  /** Animated video battlemap URL (.mp4/.webm). When set, VideoBackgroundRenderer takes priority over textureUrl. */
+  videoUrl?: string;
   weather?: WeatherSettings;
   biome?: BiomeType;
 }
@@ -79,6 +81,8 @@ export interface MapPoiPin {
   is_secret?: boolean;
   icon?: string;
   description?: string;
+  population?: number;
+  province?: string;
 }
 
 export interface WorldAtlasScale {
@@ -94,6 +98,9 @@ export interface WorldAtlasMap {
   updatedAt: number;
   scale: WorldAtlasScale;
   poiPins: MapPoiPin[];
+  width?: number;
+  height?: number;
+  bbox?: [number, number, number, number]; // [minX, minY, maxX, maxY]
   vectorLayers?: {
     bordersGeoJson?: any;
     routesGeoJson?: any;

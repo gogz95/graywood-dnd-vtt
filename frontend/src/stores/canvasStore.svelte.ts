@@ -364,6 +364,16 @@ class CanvasStoreClass {
     this.broadcast('TOKENS_SYNC', newTokens);
   }
 
+  addToken(token: CanvasToken) {
+    this.tokens = [...this.tokens, token];
+    this.broadcast('TOKENS_SYNC', this.tokens);
+  }
+
+  removeToken(id: string) {
+    this.tokens = this.tokens.filter(t => t.id !== id);
+    this.broadcast('TOKENS_SYNC', this.tokens);
+  }
+
   moveToken(id: string, gx: number, gy: number) {
     this.tokens = this.tokens.map(t => {
       if (t.id === id) {

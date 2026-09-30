@@ -201,21 +201,35 @@ export type WsEvent =
       prop?: import('../lib/types/prop').CanvasProp;
       prop_id?: string;
     }
-  | {
-      type:
-        | 'TOKEN_SPAWNED'
-        | 'TOKEN_UPDATED'
-        | 'TOKEN_REMOVED'
-        | 'STATE_SNAPSHOT'
-        | 'TokenMoved'
-        | 'TokenSpawned'
-        | 'TokenUpdated'
-        | 'TokenRemoved'
-        | 'StateSnapshot'
-        | 'STAGING_CURTAIN'
-        | 'staging_curtain'
-        | 'StagingCurtain';
-      [key: string]: any;
-    };
+    | {
+        type: 'LEASE_RELEASED';
+        token_id: string;
+      }
+    | {
+        type: 'LEASE_ACQUIRE';
+        token_id: string;
+        user_id: string;
+      }
+    | {
+        type: 'LEASE_RELEASE';
+        token_id: string;
+        user_id: string;
+      }
+    | {
+        type:
+          | 'TOKEN_SPAWNED'
+          | 'TOKEN_UPDATED'
+          | 'TOKEN_REMOVED'
+          | 'STATE_SNAPSHOT'
+          | 'TokenMoved'
+          | 'TokenSpawned'
+          | 'TokenUpdated'
+          | 'TokenRemoved'
+          | 'StateSnapshot'
+          | 'STAGING_CURTAIN'
+          | 'staging_curtain'
+          | 'StagingCurtain';
+        [key: string]: any;
+      };
 
 

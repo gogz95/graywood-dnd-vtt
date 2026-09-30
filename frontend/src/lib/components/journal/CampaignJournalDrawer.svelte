@@ -238,53 +238,68 @@ Upon inspecting the altar, the adventurers locate a [[Potion of Healing]] and a 
 
   // ── Compendium Entity Resolver & Parsing ──────────────────────────────────
   async function resolveCompendiumEntity(tag: string): Promise<SelectedCompendiumEntry | null> {
-    const cleanTag = tag.trim();
+    let cleanTag = tag.trim();
+    let categoryHint: string | null = null;
+    if (cleanTag.includes(':')) {
+      const parts = cleanTag.split(':');
+      categoryHint = parts[0].trim().toLowerCase();
+      cleanTag = parts.slice(1).join(':').trim();
+    }
     const lower = cleanTag.toLowerCase();
-    if (compendiumCache.has(lower)) {
-      return compendiumCache.get(lower)!;
+    const cacheKey = categoryHint ? `${categoryHint}:${lower}` : lower;
+    if (compendiumCache.has(cacheKey)) {
+      return compendiumCache.get(cacheKey)!;
     }
 
     // 1. Check monsters
-    const monster = await compendiumDb.monsters
-      .filter(m => m.name.toLowerCase() === lower)
-      .first();
-    if (monster) {
-      const entry: SelectedCompendiumEntry = { type: 'monster', data: monster };
-      compendiumCache.set(lower, entry);
-      return entry;
+    if (!categoryHint || categoryHint === 'monster') {
+      const monster = await compendiumDb.monsters
+        .filter(m => m.name.toLowerCase() === lower)
+        .first();
+      if (monster) {
+        const entry: SelectedCompendiumEntry = { type: 'monster', data: monster };
+        compendiumCache.set(cacheKey, entry);
+        return entry;
+      }
     }
 
     // 2. Check spells
-    const spell = await compendiumDb.spells
-      .filter(s => s.name.toLowerCase() === lower)
-      .first();
-    if (spell) {
-      const entry: SelectedCompendiumEntry = { type: 'spell', data: spell };
-      compendiumCache.set(lower, entry);
-      return entry;
+    if (!categoryHint || categoryHint === 'spell') {
+      const spell = await compendiumDb.spells
+        .filter(s => s.name.toLowerCase() === lower)
+        .first();
+      if (spell) {
+        const entry: SelectedCompendiumEntry = { type: 'spell', data: spell };
+        compendiumCache.set(cacheKey, entry);
+        return entry;
+      }
     }
 
     // 3. Check items
-    const item = await compendiumDb.items
-      .filter(i => i.name.toLowerCase() === lower)
-      .first();
-    if (item) {
-      const entry: SelectedCompendiumEntry = { type: 'item', data: item };
-      compendiumCache.set(lower, entry);
-      return entry;
+    if (!categoryHint || categoryHint === 'item') {
+      const item = await compendiumDb.items
+        .filter(i => i.name.toLowerCase() === lower)
+        .first();
+      if (item) {
+        const entry: SelectedCompendiumEntry = { type: 'item', data: item };
+        compendiumCache.set(cacheKey, entry);
+        return entry;
+      }
     }
 
     // 4. Check rules
-    const rule = await compendiumDb.rules
-      .filter(r => r.title.toLowerCase() === lower)
-      .first();
-    if (rule) {
-      const entry: SelectedCompendiumEntry = { type: 'rule', data: rule };
-      compendiumCache.set(lower, entry);
-      return entry;
+    if (!categoryHint || categoryHint === 'rule') {
+      const rule = await compendiumDb.rules
+        .filter(r => r.title.toLowerCase() === lower)
+        .first();
+      if (rule) {
+        const entry: SelectedCompendiumEntry = { type: 'rule', data: rule };
+        compendiumCache.set(cacheKey, entry);
+        return entry;
+      }
     }
 
-    compendiumCache.set(lower, null);
+    compendiumCache.set(cacheKey, null);
     return null;
   }
 

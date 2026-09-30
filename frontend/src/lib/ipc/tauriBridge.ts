@@ -202,3 +202,53 @@ export async function saveMapVectorGeometry(
 
   return (await response.json()) as { success: boolean; walls_saved: number };
 }
+
+export interface FtsSearchResult {
+  entity_id: string;
+  title: string;
+  snippet: string;
+  category: string;
+  rank: number;
+}
+
+/**
+ * Executes a full-text search against the SQLite FTS5 index via Tauri IPC or LAN REST fallback.
+ */
+export async function searchCampaignFts(query: string): Promise<FtsSearchResult[]> {
+  if (!query || !query.trim()) return [];
+
+  if (isTauriEnvironment()) {
+    try {
+      const tauri = (window as unknown as {
+        __TAURI__?: {
+          core?: {
+            invoke: (cmd: string, args: unknown) => Promise<FtsSearchResult[]>;
+          };
+        };
+      }).__TAURI__;
+      if (tauri?.core?.invoke) {
+        return await tauri.core.invoke('search_campaign_fts', { query });
+      }
+    } catch (ipcErr) {
+      console.warn('Tauri IPC search_campaign_fts failed, falling back to REST:', ipcErr);
+    }
+  }
+
+  try {
+    const res = await fetch(`/api/lore/search?q=${encodeURIComponent(query)}`);
+    if (res.ok) {
+      const data = await res.json();
+      return (data || []).map((item: any) => ({
+        entity_id: item.id || '',
+        title: item.title || item.document_title || '',
+        snippet: item.snippet || item.content_text || '',
+        category: item.category || 'lore',
+        rank: item.rank || 0,
+      }));
+    }
+  } catch (err) {
+    console.warn('REST fallback search_campaign_fts failed:', err);
+  }
+
+  return [];
+}

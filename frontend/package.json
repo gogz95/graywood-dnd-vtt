@@ -25,12 +25,14 @@
     "pdfjs-dist": "^6.3.289",
     "pixi.js": "^8.21.0",
     "polygon-clipping": "^0.15.7",
+    "rbush": "^4.0.1",
     "tailwind-merge": "^2.3.0",
     "visibility-polygon": "^1.1.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@types/node": "^26.6.2",
+    "@types/rbush": "^4.0.0",
     "autoprefixer": "^10.4.19",
     "fake-indexeddb": "^6.2.5",
     "postcss": "^8.4.38",

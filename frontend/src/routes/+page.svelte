@@ -39,6 +39,10 @@
   import CommandPalette from '../lib/components/navigation/CommandPalette.svelte';
   import ActionHotbar from '../lib/components/navigation/ActionHotbar.svelte';
   import CheatSheetModal from '../lib/components/modals/CheatSheetModal.svelte';
+  import NpcGeneratorModal from '../lib/components/modals/NpcGeneratorModal.svelte';
+  import MerchantShopModal from '../lib/components/modals/MerchantShopModal.svelte';
+  import CalendarTimelineModal from '../lib/components/modals/CalendarTimelineModal.svelte';
+  import QuestTrackerModal from '../lib/components/modals/QuestTrackerModal.svelte';
   import { hotkeyManager } from '../lib/services/hotkeyManager';
   import { projectorStore } from '../lib/stores/projectorStore.svelte';
   import { curtainStore } from '../lib/stores/curtainStore.svelte';
@@ -86,6 +90,10 @@
   let isQuickIngestOpen = $state(false);
   let isCommandPaletteOpen = $state(false);
   let isCheatSheetOpen = $state(false);
+  let isNpcGeneratorOpen = $state(false);
+  let isMerchantShopOpen = $state(false);
+  let isCalendarModalOpen = $state(false);
+  let isQuestTrackerOpen = $state(false);
   let quickIngestToast = $state<string | null>(null);
 
   async function handleQuickIngestComplete(report: UniversalIngestionReport) {
@@ -235,6 +243,73 @@
     };
     window.addEventListener('vtt:toast', handleToast);
 
+    const handleOpenNpcGen = () => {
+      isNpcGeneratorOpen = true;
+    };
+    window.addEventListener('vtt:open-npc-generator', handleOpenNpcGen);
+
+    hotkeyManager.register({
+      id: 'toggle-npc-generator',
+      key: 'n',
+      ctrlOrMeta: true,
+      shift: true,
+      description: 'Toggle Procedural 5e NPC Generator Modal',
+      category: 'general',
+      action: () => {
+        isNpcGeneratorOpen = !isNpcGeneratorOpen;
+      }
+    });
+
+    const handleOpenMerchantShop = () => {
+      isMerchantShopOpen = true;
+    };
+    window.addEventListener('vtt:open-merchant-shop', handleOpenMerchantShop);
+
+    hotkeyManager.register({
+      id: 'toggle-merchant-shop',
+      key: 'm',
+      ctrlOrMeta: true,
+      shift: true,
+      description: 'Toggle Procedural Merchant Marketplace Modal',
+      category: 'general',
+      action: () => {
+        isMerchantShopOpen = !isMerchantShopOpen;
+      }
+    });
+
+    const handleOpenCalendar = () => {
+      isCalendarModalOpen = true;
+    };
+    const handleOpenQuests = () => {
+      isQuestTrackerOpen = true;
+    };
+    window.addEventListener('vtt:open-calendar', handleOpenCalendar);
+    window.addEventListener('vtt:open-quests', handleOpenQuests);
+
+    hotkeyManager.register({
+      id: 'toggle-calendar-timeline',
+      key: 'c',
+      ctrlOrMeta: true,
+      shift: true,
+      description: 'Toggle Campaign Calendar & Timeline Drawer',
+      category: 'general',
+      action: () => {
+        isCalendarModalOpen = !isCalendarModalOpen;
+      }
+    });
+
+    hotkeyManager.register({
+      id: 'toggle-quest-tracker',
+      key: 'q',
+      ctrlOrMeta: true,
+      shift: true,
+      description: 'Toggle Quest Dependency DAG Tracker',
+      category: 'general',
+      action: () => {
+        isQuestTrackerOpen = !isQuestTrackerOpen;
+      }
+    });
+
     dropCleanup = registerGlobalDropZone(async (asset) => {
       if (asset.category === 'audio') {
         floatingWindowsStore.open('audio');
@@ -259,6 +334,10 @@
       window.removeEventListener('vtt:toggle-audio', handleToggleAudio);
       window.removeEventListener('vtt:open-ingest-modal', handleOpenIngest);
       window.removeEventListener('vtt:toast', handleToast);
+      window.removeEventListener('vtt:open-npc-generator', handleOpenNpcGen);
+      window.removeEventListener('vtt:open-merchant-shop', handleOpenMerchantShop);
+      window.removeEventListener('vtt:open-calendar', handleOpenCalendar);
+      window.removeEventListener('vtt:open-quests', handleOpenQuests);
     };
   });
 </script>
@@ -376,6 +455,18 @@
 
   <!-- Tactical DM Cheat Sheet & Shortcuts Modal (F1 / ?) -->
   <CheatSheetModal bind:isOpen={isCheatSheetOpen} />
+
+  <!-- Procedural 5e NPC Generator & Markov Name Engine Modal (Ctrl+Shift+N) -->
+  <NpcGeneratorModal bind:isOpen={isNpcGeneratorOpen} />
+
+  <!-- Procedural Merchant Marketplace & Transaction Drawer (Ctrl+Shift+M) -->
+  <MerchantShopModal bind:isOpen={isMerchantShopOpen} />
+
+  <!-- Campaign Calendar & Timeline Engine Modal (Ctrl+Shift+C) -->
+  <CalendarTimelineModal bind:isOpen={isCalendarModalOpen} />
+
+  <!-- Quest DAG Dependency Tracker Modal (Ctrl+Shift+Q) -->
+  <QuestTrackerModal bind:isOpen={isQuestTrackerOpen} />
 
   <!-- Initial Setup Wizard Modal -->
   <FirstRunWizardModal />

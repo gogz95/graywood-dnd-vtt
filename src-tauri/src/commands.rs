@@ -564,3 +564,99 @@ pub async fn save_map_vector_geometry(
 
     Ok(count)
 }
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct FtsSearchResult {
+    pub entity_id: String,
+    pub title: String,
+    pub snippet: String,
+    pub category: String,
+    pub rank: f64,
+}
+
+/// Executes an FTS5 MATCH query with snippet/highlight extraction and ranked results
+/// across campaign journal entries, notes, compendium monsters, and spells.
+#[tauri::command]
+pub async fn search_campaign_fts(
+    state: tauri::State<'_, crate::server::state::AppState>,
+    query: String,
+) -> Result<Vec<FtsSearchResult>, String> {
+    let raw_q = query.trim();
+    if raw_q.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let conn = state.db.lock().await;
+
+    // Ensure virtual table exists if database was already initialized
+    let _ = conn.execute_batch(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS campaign_fts USING fts5(
+            title,
+            content,
+            category,
+            entity_id UNINDEXED
+        );",
+    );
+
+    // Build FTS5 token prefix query
+    let words: Vec<String> = raw_q
+        .split_whitespace()
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("\"{}\"*", w.replace('"', "\"\"")))
+        .collect();
+
+    let fts_query = if words.is_empty() {
+        format!("\"{}\"*", raw_q.replace('"', "\"\""))
+    } else {
+        words.join(" ")
+    };
+
+    let mut stmt = match conn.prepare(
+        "SELECT entity_id, title, snippet(campaign_fts, 1, '<mark>', '</mark>', '...', 20), category, rank
+         FROM campaign_fts
+         WHERE campaign_fts MATCH ?1
+         ORDER BY rank
+         LIMIT 50;",
+    ) {
+        Ok(s) => s,
+        Err(e) => return Err(format!("Failed to prepare FTS5 query: {}", e)),
+    };
+
+    let rows = match stmt.query_map(params![fts_query], |row| {
+        Ok(FtsSearchResult {
+            entity_id: row.get(0)?,
+            title: row.get(1)?,
+            snippet: row.get(2)?,
+            category: row.get(3)?,
+            rank: row.get(4)?,
+        })
+    }) {
+        Ok(r) => r,
+        Err(e) => return Err(format!("Failed to execute FTS5 query: {}", e)),
+    };
+
+    let mut results: Vec<FtsSearchResult> = rows.filter_map(|r| r.ok()).collect();
+
+    // Fallback search across lore_documents, monsters, and spells if FTS5 returned 0 matches
+    if results.is_empty() {
+        let pattern = format!("%{}%", raw_q);
+        if let Ok(mut lore_stmt) = conn.prepare(
+            "SELECT id, title, substr(content_markdown, 1, 120), category FROM lore_documents
+             WHERE title LIKE ?1 OR content_markdown LIKE ?1 LIMIT 20;",
+        ) {
+            if let Ok(lore_rows) = lore_stmt.query_map(params![pattern], |row| {
+                Ok(FtsSearchResult {
+                    entity_id: row.get(0)?,
+                    title: row.get(1)?,
+                    snippet: row.get(2)?,
+                    category: row.get(3)?,
+                    rank: 0.0,
+                })
+            }) {
+                results.extend(lore_rows.filter_map(|r| r.ok()));
+            }
+        }
+    }
+
+    Ok(results)
+}

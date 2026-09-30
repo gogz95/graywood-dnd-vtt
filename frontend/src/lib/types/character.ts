@@ -34,6 +34,14 @@ export interface SpellSlotTier {
   max: number;
 }
 
+/** 5e spell slot levels that are tracked explicitly (1st through 9th). */
+export type SpellSlotLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+
+/** Explicit spell slot pool: one `{ current, max }` tier per level, 1 through 9. */
+export type SpellSlotsByLevel = {
+  [L in SpellSlotLevel]: SpellSlotTier;
+};
+
 export interface CompanionAnimal {
   id: string;
   name: string;
@@ -136,6 +144,13 @@ export interface Character {
   // Spellcasting & Slots
   spellcasting: CharacterSpellcasting;
 
+  /**
+   * Explicit spell slot tracking for levels 1 through 9 (`{ current, max }` per level).
+   * Kept in sync with `spellcasting.slots` by `castSpellSlot()` (expenditure) and
+   * `performLongRest()` (refill).
+   */
+  spell_slots: SpellSlotsByLevel;
+
   // Currency
   currency: CurrencyWallet;
 
@@ -219,6 +234,18 @@ export function createDefaultCharacter(id: string, name: string, className = 'Fi
 
   const skills = computeDerivedSkills(abilities, skillTiers, prof);
 
+  const spellSlots: SpellSlotsByLevel = {
+    1: { current: 0, max: 0 },
+    2: { current: 0, max: 0 },
+    3: { current: 0, max: 0 },
+    4: { current: 0, max: 0 },
+    5: { current: 0, max: 0 },
+    6: { current: 0, max: 0 },
+    7: { current: 0, max: 0 },
+    8: { current: 0, max: 0 },
+    9: { current: 0, max: 0 }
+  };
+
   return {
     id,
     name,
@@ -260,20 +287,11 @@ export function createDefaultCharacter(id: string, name: string, className = 'Fi
       spellcastingAbility: 'int',
       spellSaveDc: 8 + prof + abilities.int.modifier,
       spellAttackBonus: prof + abilities.int.modifier,
-      slots: {
-        1: { current: 0, max: 0 },
-        2: { current: 0, max: 0 },
-        3: { current: 0, max: 0 },
-        4: { current: 0, max: 0 },
-        5: { current: 0, max: 0 },
-        6: { current: 0, max: 0 },
-        7: { current: 0, max: 0 },
-        8: { current: 0, max: 0 },
-        9: { current: 0, max: 0 }
-      },
+      slots: structuredClone(spellSlots),
       preparedSpells: [],
       knownCantrips: []
     },
+    spell_slots: spellSlots,
 
     currency: {
       gp: 25,
@@ -327,9 +345,10 @@ export function performLongRest(char: Character): Character {
     updated.exhaustionLevel = Math.max(0, updated.exhaustionLevel - 1);
   }
 
-  // Reset spell slots
+  // Reset spell slots (explicit pool + mirrored legacy pool)
   for (const lvl of [1, 2, 3, 4, 5, 6, 7, 8, 9] as const) {
     updated.spellcasting.slots[lvl].current = updated.spellcasting.slots[lvl].max;
+    updated.spell_slots[lvl].current = updated.spell_slots[lvl].max;
   }
   if (updated.spellcasting.pactMagic) {
     updated.spellcasting.pactMagic.current = updated.spellcasting.pactMagic.max;
@@ -342,4 +361,62 @@ export function performLongRest(char: Character): Character {
   updated.deathSaves = { successes: 0, failures: 0 };
 
   return updated;
+}
+
+// ---------------------------------------------------------------------------
+// Spell Slot & Resource Execution
+// ---------------------------------------------------------------------------
+
+export interface CastSpellOutcome {
+  success: boolean;
+  /** Set when a leveled cast is rejected. */
+  reason?: 'no_slots' | 'invalid_level';
+  /** Slot level the cast was attempted at (0 for cantrips). */
+  slotLevel: number;
+  /** Slots left in that level after execution. */
+  remaining: number;
+  /** False for cantrips (level 0) and for ritual casts. */
+  consumedSlot: boolean;
+}
+
+/**
+ * Executes a spell cast against the actor's explicit `spell_slots` pool (levels 1-9).
+ *
+ * Rules enforced:
+ * - Cantrips (level 0) never consume a slot.
+ * - Ritual casts (`opts.ritual`) bypass slot expenditure entirely.
+ * - Leveled casts are blocked (`success: false`, `reason: 'no_slots'`) when `current <= 0`.
+ *
+ * The legacy `spellcasting.slots` pool is mirrored so both trackers stay in step.
+ */
+export function castSpellSlot(
+  char: Character,
+  slotLevel: number,
+  opts: { ritual?: boolean } = {}
+): CastSpellOutcome {
+  if (slotLevel <= 0) {
+    // Cantrip: always castable, no resource spent.
+    return { success: true, slotLevel: 0, remaining: 0, consumedSlot: false };
+  }
+
+  if (slotLevel > 9 || !Number.isInteger(slotLevel)) {
+    return { success: false, reason: 'invalid_level', slotLevel, remaining: 0, consumedSlot: false };
+  }
+
+  const level = slotLevel as SpellSlotLevel;
+  const tier = char.spell_slots[level];
+
+  if (opts.ritual) {
+    // Ritual casting (10 minutes) never consumes a spell slot.
+    return { success: true, slotLevel: level, remaining: tier.current, consumedSlot: false };
+  }
+
+  if (tier.current <= 0) {
+    return { success: false, reason: 'no_slots', slotLevel: level, remaining: 0, consumedSlot: false };
+  }
+
+  tier.current -= 1;
+  char.spellcasting.slots[level] = { ...tier };
+
+  return { success: true, slotLevel: level, remaining: tier.current, consumedSlot: true };
 }

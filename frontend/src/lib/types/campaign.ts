@@ -54,3 +54,88 @@ export const PRESET_CAMPAIGN_CONFIGS: CampaignRulesetConfig[] = [
   DEFAULT_5E_CONFIG,
   ALEAMOS_CAMPAIGN_CONFIG,
 ];
+
+// ── Fantasy Calendar & Celestial Cycle Types ────────────────────────────────
+
+export interface CalendarMonth {
+  name: string;
+  days: number;
+  leapDays?: number;
+  season?: 'Spring' | 'Summer' | 'Autumn' | 'Winter';
+}
+
+export interface CelestialBody {
+  id: string;
+  name: string;
+  synodicPeriodDays: number;
+  color?: string;
+}
+
+export interface MoonPhaseInfo {
+  moonId: string;
+  moonName: string;
+  phase: string;
+  emoji: string;
+  illumination: number;
+}
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  description: string;
+  year?: number;
+  month: number;
+  day: number;
+  category: 'holiday' | 'celestial' | 'campaign' | 'reminder';
+}
+
+export interface CampaignDateTime {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+export interface FantasyCalendarConfig {
+  id: string;
+  name: string;
+  epochYear: number;
+  weekDayNames: string[];
+  months: CalendarMonth[];
+  leapYearInterval?: number;
+  moons: CelestialBody[];
+}
+
+// ── Quest Directed Acyclic Graph (DAG) Types ────────────────────────────────
+
+export type QuestNodeStatus = 'locked' | 'active' | 'completed' | 'failed';
+
+export interface QuestReward {
+  xp?: number;
+  gp?: number;
+  items?: string[];
+  reputation?: Record<string, number>;
+}
+
+export interface QuestNode {
+  id: string;
+  title: string;
+  description: string;
+  category?: 'Main' | 'Side' | 'Faction' | 'Personal' | string;
+  status: QuestNodeStatus;
+  prerequisites: string[];
+  mutuallyExclusiveWith?: string[];
+  rewards?: QuestReward;
+  location?: string;
+  giver?: string;
+  completedAt?: CampaignDateTime;
+}
+
+export interface QuestGraph {
+  id: string;
+  campaignId?: string;
+  nodes: Record<string, QuestNode>;
+}
+

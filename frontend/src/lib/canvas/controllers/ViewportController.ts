@@ -245,6 +245,13 @@ export class ViewportController {
   }
 
   /**
+   * Calculates the camera's visible bounding box in world space (alias for getVisibleWorldBounds).
+   */
+  public getVisibleBounds(paddingPx: number = 100): { minX: number; minY: number; maxX: number; maxY: number } {
+    return this.getVisibleWorldBounds(paddingPx);
+  }
+
+  /**
    * Resets viewport camera to origin (0, 0) and default zoom (1.0).
    */
   public reset(x: number = 0, y: number = 0, zoom: number = 1.0): void {

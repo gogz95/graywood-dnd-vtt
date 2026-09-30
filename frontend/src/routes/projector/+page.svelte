@@ -119,6 +119,19 @@
       : 96
   );
 
+  let followDm = $state(
+    typeof localStorage !== 'undefined'
+      ? localStorage.getItem('vtt_projector_follow_dm') !== 'false'
+      : true
+  );
+
+  function toggleFollowDm() {
+    followDm = !followDm;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('vtt_projector_follow_dm', String(followDm));
+    }
+  }
+
   function applyPhysicalScale(ppi: number) {
     physicalPpi = ppi;
     if (typeof localStorage !== 'undefined') {
@@ -319,6 +332,16 @@
         }
         case 'PING_POINT': {
           triggerLocalPing(msg);
+          break;
+        }
+        case 'VIEWPORT_UPDATE': {
+          if (followDm) {
+            canvasStore.setProjectorViewport({
+              x: msg.x,
+              y: msg.y,
+              zoom: msg.zoom,
+            });
+          }
           break;
         }
       }
@@ -983,8 +1006,8 @@
     <!-- Bottom Status Watermarks & Tabletop Tools -->
     <div class="absolute bottom-3 left-4 z-10 pointer-events-none text-[10px] font-mono font-bold text-slate-600/70 uppercase tracking-wider flex items-center gap-2">
       <span>PROJECTOR DISPLAY</span>
-      {#if canvasStore.lockProjectorPan}
-        <span class="text-amber-500/80">🔒 CAMERA LOCKED</span>
+      {#if !followDm}
+        <span class="text-amber-500/80">🔒 CAMERA DECOUPLED</span>
       {:else}
         <span class="text-emerald-500/80">🎥 SYNCED TO DM</span>
       {/if}
@@ -993,8 +1016,17 @@
       {/if}
     </div>
 
-    <!-- Bottom-Right Tabletop TV Calibration Button -->
-    <div class="absolute bottom-3 right-4 z-30 pointer-events-auto">
+    <!-- Bottom-Right Tabletop TV Calibration & Follow DM Buttons -->
+    <div class="absolute bottom-3 right-4 z-30 pointer-events-auto flex items-center gap-2">
+      <button
+        type="button"
+        class="px-2.5 py-1 {followDm ? 'bg-indigo-900/80 border-indigo-500/80 text-indigo-200' : 'bg-slate-900/80 border-slate-700/80 text-slate-400'} border rounded-lg text-xs font-mono font-medium backdrop-blur-md transition-all shadow-xl flex items-center gap-1.5"
+        onclick={toggleFollowDm}
+        title="Toggle Viewport Synchronization with DM Camera"
+      >
+        <span>{followDm ? '🎥 Follow DM: ON' : '📷 Follow DM: OFF'}</span>
+      </button>
+
       <button
         type="button"
         class="px-2.5 py-1 bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white rounded-lg text-xs font-mono font-medium backdrop-blur-md transition-all shadow-xl flex items-center gap-1.5"

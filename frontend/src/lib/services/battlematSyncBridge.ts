@@ -20,7 +20,8 @@ export type SyncMessage =
   | { type: 'WALL_GEOMETRY_UPDATE'; mapId: string; walls: any[] }
   | { type: 'FOG_UPDATE'; polygons: Array<Array<{ x: number; y: number }>> }
   | { type: 'OVERHEAD_TILES_SYNC'; payload: any[] }
-  | { type: 'PING_POINT'; x: number; y: number; color: string; sender_name: string };
+  | { type: 'PING_POINT'; x: number; y: number; color: string; sender_name: string }
+  | { type: 'VIEWPORT_UPDATE'; x: number; y: number; zoom: number; follow_dm?: boolean };
 
 export function broadcastBattlematUpdate(message: SyncMessage) {
   broadcastChannel?.postMessage(message);

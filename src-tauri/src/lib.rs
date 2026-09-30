@@ -1,9 +1,11 @@
 pub mod api;
 pub mod commands;
 pub mod db;
+pub mod ingestion;
 pub mod migrations;
 pub mod models;
 pub mod server;
+pub mod services;
 pub mod state;
 pub mod systems;
 

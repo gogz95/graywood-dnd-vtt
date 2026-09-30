@@ -239,6 +239,7 @@ export function initWebSocket(pin?: string): void {
       socket.onclose = () => {
         isWsConnectedStore.set(false);
         connectionStatusStore.set('disconnected');
+        clearAllLocalTokenLeases();
         scheduleReconnect();
       };
 
@@ -297,6 +298,7 @@ export function initWebSocket(pin?: string): void {
       socket.onclose = () => {
         isWsConnectedStore.set(false);
         connectionStatusStore.set('disconnected');
+        clearAllLocalTokenLeases();
         scheduleReconnect();
       };
 
@@ -501,6 +503,13 @@ function handleIncomingWsEvent(event: WsEvent): void {
       routeInboundWsEvent(event);
       break;
 
+    case 'LEASE_RELEASED':
+      activeTokenLeases.delete(event.token_id);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:lease-released', { detail: event }));
+      }
+      break;
+
     case 'SYSTEM_MESSAGE':
     case 'AUTH_REQUEST':
       break;
@@ -531,6 +540,111 @@ export function sendWsEvent(event: WsEvent | any): void {
       window.dispatchEvent(new CustomEvent('vtt:trade-audit', { detail: event }));
     }
   }
+}
+
+// ── Token Lease Heartbeat & Steal Recovery Manager ─────────────────────────
+
+const TOKEN_LEASE_TIMEOUT_MS = 5000;
+const TOKEN_LEASE_HEARTBEAT_MS = 2500;
+
+interface ActiveDragLease {
+  tokenId: string;
+  userId: string;
+  heartbeatTimer: ReturnType<typeof setInterval>;
+  timeoutTimer: ReturnType<typeof setTimeout>;
+}
+
+const activeTokenLeases = new Map<string, ActiveDragLease>();
+
+/**
+ * Acquires or renews an exclusive 5-second drag lease on a token.
+ * Automatically maintains heartbeats every 2.5 seconds and enforces a 5-second lease timeout.
+ */
+export function acquireTokenLease(tokenId: string, userId: string): void {
+  const existing = activeTokenLeases.get(tokenId);
+  if (existing) {
+    clearTimeout(existing.timeoutTimer);
+    existing.timeoutTimer = setTimeout(() => {
+      releaseTokenLease(tokenId, userId);
+    }, TOKEN_LEASE_TIMEOUT_MS);
+    return;
+  }
+
+  sendWsEvent({
+    type: 'LEASE_ACQUIRE',
+    token_id: tokenId,
+    user_id: userId,
+  });
+
+  const heartbeatTimer = setInterval(() => {
+    sendWsEvent({
+      type: 'LEASE_ACQUIRE',
+      token_id: tokenId,
+      user_id: userId,
+    });
+  }, TOKEN_LEASE_HEARTBEAT_MS);
+
+  const timeoutTimer = setTimeout(() => {
+    releaseTokenLease(tokenId, userId);
+  }, TOKEN_LEASE_TIMEOUT_MS);
+
+  activeTokenLeases.set(tokenId, {
+    tokenId,
+    userId,
+    heartbeatTimer,
+    timeoutTimer,
+  });
+}
+
+/**
+ * Releases an exclusive drag lease, clearing heartbeats and broadcasting release.
+ */
+export function releaseTokenLease(tokenId: string, userId: string): void {
+  const lease = activeTokenLeases.get(tokenId);
+  if (lease) {
+    clearInterval(lease.heartbeatTimer);
+    clearTimeout(lease.timeoutTimer);
+    activeTokenLeases.delete(tokenId);
+  }
+
+  sendWsEvent({
+    type: 'LEASE_RELEASE',
+    token_id: tokenId,
+    user_id: userId,
+  });
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('vtt:lease-released', { detail: { token_id: tokenId } })
+    );
+  }
+}
+
+/**
+ * Cleans up all locally held token leases on disconnect, page refresh, or navigation.
+ */
+export function clearAllLocalTokenLeases(): void {
+  for (const [tokenId, lease] of activeTokenLeases) {
+    clearInterval(lease.heartbeatTimer);
+    clearTimeout(lease.timeoutTimer);
+    sendWsEvent({
+      type: 'LEASE_RELEASE',
+      token_id: tokenId,
+      user_id: lease.userId,
+    });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('vtt:lease-released', { detail: { token_id: tokenId } })
+      );
+    }
+  }
+  activeTokenLeases.clear();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    clearAllLocalTokenLeases();
+  });
 }
 
 /**

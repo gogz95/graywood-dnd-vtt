@@ -4,6 +4,7 @@
   import { Container, Graphics, Text } from 'pixi.js';
   import type { Application } from 'pixi.js';
   import { spatialAudioEngine } from '../../services/spatialAudioEngine.svelte';
+  import { wallsToLineSegments } from '../../canvas/raycastVisionEngine';
   import type { AudioEmitter } from '../../types/audio';
 
   interface Props {
@@ -51,12 +52,21 @@
   });
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
+  function handleWallsUpdated(e: Event) {
+    const walls = (e as CustomEvent<{ walls?: unknown[] }>).detail?.walls;
+    if (Array.isArray(walls)) {
+      spatialAudioEngine.setWalls(wallsToLineSegments(walls));
+    }
+  }
+
   onMount(() => {
     initPixiLayers();
+    window.addEventListener('vtt:walls-updated', handleWallsUpdated);
   });
 
   onDestroy(() => {
     destroyPixiLayers();
+    window.removeEventListener('vtt:walls-updated', handleWallsUpdated);
   });
 
   function initPixiLayers() {

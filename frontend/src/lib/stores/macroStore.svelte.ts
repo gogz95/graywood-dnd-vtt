@@ -16,38 +16,38 @@ export interface MacroAction {
 const STORAGE_KEY = 'vtt_macro_slots';
 
 const DEFAULT_MACROS: MacroAction[] = [
-  { id: 'm1', name: 'Melee Strike', icon: '⚔️', command: '/roll 1d20 + @selected.str', keybinding: '1' },
-  { id: 'm2', name: 'Ranged Shot', icon: '🏹', command: '/roll 1d20 + @selected.dex', keybinding: '2' },
-  { id: 'm3', name: 'Prone Toggle', icon: '🧎', command: '/condition prone', keybinding: '3' },
-  { id: 'm4', name: 'Apply -5 Dmg', icon: '💥', command: '/hp -5', keybinding: '4' },
-  { id: 'm5', name: 'Heal +5 HP', icon: '💚', command: '/hp +5', keybinding: '5' },
-  { id: 'm6', name: 'Perception', icon: '👁️', command: '/roll 1d20 + @selected.wis', keybinding: '6' },
-  { id: 'm7', name: 'Stealth', icon: '🥷', command: '/roll 1d20 + @selected.dex', keybinding: '7' },
-  { id: 'm8', name: 'Initiative', icon: '⚡', command: '/roll 1d20 + @selected.dex', keybinding: '8' },
-  { id: 'm9', name: 'Dodge', icon: '🛡️', command: '/condition dodge', keybinding: '9' },
+  { id: 'm1', name: 'Weapon Strike', icon: '⚔️', command: '/roll 1d20 + @selected.str', keybinding: '1' },
+  { id: 'm2', name: 'Spell Slot 1', icon: '✨', command: '/spell 1', keybinding: '2' },
+  { id: 'm3', name: 'Dodge / Dash', icon: '🛡️', command: '/condition dodge', keybinding: '3' },
+  { id: 'm4', name: 'Fog Brush', icon: '🌫️', command: '/fog', keybinding: '4' },
+  { id: 'm5', name: 'Ping Tool', icon: '📍', command: '/ping', keybinding: '5' },
+  { id: 'm6', name: 'Ranged Shot', icon: '🏹', command: '/roll 1d20 + @selected.dex', keybinding: '6' },
+  { id: 'm7', name: 'Apply -5 Dmg', icon: '💥', command: '/hp -5', keybinding: '7' },
+  { id: 'm8', name: 'Heal +5 HP', icon: '💚', command: '/hp +5', keybinding: '8' },
+  { id: 'm9', name: 'Initiative', icon: '⚡', command: '/roll 1d20 + @selected.dex', keybinding: '9' },
 ];
 
 export class MacroStore {
   slots = $state<Array<MacroAction | null>>(new Array(9).fill(null));
 
   constructor() {
-    if (typeof window !== 'undefined') {
-      this.loadSlots();
-    }
+    this.loadSlots();
   }
 
-  private loadSlots(): void {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length === 9) {
-          this.slots = parsed;
-          return;
+  public loadSlots(): void {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length === 9) {
+            this.slots = parsed;
+            return;
+          }
         }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
 
     // Default initialization
@@ -187,6 +187,35 @@ export class MacroStore {
           'System'
         );
       }
+      return;
+    }
+
+    // 4. Fog brush toggle: /fog or /tool fog
+    if (cmd.startsWith('/fog') || cmd.startsWith('/tool fog')) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:toggle-fog-tool'));
+      }
+      chatStore.sendMessage(`🌫️ Fog brush toggled.`, 'System');
+      return;
+    }
+
+    // 5. Ping tool: /ping
+    if (cmd.startsWith('/ping')) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:trigger-ping'));
+      }
+      chatStore.sendMessage(`📍 Ping tool triggered at viewport center.`, 'System');
+      return;
+    }
+
+    // 6. Spell slot cast: /spell <level> or /cast <level>
+    if (cmd.startsWith('/spell') || cmd.startsWith('/cast')) {
+      const parts = cmd.split(/\s+/);
+      const level = parseInt(parts[1], 10) || 1;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:cast-spell-slot', { detail: { level } }));
+      }
+      chatStore.sendMessage(`✨ Cast Level ${level} Spell Slot for **${actor.name}**.`, 'System');
       return;
     }
 

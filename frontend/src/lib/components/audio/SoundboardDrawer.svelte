@@ -21,6 +21,16 @@
   let combatMusicVol = $state(audioEngine.getCombatMusicVolume());
   let sfxVol = $state(audioEngine.getSfxVolume());
 
+  // Multi-bus mute states
+  let isMasterMuted = $state(false);
+  let isAmbienceMuted = $state(false);
+  let isCombatMuted = $state(false);
+  let isSfxMuted = $state(false);
+
+  // File drop & picker state
+  let fileInputRef = $state<HTMLInputElement | null>(null);
+  let isDropping = $state(false);
+
   // Tracks and SFX buttons
   let tracks = $state<TrackEntry[]>([...audioEngine.getTracks()]);
   let sfxButtons = $state<SfxEntry[]>([...audioEngine.getSfxButtons()]);
@@ -114,22 +124,53 @@
   // Volume handlers
   function updateMaster(val: number) {
     masterVol = val;
-    audioEngine.setMasterVolume(val);
+    if (!isMasterMuted) audioEngine.setMasterVolume(val);
   }
 
   function updateAmbience(val: number) {
     ambienceVol = val;
-    audioEngine.setAmbienceVolume(val);
+    if (!isAmbienceMuted) audioEngine.setAmbienceVolume(val);
   }
 
   function updateCombatMusic(val: number) {
     combatMusicVol = val;
-    audioEngine.setCombatMusicVolume(val);
+    if (!isCombatMuted) audioEngine.setCombatMusicVolume(val);
   }
 
   function updateSfx(val: number) {
     sfxVol = val;
-    audioEngine.setSfxVolume(val);
+    if (!isSfxMuted) audioEngine.setSfxVolume(val);
+  }
+
+  function toggleMasterMute() {
+    isMasterMuted = !isMasterMuted;
+    audioEngine.setMasterVolume(isMasterMuted ? 0 : masterVol);
+  }
+
+  function toggleAmbienceMute() {
+    isAmbienceMuted = !isAmbienceMuted;
+    audioEngine.setAmbienceVolume(isAmbienceMuted ? 0 : ambienceVol);
+  }
+
+  function toggleCombatMute() {
+    isCombatMuted = !isCombatMuted;
+    audioEngine.setCombatMusicVolume(isCombatMuted ? 0 : combatMusicVol);
+  }
+
+  function toggleSfxMute() {
+    isSfxMuted = !isSfxMuted;
+    audioEngine.setSfxVolume(isSfxMuted ? 0 : sfxVol);
+  }
+
+  async function handleAudioFiles(files: FileList | File[]) {
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith('audio/') || /\.(mp3|wav|ogg|webm|flac|m4a)$/i.test(file.name)) {
+        const isSfx = file.name.toLowerCase().includes('sfx') || file.name.toLowerCase().includes('hit') || file.name.toLowerCase().includes('dice');
+        await audioEngine.loadAudioFile(file, !isSfx);
+      }
+    }
+    tracks = [...audioEngine.getTracks()];
+    sfxButtons = [...audioEngine.getSfxButtons()];
   }
 
   function toggleTrack(id: string) {
@@ -215,66 +256,94 @@
           <div class="space-y-2 text-xs">
             <!-- Master Bus -->
             <div class="flex items-center gap-2">
-              <span class="w-14 text-[10px] font-bold uppercase text-slate-400 shrink-0">Master</span>
+              <button
+                type="button"
+                onclick={toggleMasterMute}
+                class="w-14 text-[10px] font-bold uppercase shrink-0 text-left transition-colors {isMasterMuted ? 'text-rose-400 line-through' : 'text-slate-400 hover:text-slate-200'}"
+                title="Toggle Master Mute"
+              >
+                {isMasterMuted ? '🔇 Muted' : '🔊 Master'}
+              </button>
               <input
                 type="range"
                 min="0"
                 max="1"
                 step="0.01"
-                value={masterVol}
+                value={isMasterMuted ? 0 : masterVol}
                 oninput={(e) => updateMaster(parseFloat((e.target as HTMLInputElement).value))}
                 class="flex-1 accent-indigo-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
                 tabindex="-1"
               />
-              <span class="w-8 text-right font-mono text-[10px] text-slate-400">{Math.round(masterVol * 100)}%</span>
+              <span class="w-8 text-right font-mono text-[10px] text-slate-400">{isMasterMuted ? '0%' : `${Math.round(masterVol * 100)}%`}</span>
             </div>
 
             <!-- Ambience Bus -->
             <div class="flex items-center gap-2">
-              <span class="w-14 text-[10px] font-bold uppercase text-slate-400 shrink-0">Ambience</span>
+              <button
+                type="button"
+                onclick={toggleAmbienceMute}
+                class="w-14 text-[10px] font-bold uppercase shrink-0 text-left transition-colors {isAmbienceMuted ? 'text-rose-400 line-through' : 'text-slate-400 hover:text-slate-200'}"
+                title="Toggle Ambience Mute"
+              >
+                {isAmbienceMuted ? '🔇 Muted' : '🌿 Ambient'}
+              </button>
               <input
                 type="range"
                 min="0"
                 max="1"
                 step="0.01"
-                value={ambienceVol}
+                value={isAmbienceMuted ? 0 : ambienceVol}
                 oninput={(e) => updateAmbience(parseFloat((e.target as HTMLInputElement).value))}
                 class="flex-1 accent-cyan-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
                 tabindex="-1"
               />
-              <span class="w-8 text-right font-mono text-[10px] text-slate-400">{Math.round(ambienceVol * 100)}%</span>
+              <span class="w-8 text-right font-mono text-[10px] text-slate-400">{isAmbienceMuted ? '0%' : `${Math.round(ambienceVol * 100)}%`}</span>
             </div>
 
             <!-- Combat Music Bus -->
             <div class="flex items-center gap-2">
-              <span class="w-14 text-[10px] font-bold uppercase text-slate-400 shrink-0">Combat</span>
+              <button
+                type="button"
+                onclick={toggleCombatMute}
+                class="w-14 text-[10px] font-bold uppercase shrink-0 text-left transition-colors {isCombatMuted ? 'text-rose-400 line-through' : 'text-slate-400 hover:text-slate-200'}"
+                title="Toggle Music Mute"
+              >
+                {isCombatMuted ? '🔇 Muted' : '⚔️ Music'}
+              </button>
               <input
                 type="range"
                 min="0"
                 max="1"
                 step="0.01"
-                value={combatMusicVol}
+                value={isCombatMuted ? 0 : combatMusicVol}
                 oninput={(e) => updateCombatMusic(parseFloat((e.target as HTMLInputElement).value))}
                 class="flex-1 accent-rose-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
                 tabindex="-1"
               />
-              <span class="w-8 text-right font-mono text-[10px] text-slate-400">{Math.round(combatMusicVol * 100)}%</span>
+              <span class="w-8 text-right font-mono text-[10px] text-slate-400">{isCombatMuted ? '0%' : `${Math.round(combatMusicVol * 100)}%`}</span>
             </div>
 
             <!-- SFX Bus -->
             <div class="flex items-center gap-2">
-              <span class="w-14 text-[10px] font-bold uppercase text-slate-400 shrink-0">SFX</span>
+              <button
+                type="button"
+                onclick={toggleSfxMute}
+                class="w-14 text-[10px] font-bold uppercase shrink-0 text-left transition-colors {isSfxMuted ? 'text-rose-400 line-through' : 'text-slate-400 hover:text-slate-200'}"
+                title="Toggle SFX Mute"
+              >
+                {isSfxMuted ? '🔇 Muted' : '⚡ SFX'}
+              </button>
               <input
                 type="range"
                 min="0"
                 max="1"
                 step="0.01"
-                value={sfxVol}
+                value={isSfxMuted ? 0 : sfxVol}
                 oninput={(e) => updateSfx(parseFloat((e.target as HTMLInputElement).value))}
                 class="flex-1 accent-amber-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
                 tabindex="-1"
               />
-              <span class="w-8 text-right font-mono text-[10px] text-slate-400">{Math.round(sfxVol * 100)}%</span>
+              <span class="w-8 text-right font-mono text-[10px] text-slate-400">{isSfxMuted ? '0%' : `${Math.round(sfxVol * 100)}%`}</span>
             </div>
           </div>
         </div>
@@ -342,8 +411,40 @@
               {/each}
             </div>
           {/if}
-        </div>
 
+          <!-- ── 4. Dropzone & File Picker ──────────────────────────────── -->
+          <div
+            role="region"
+            aria-label="Audio file dropzone"
+            ondragover={(e) => { e.preventDefault(); isDropping = true; }}
+            ondragleave={() => isDropping = false}
+            ondrop={(e) => {
+              e.preventDefault();
+              isDropping = false;
+              if (e.dataTransfer?.files) handleAudioFiles(e.dataTransfer.files);
+            }}
+            class="mt-2 p-2.5 rounded-xl border border-dashed text-center transition-colors {isDropping ? 'border-indigo-400 bg-indigo-950/40 text-indigo-200' : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700'}"
+          >
+            <input
+              bind:this={fileInputRef}
+              type="file"
+              multiple
+              accept="audio/*,.mp3,.wav,.ogg,.webm,.flac,.m4a"
+              class="hidden"
+              onchange={(e) => {
+                const target = e.target as HTMLInputElement;
+                if (target.files) handleAudioFiles(target.files);
+              }}
+            />
+            <button
+              type="button"
+              onclick={() => fileInputRef?.click()}
+              class="text-xs text-indigo-400 hover:text-indigo-300 font-semibold flex items-center justify-center gap-1.5 mx-auto"
+            >
+              <span>📥</span> Drop Audio or Browse (.mp3, .wav, .ogg)
+            </button>
+          </div>
+        </div>
       </div>
     {/if}
   </div>

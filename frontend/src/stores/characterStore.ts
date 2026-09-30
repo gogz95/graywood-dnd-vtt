@@ -43,6 +43,12 @@ export const spellSlotsStore = writable<SpellSlotTracker[]>([
   { level: 1, total: 4, used: 1 },
   { level: 2, total: 3, used: 0 },
   { level: 3, total: 2, used: 1 },
+  { level: 4, total: 0, used: 0 },
+  { level: 5, total: 0, used: 0 },
+  { level: 6, total: 0, used: 0 },
+  { level: 7, total: 0, used: 0 },
+  { level: 8, total: 0, used: 0 },
+  { level: 9, total: 0, used: 0 },
 ]);
 
 export const classResourcesStore = writable<ClassResource[]>([

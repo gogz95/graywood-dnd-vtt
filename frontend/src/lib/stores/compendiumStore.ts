@@ -143,6 +143,80 @@ export async function addCustomItem(item: CustomItemDefinition): Promise<CustomI
 }
 
 /**
+ * Saves an item into compendium storage (IndexedDB + Dexie compendiumDb + SQLite API).
+ */
+export async function saveCompendiumItem(item: CustomItemDefinition): Promise<CustomItemDefinition> {
+  const saved = await addCustomItem(item);
+  try {
+    const { compendiumDb } = await import('../db/compendiumDb');
+    await compendiumDb.items.put({
+      id: saved.id,
+      name: saved.name,
+      type: saved.type,
+      rarity: saved.rarity,
+      attunement: saved.requiresAttunement ? 'Requires Attunement' : undefined,
+      damage: saved.damageFormula,
+      armorClass: saved.acBonus,
+      properties: saved.properties,
+      description: saved.description,
+      weight: saved.weight,
+      cost: `${saved.costGp || 0} gp`,
+      sourceBook: 'Compendium Store',
+      packageId: 'custom-items',
+      origin: 'USER_IMPORT'
+    });
+  } catch (err) {
+    console.warn('[compendiumStore] Dexie items sync error:', err);
+  }
+
+  if (typeof fetch !== 'undefined') {
+    try {
+      await fetch('/api/compendium/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: saved.id,
+          name: saved.name,
+          type: saved.type,
+          rarity: saved.rarity,
+          cost_gp: saved.costGp || 0,
+          weight: saved.weight,
+          description: saved.description,
+          source: 'Compendium Store'
+        })
+      });
+    } catch {
+      // offline fallback
+    }
+  }
+
+  return saved;
+}
+
+/**
+ * Filters loaded custom items by type, rarity, and query search string.
+ */
+export async function queryCustomItems(filter?: {
+  type?: string;
+  rarity?: string;
+  search?: string;
+}): Promise<CustomItemDefinition[]> {
+  const items = await getCustomItems();
+  if (!filter) return items;
+  return items.filter((item) => {
+    if (filter.type && item.type.toLowerCase() !== filter.type.toLowerCase()) return false;
+    if (filter.rarity && item.rarity.toLowerCase() !== filter.rarity.toLowerCase()) return false;
+    if (filter.search) {
+      const q = filter.search.toLowerCase();
+      if (!item.name.toLowerCase().includes(q) && !item.description.toLowerCase().includes(q)) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+/**
  * Deletes a custom item by ID from IndexedDB 'custom_items' table.
  */
 export async function deleteCustomItem(id: string): Promise<boolean> {

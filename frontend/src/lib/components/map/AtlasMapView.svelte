@@ -37,6 +37,11 @@
     shop: true,
   });
 
+  // Vector Layer Visibility Toggles
+  let showBorders = $state(true);
+  let showRoutes = $state(true);
+  let hoveredPin = $state<MapPoiPin | null>(null);
+
   // Ruler & Measurement
   let rulerActive = $state(false);
   let rulerWaypoints = $state<Array<{ x: number; y: number }>>([]);
@@ -254,6 +259,50 @@
       default: return '📍';
     }
   }
+
+  function coordinatesToSvgPath(geom: any): string {
+    if (!geom || !geom.coordinates) return '';
+    const type = geom.type;
+    if (type === 'LineString') {
+      return `M ${geom.coordinates.map((pt: any) => `${pt[0]},${pt[1]}`).join(' L ')}`;
+    }
+    if (type === 'MultiLineString') {
+      return geom.coordinates
+        .map((line: any[]) => `M ${line.map((pt: any) => `${pt[0]},${pt[1]}`).join(' L ')}`)
+        .join(' ');
+    }
+    if (type === 'Polygon') {
+      return geom.coordinates
+        .map((ring: any[]) => `M ${ring.map((pt: any) => `${pt[0]},${pt[1]}`).join(' L ')} Z`)
+        .join(' ');
+    }
+    if (type === 'MultiPolygon') {
+      return geom.coordinates
+        .map((poly: any[][]) =>
+          poly.map((ring: any[]) => `M ${ring.map((pt: any) => `${pt[0]},${pt[1]}`).join(' L ')} Z`).join(' ')
+        )
+        .join(' ');
+    }
+    return '';
+  }
+
+  function getRouteStyle(props: any): { stroke: string; strokeWidth: number; strokeDasharray?: string } {
+    const type = (props?.type || '').toLowerCase();
+    const isRiver = type === 'river' || props?.river !== undefined;
+    const isRoad = type === 'road' || type === 'trail' || type === 'route';
+    const isSea = type === 'sea' || type === 'lane' || type === 'ocean';
+
+    if (isRiver) {
+      return { stroke: 'rgba(56, 189, 248, 0.75)', strokeWidth: 2.5 };
+    }
+    if (isSea) {
+      return { stroke: 'rgba(14, 165, 233, 0.5)', strokeWidth: 1.5, strokeDasharray: '6 4' };
+    }
+    if (isRoad) {
+      return { stroke: 'rgba(245, 158, 11, 0.8)', strokeWidth: 2, strokeDasharray: '4 3' };
+    }
+    return { stroke: 'rgba(251, 191, 36, 0.6)', strokeWidth: 1.8 };
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -350,6 +399,24 @@
         >
           🪙 Shops
         </button>
+
+        <!-- Vector Overlay Toggles (Borders & Routes) -->
+        <button
+          type="button"
+          onclick={() => showBorders = !showBorders}
+          class="px-2 py-0.5 rounded text-[11px] font-bold transition-all {showBorders ? 'bg-indigo-600/40 text-indigo-300 border border-indigo-400/60' : 'bg-slate-800 text-slate-500 line-through'}"
+          title="Toggle Political & Provincial Borders"
+        >
+          🌐 Borders
+        </button>
+        <button
+          type="button"
+          onclick={() => showRoutes = !showRoutes}
+          class="px-2 py-0.5 rounded text-[11px] font-bold transition-all {showRoutes ? 'bg-sky-600/40 text-sky-300 border border-sky-400/60' : 'bg-slate-800 text-slate-500 line-through'}"
+          title="Toggle Rivers, Roads & Sea Lanes"
+        >
+          🌊 Routes
+        </button>
       </div>
 
       <button
@@ -369,6 +436,11 @@
     style="transform: translate({panX}px, {panY}px) scale({zoom}); cursor: {isDragging ? 'grabbing' : 'grab'};"
   >
     {#if currentAtlas}
+      {@const mapW = currentAtlas.width || 4000}
+      {@const mapH = currentAtlas.height || 3000}
+      {@const viewBoxStr = currentAtlas.bbox
+        ? `${currentAtlas.bbox[0]} ${currentAtlas.bbox[1]} ${currentAtlas.bbox[2] - currentAtlas.bbox[0]} ${currentAtlas.bbox[3] - currentAtlas.bbox[1]}`
+        : `0 0 ${mapW} ${mapH}`}
       {#if activeSvgUrl}
         <img
           src={activeSvgUrl}
@@ -376,42 +448,48 @@
           class="absolute inset-0 w-[4000px] h-[3000px] object-contain pointer-events-none"
         />
       {/if}
-      <!-- Render Vector Layers if available -->
-      <svg class="absolute inset-0 w-[4000px] h-[3000px] pointer-events-none" viewBox="0 0 4000 3000">
-        <!-- Borders -->
-        {#if currentAtlas.vectorLayers?.bordersGeoJson?.features}
+
+      <!-- Vector Graphics Layer (Borders, Rivers, Roads, Maritime Lanes) -->
+      <svg
+        class="absolute inset-0 pointer-events-none"
+        style="width: {mapW}px; height: {mapH}px;"
+        viewBox={viewBoxStr}
+      >
+        <!-- Political & Cultural Borders -->
+        {#if showBorders && currentAtlas.vectorLayers?.bordersGeoJson?.features}
           {#each currentAtlas.vectorLayers.bordersGeoJson.features as feature}
-            {#if feature.geometry?.coordinates}
-              <!-- Simple line / polygon preview path -->
+            {@const pathD = coordinatesToSvgPath(feature.geometry)}
+            {#if pathD}
               <path
-                d={feature.geometry.type.includes('Polygon')
-                  ? `M ${feature.geometry.coordinates[0]?.map((pt: any) => `${pt[0]},${pt[1]}`).join(' L ')} Z`
-                  : `M ${feature.geometry.coordinates?.map((pt: any) => `${pt[0]},${pt[1]}`).join(' L ')}`}
-                fill="rgba(99, 102, 241, 0.04)"
-                stroke="rgba(129, 140, 248, 0.3)"
-                stroke-width="1.5"
-                stroke-dasharray="4 2"
+                d={pathD}
+                fill="rgba(99, 102, 241, 0.05)"
+                stroke="rgba(165, 180, 252, 0.6)"
+                stroke-width="2"
+                stroke-dasharray="6 3"
               />
             {/if}
           {/each}
         {/if}
 
-        <!-- Routes -->
-        {#if currentAtlas.vectorLayers?.routesGeoJson?.features}
+        <!-- Rivers, Roads & Sea Lanes -->
+        {#if showRoutes && currentAtlas.vectorLayers?.routesGeoJson?.features}
           {#each currentAtlas.vectorLayers.routesGeoJson.features as feature}
-            {#if feature.geometry?.coordinates}
+            {@const pathD = coordinatesToSvgPath(feature.geometry)}
+            {@const style = getRouteStyle(feature.properties)}
+            {#if pathD}
               <path
-                d={`M ${feature.geometry.coordinates?.map((pt: any) => `${pt[0]},${pt[1]}`).join(' L ')}`}
+                d={pathD}
                 fill="none"
-                stroke="rgba(245, 158, 11, 0.4)"
-                stroke-width="2"
+                stroke={style.stroke}
+                stroke-width={style.strokeWidth}
+                stroke-dasharray={style.strokeDasharray}
               />
             {/if}
           {/each}
         {/if}
       </svg>
 
-      <!-- POI Pins -->
+      <!-- POI Burg Pins with Interactive Tooltips -->
       {#each displayPins as pin (pin.id)}
         {@const pinTitle = pin.title || pin.label || 'Point of Interest'}
         {@const isSec = pin.isSecret || pin.is_secret}
@@ -421,6 +499,8 @@
           style="left: {pin.x}px; top: {pin.y}px;"
           role="button"
           tabindex="0"
+          onmouseenter={() => hoveredPin = pin}
+          onmouseleave={() => { if (hoveredPin?.id === pin.id) hoveredPin = null; }}
           onclick={(e) => {
             e.stopPropagation();
             selectedPin = pin;
@@ -442,7 +522,7 @@
             if (e.key === 'Enter') selectedPin = pin;
           }}
         >
-          <div class="flex flex-col items-center group">
+          <div class="flex flex-col items-center group relative">
             <div
               class="w-7 h-7 rounded-full flex items-center justify-center shadow-lg border text-sm transition-all {isSec
                 ? 'bg-rose-950 border-rose-500/80 text-rose-200'
@@ -459,6 +539,22 @@
                 <span class="text-[9px] text-rose-400 font-normal">[Secret]</span>
               {/if}
             </span>
+
+            <!-- Hover Tooltip (Burg Name, Population, Province) -->
+            {#if hoveredPin?.id === pin.id && (pin.population !== undefined || pin.province || pin.description)}
+              <div class="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 w-48 p-2 rounded-xl bg-slate-950/95 border border-amber-500/50 shadow-2xl backdrop-blur-md pointer-events-none z-30 text-left text-xs animate-in fade-in zoom-in-95 duration-100">
+                <div class="font-bold text-amber-300 text-xs truncate">{pinTitle}</div>
+                {#if pin.province}
+                  <div class="text-[10px] text-indigo-300 font-medium truncate">Province: {pin.province}</div>
+                {/if}
+                {#if pin.population !== undefined}
+                  <div class="text-[10px] text-emerald-400 font-mono">Population: {Number(pin.population).toLocaleString()}</div>
+                {/if}
+                {#if pin.description}
+                  <div class="text-[10px] text-slate-400 mt-0.5 line-clamp-2">{pin.description}</div>
+                {/if}
+              </div>
+            {/if}
           </div>
         </div>
       {/each}

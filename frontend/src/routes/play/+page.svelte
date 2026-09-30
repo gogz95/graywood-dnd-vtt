@@ -41,8 +41,11 @@
     broadcastAuth,
     clearLocalAuth,
     initCompanionSync,
+    initViewportSync,
+    initCompanionPingSync,
     saveLocalAuth,
     type AuthPayload,
+    type PingSyncPayload,
   } from '../../lib/services/companionSync';
 
   interface PlayerCharacter {
@@ -117,6 +120,52 @@
     enteredPin = authData.token;
     attemptPinLogin(authData.token);
   }
+
+  let followDm = $state(true);
+  let activePingToast = $state<{ x: number; y: number; sender_name: string } | null>(null);
+  let pingToastTimer: any = null;
+
+  function handleIncomingPing(ping: PingSyncPayload) {
+    activePingToast = {
+      x: Math.round(ping.x),
+      y: Math.round(ping.y),
+      sender_name: ping.sender_name || 'DM',
+    };
+    if (pingToastTimer) clearTimeout(pingToastTimer);
+    pingToastTimer = setTimeout(() => {
+      activePingToast = null;
+    }, 3000);
+  }
+
+  let cleanupViewportSync: (() => void) | null = null;
+  let cleanupPingSync: (() => void) | null = null;
+
+  onMount(() => {
+    companionSyncUnsubscribe = initCompanionSync(handleAdoptedAuth);
+    cleanupViewportSync = initViewportSync((vp) => {
+      if (followDm) {
+        // DM viewport synchronized
+      }
+    });
+    cleanupPingSync = initCompanionPingSync(handleIncomingPing);
+
+    const onLocalPing = (e: Event) => {
+      const custom = e as CustomEvent<any>;
+      if (custom.detail) handleIncomingPing(custom.detail);
+    };
+    window.addEventListener('vtt:ping-point', onLocalPing);
+
+    return () => {
+      window.removeEventListener('vtt:ping-point', onLocalPing);
+    };
+  });
+
+  onDestroy(() => {
+    companionSyncUnsubscribe?.();
+    cleanupViewportSync?.();
+    cleanupPingSync?.();
+    if (pingToastTimer) clearTimeout(pingToastTimer);
+  });
 
   // ── Active Player Session State (NULL until authenticated — ZERO DATA LEAKAGE) ─
   let character = $state<PlayerCharacter | null>(null);
@@ -1575,6 +1624,7 @@
       bind:isOpen={isSpellbookOpen}
       characterClass={character.class}
       characterLevel={character.level}
+      characterName={character.name}
       spellcastingMod={Math.max(
         Math.floor((character.int - 10) / 2),
         Math.floor((character.wis - 10) / 2),

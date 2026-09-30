@@ -394,7 +394,7 @@
        ROW 2 (48px): FIXED BOTTOM MACRO BAR / DOCK
   ════════════════════════════════════════════════════════════════════════════ -->
   <footer
-    class="bottom-macro-dock h-12 w-full bg-slate-950/95 border-t border-slate-800/90 flex items-center justify-center px-4 z-30 select-none overflow-hidden shrink-0"
+    class="bottom-macro-dock h-12 w-full bg-slate-950/95 border-t border-slate-800/90 flex items-center justify-center px-4 z-30 select-none overflow-hidden shrink-0 pointer-events-auto"
     style="grid-row: 2; height: 48px;"
   >
     {#if currentView === 'DM_DASHBOARD'}

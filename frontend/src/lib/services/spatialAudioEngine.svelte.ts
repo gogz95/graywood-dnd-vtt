@@ -1,8 +1,10 @@
 // src/lib/services/spatialAudioEngine.ts
 // 2D Positional Spatial Audio Emitter & Web Audio Distance Falloff Engine
+// Phase 14: Wall-occlusion BiquadFilter integration via raycastVisionEngine
 
 import type { AudioEmitter, ListenerPosition } from '../types/audio';
 import { audioEngine } from '../audio/AudioEngine';
+import { queryWallsInRadius, type LineSegment } from '../canvas/raycastVisionEngine';
 
 const STORAGE_PREFIX = 'vtt_spatial_emitters_';
 
@@ -12,6 +14,7 @@ interface ActiveNodeInstance {
   audioElement: HTMLAudioElement | null;
   gainNode: GainNode;
   pannerNode: StereoPannerNode | PannerNode | null;
+  occlusionFilter: BiquadFilterNode | null;
   proceduralInterval: ReturnType<typeof setInterval> | null;
   isPlaying: boolean;
 }
@@ -27,6 +30,8 @@ class SpatialAudioEngine {
   private instances = new Map<string, ActiveNodeInstance>();
   private audioBufferCache = new Map<string, AudioBuffer>();
   private updateFrameId: number | null = null;
+  /** Wall segments from raycastVisionEngine for occlusion calculation. */
+  private wallSegments: LineSegment[] = [];
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -106,6 +111,11 @@ class SpatialAudioEngine {
     this.updateAllNodeGains();
   }
 
+  /** Update active wall geometry for per-emitter occlusion filtering. Call when map geometry changes. */
+  setWalls(walls: LineSegment[]): void {
+    this.wallSegments = walls;
+  }
+
   // ── Web Audio Node Lifecycle ───────────────────────────────────────────────
   async playEmitter(id: string): Promise<void> {
     const emitter = this.emitters.find((e) => e.id === id);
@@ -120,14 +130,22 @@ class SpatialAudioEngine {
     const gainNode = ctx.createGain();
     gainNode.gain.setValueAtTime(0, ctx.currentTime);
 
+    // Occlusion low-pass filter (wall-based muffle)
+    const occlusionFilter = ctx.createBiquadFilter();
+    occlusionFilter.type = 'lowpass';
+    occlusionFilter.frequency.setValueAtTime(20000, ctx.currentTime);
+    occlusionFilter.Q.setValueAtTime(0.707, ctx.currentTime);
+
     let pannerNode: StereoPannerNode | PannerNode | null = null;
     if (typeof ctx.createStereoPanner === 'function') {
       pannerNode = ctx.createStereoPanner();
       pannerNode.pan.setValueAtTime(0, ctx.currentTime);
-      gainNode.connect(pannerNode);
+      gainNode.connect(occlusionFilter);
+      occlusionFilter.connect(pannerNode);
       pannerNode.connect(ctx.destination);
     } else {
-      gainNode.connect(ctx.destination);
+      gainNode.connect(occlusionFilter);
+      occlusionFilter.connect(ctx.destination);
     }
 
     const inst: ActiveNodeInstance = {
@@ -136,6 +154,7 @@ class SpatialAudioEngine {
       audioElement: null,
       gainNode,
       pannerNode,
+      occlusionFilter,
       proceduralInterval: null,
       isPlaying: true,
     };
@@ -291,6 +310,33 @@ class SpatialAudioEngine {
 
     // Smooth gain ramp
     inst.gainNode.gain.setTargetAtTime(targetGain, this.ctx.currentTime, 0.05);
+
+    // ── Wall-occlusion low-pass filter ─────────────────────────────────────
+    if (inst.occlusionFilter && this.wallSegments.length > 0 && listener) {
+      const gridSize2 = listener.gridSize || 60;
+      const radiusPx = (outer / 5) * gridSize2;
+      const candidates = queryWallsInRadius(this.wallSegments, { x: listener.x, y: listener.y }, radiusPx);
+      let crossings = 0;
+      const ex = emitter.x, ey = emitter.y, lx = listener.x, ly = listener.y;
+      const rdx = ex - lx, rdy = ey - ly;
+      for (const seg of candidates) {
+        if (!seg.blocksVision) continue;
+        // Segment-segment intersection test
+        const sdx = seg.p2.x - seg.p1.x, sdy = seg.p2.y - seg.p1.y;
+        const det = rdx * sdy - rdy * sdx;
+        if (Math.abs(det) < 1e-9) continue;
+        const qx = seg.p1.x - lx, qy = seg.p1.y - ly;
+        const t = (qx * sdy - qy * sdx) / det;
+        const u = (qx * rdy - qy * rdx) / det;
+        if (t >= 0 && t <= 1 && u >= 0 && u <= 1) { crossings++; if (crossings >= 3) break; }
+      }
+      const occlusionFactor = Math.min(crossings / 3, 1);
+      const cutoff = 20000 + (600 - 20000) * occlusionFactor;
+      inst.occlusionFilter.frequency.setTargetAtTime(cutoff, this.ctx.currentTime, 0.05);
+      // Apply additional gain penalty for wall energy absorption
+      const occludedGain = targetGain * (1 - occlusionFactor * 0.6);
+      inst.gainNode.gain.setTargetAtTime(occludedGain, this.ctx.currentTime, 0.05);
+    }
 
     // Stereo Panning (-1.0 left to +1.0 right)
     if (inst.pannerNode && 'pan' in inst.pannerNode) {

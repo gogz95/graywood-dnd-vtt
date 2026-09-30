@@ -30,6 +30,34 @@ export async function importAzgaarGeoJson(file: File, atlasName: string): Promis
     const props = f.properties || {};
     const geom = f.geometry || {};
 
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    function expandBounds(x: number, y: number) {
+      if (isNaN(x) || isNaN(y)) return;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+
+    function scanCoords(coords: any) {
+      if (!Array.isArray(coords)) return;
+      if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+        expandBounds(coords[0], coords[1]);
+      } else {
+        for (const c of coords) {
+          scanCoords(c);
+        }
+      }
+    }
+
+    if (geom.coordinates) {
+      scanCoords(geom.coordinates);
+    }
+
     // 1. Convert burgs / towns / population centers into POI Pins
     const isBurg =
       props.type === 'burg' ||
@@ -43,8 +71,10 @@ export async function importAzgaarGeoJson(file: File, atlasName: string): Promis
       const x = Number(coords[0]) || 0;
       const y = Number(coords[1]) || 0;
       const name = props.name || props.burg || `Settlement ${i + 1}`;
-      const pop = props.population ? `Pop: ${Number(props.population).toLocaleString()}` : '';
-      const state = props.state ? `Province: ${props.state}` : '';
+      const numPop = typeof props.population === 'number' ? props.population : Number(props.population) || undefined;
+      const pop = numPop !== undefined ? `Pop: ${numPop.toLocaleString()}` : '';
+      const provinceName = props.state || props.province || undefined;
+      const state = provinceName ? `Province: ${provinceName}` : '';
       const desc = [pop, state, props.description].filter(Boolean).join(' · ');
 
       let icon = 'town';
@@ -59,6 +89,8 @@ export async function importAzgaarGeoJson(file: File, atlasName: string): Promis
         icon,
         label: name,
         description: desc || 'Settlement',
+        population: numPop,
+        province: provinceName,
         isSecret: Boolean(props.isSecret),
       });
     }
@@ -90,6 +122,15 @@ export async function importAzgaarGeoJson(file: File, atlasName: string): Promis
     }
   }
 
+  // Fallback map boundaries if bounding box was flat/empty
+  const hasValidBbox = isFinite(minX) && isFinite(minY) && isFinite(maxX) && isFinite(maxY);
+  const bbox: [number, number, number, number] = hasValidBbox
+    ? [minX, minY, maxX, maxY]
+    : [0, 0, 4000, 3000];
+
+  const mapWidth = Math.max(100, bbox[2] - bbox[0]);
+  const mapHeight = Math.max(100, bbox[3] - bbox[1]);
+
   const now = Date.now();
   const mapRecord: WorldAtlasMap = {
     id: `atlas-${now}-${Math.random().toString(36).slice(2, 7)}`,
@@ -97,6 +138,9 @@ export async function importAzgaarGeoJson(file: File, atlasName: string): Promis
     type: 'atlas',
     createdAt: now,
     updatedAt: now,
+    width: mapWidth,
+    height: mapHeight,
+    bbox,
     scale: {
       unitsPerPixel: geoData.scale?.unitsPerPixel || 1,
       unitName: geoData.scale?.unitName || 'miles',

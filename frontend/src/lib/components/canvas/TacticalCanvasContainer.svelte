@@ -20,6 +20,9 @@
     renderRulerOnCanvas,
     calculateGridDistanceFeet,
   } from '../map/MeasurementTool';
+  import { snapToHex, hexAxialToPixel } from '../../canvas/gridCalculations';
+  import { findPath, type PathWaypoint } from '../../canvas/pathfindingEngine';
+  import { wallsToLineSegments } from '../../canvas/raycastVisionEngine';
   import {
     renderConditionRingsOnCanvas,
     renderTurnReticleOnCanvas,
@@ -36,6 +39,9 @@
   import { WeatherCanvasRenderer } from '../../canvas/weatherCanvasRenderer';
   import SceneEnvironmentWidget from '../dm/SceneEnvironmentWidget.svelte';
   import type { WeatherType } from '../../types/maps';
+  import { isTypingInInput } from '../../services/keyboardShortcuts';
+  import { broadcastPingPoint } from './PingLayer.svelte';
+  import { VideoBackgroundRenderer } from '../../canvas/VideoBackgroundRenderer';
 
   export interface MapToken {
     id: string;
@@ -71,9 +77,14 @@
   let gridSize     = $state(60);     // px per cell
   let gridOpacity  = $state(0.35);
   let gridSnap     = $state(true);
+  let gridType     = $state<'square' | 'hex_pointy' | 'hex_flat'>('square');
   let mapImageUrl  = $state('');
   let mapImageInput = $state('');
   let mapImg: HTMLImageElement | null = null;
+  // Animated video battlemap renderer (Phase 9/14)
+  let videoRenderer: VideoBackgroundRenderer | null = null;
+  let videoFrameCanvas: HTMLCanvasElement | null = null;
+  let videoFrameCtx: CanvasRenderingContext2D | null = null;
   let showSettings = $state(false);
 
   // ── Vector Map & Lighting State ───────────────────────────────────────────
@@ -148,6 +159,8 @@
   let draggingToken = $state<MapToken | null>(null);
   let dragOffsetGrid = { dx: 0, dy: 0 };
   let dragCurrentGrid = $state<{ gx: number; gy: number } | null>(null);
+  let activeDragPath = $state<PathWaypoint[]>([]);
+  let isPathModifierActive = $state(false);
   let hoveredCell   = $state<{ gx: number; gy: number } | null>(null);
 
   // ── Spawn panel ────────────────────────────────────────────────────────────
@@ -197,7 +210,15 @@
       gridSize,
       gridOpacity,
       gridColor: `rgba(99, 102, 241, ${gridOpacity})`,
-      mapImage: mapImg?.complete && mapImg.naturalWidth > 0 ? mapImg : null,
+      gridType,
+      mapImage: (() => {
+        // Prefer live video frame over static image
+        if (videoRenderer?.isPlaying() && videoFrameCanvas && videoFrameCtx) {
+          videoRenderer.renderToCanvas2D(videoFrameCtx, 0, 0, videoFrameCanvas.width, videoFrameCanvas.height);
+          return videoFrameCanvas as unknown as HTMLImageElement;
+        }
+        return mapImg?.complete && mapImg.naturalWidth > 0 ? mapImg : null;
+      })(),
       tokens: canvasStore.tokens.length > 0 ? canvasStore.tokens : tokens.map(t => ({
         id: t.id,
         name: t.name,
@@ -291,8 +312,53 @@
         renderRulerOnCanvas(renderCtx, canvasStore.ruler, gridSize);
       }
 
-      // Drag ghost
+      // Drag ghost & A* Path Ribbon
       if (draggingToken && dragCurrentGrid) {
+        // Draw A* Path Ribbon when Shift modifier is active or path exists
+        if (activeDragPath.length > 1) {
+          renderCtx.save();
+          renderCtx.beginPath();
+          renderCtx.strokeStyle = '#38bdf8';
+          renderCtx.lineWidth = 3 / vpZoom;
+          renderCtx.setLineDash([8 / vpZoom, 4 / vpZoom]);
+
+          for (let i = 0; i < activeDragPath.length; i++) {
+            const wp = activeDragPath[i];
+            const px = (wp.gx + 0.5) * gridSize;
+            const py = (wp.gy + 0.5) * gridSize;
+            if (i === 0) renderCtx.moveTo(px, py);
+            else renderCtx.lineTo(px, py);
+          }
+          renderCtx.stroke();
+          renderCtx.setLineDash([]);
+
+          // Draw Waypoint nodes and cumulative distance badges
+          for (let i = 0; i < activeDragPath.length; i++) {
+            const wp = activeDragPath[i];
+            const px = (wp.gx + 0.5) * gridSize;
+            const py = (wp.gy + 0.5) * gridSize;
+
+            renderCtx.beginPath();
+            renderCtx.arc(px, py, 4 / vpZoom, 0, Math.PI * 2);
+            renderCtx.fillStyle = i === activeDragPath.length - 1 ? '#22c55e' : '#38bdf8';
+            renderCtx.fill();
+
+            // Total distance badge at final waypoint
+            if (i === activeDragPath.length - 1 && wp.costFeet > 0) {
+              renderCtx.font = `bold ${Math.max(10, gridSize * 0.22)}px sans-serif`;
+              renderCtx.fillStyle = '#0f172a';
+              const text = `${wp.costFeet} ft`;
+              const textWidth = renderCtx.measureText(text).width;
+              renderCtx.fillRect(px - textWidth / 2 - 4, py - 20, textWidth + 8, 16);
+              renderCtx.fillStyle = '#38bdf8';
+              renderCtx.textAlign = 'center';
+              renderCtx.textBaseline = 'middle';
+              renderCtx.fillText(text, px, py - 12);
+            }
+          }
+          renderCtx.restore();
+        }
+
         renderCtx.globalAlpha = 0.4;
         renderCtx.fillStyle = draggingToken.color;
         const pad = gridSize * 0.1;
@@ -355,12 +421,39 @@
   function drawToken(c: CanvasRenderingContext2D, tok: MapToken) {
     const pad = gridSize * 0.1;
     const tokScale = tok.size || 1;
-    const x = tok.x * gridSize + pad;
-    const y = tok.y * gridSize + pad;
-    const size = gridSize * tokScale - pad * 2;
-    const cx = x + size / 2;
-    const cy = y + size / 2;
-    const radius = size / 2;
+    let cx: number;
+    let cy: number;
+    let size: number;
+    let radius: number;
+    let x: number;
+    let y: number;
+
+    if (gridType === 'hex_pointy') {
+      const hexRadius = gridSize / Math.sqrt(3);
+      const center = hexAxialToPixel(tok.x, tok.y, hexRadius, 'pointy');
+      cx = center.x;
+      cy = center.y;
+      size = gridSize * tokScale - pad * 2;
+      radius = size / 2;
+      x = cx - size / 2;
+      y = cy - size / 2;
+    } else if (gridType === 'hex_flat') {
+      const hexRadius = gridSize / Math.sqrt(3);
+      const center = hexAxialToPixel(tok.x, tok.y, hexRadius, 'flat');
+      cx = center.x;
+      cy = center.y;
+      size = gridSize * tokScale - pad * 2;
+      radius = size / 2;
+      x = cx - size / 2;
+      y = cy - size / 2;
+    } else {
+      x = tok.x * gridSize + pad;
+      y = tok.y * gridSize + pad;
+      size = gridSize * tokScale - pad * 2;
+      cx = x + size / 2;
+      cy = y + size / 2;
+      radius = size / 2;
+    }
 
     const storeTok = canvasStore.tokens.find(t => t.id === tok.id);
 
@@ -426,6 +519,16 @@
   }
 
   function worldToGrid(wx: number, wy: number) {
+    if (gridType === 'hex_pointy') {
+      const radius = gridSize / Math.sqrt(3);
+      const hex = snapToHex(wx, wy, radius, 'pointy');
+      return { gx: hex.q, gy: hex.r };
+    }
+    if (gridType === 'hex_flat') {
+      const radius = gridSize / Math.sqrt(3);
+      const hex = snapToHex(wx, wy, radius, 'flat');
+      return { gx: hex.q, gy: hex.r };
+    }
     return { gx: Math.floor(wx / gridSize), gy: Math.floor(wy / gridSize) };
   }
 
@@ -469,13 +572,34 @@
     vpX = e.clientX - canvasEl!.getBoundingClientRect().left - wx * vpZoom;
     vpY = e.clientY - canvasEl!.getBoundingClientRect().top  - wy * vpZoom;
     canvasStore.setDmViewport({ x: vpX, y: vpY, zoom: vpZoom });
+    broadcastBattlematUpdate({
+      type: 'VIEWPORT_UPDATE',
+      x: vpX,
+      y: vpY,
+      zoom: vpZoom,
+    });
   }
 
   function handleMouseDown(e: MouseEvent) {
+    // 0. Alt + Left Click = Pointer Ping Broadcast
+    if (e.altKey && e.button === 0) {
+      e.preventDefault();
+      const { wx, wy } = screenToWorld(e.clientX, e.clientY);
+      broadcastPingPoint({
+        x: wx,
+        y: wy,
+        color: '#f59e0b',
+        sender_name: 'DM',
+      });
+      return;
+    }
+
     // Middle mouse or Space+Left = pan
     if (e.button === 1 || (e.button === 0 && spaceDown)) {
       isPanning = true;
       panStart = { x: e.clientX, y: e.clientY, ox: vpX, oy: vpY };
+      window.addEventListener('mousemove', handleWindowMouseMove);
+      window.addEventListener('mouseup', handleWindowMouseUp);
       return;
     }
 
@@ -604,38 +728,145 @@
 
     if (draggingToken) {
       dragCurrentGrid = { gx, gy };
+      isPathModifierActive = e.shiftKey;
+
+      if (e.shiftKey || activeDragPath.length > 0) {
+        const segs = wallsToLineSegments(walls);
+        const mapW = canvasEl.width || 1920;
+        const mapH = canvasEl.height || 1080;
+        const cols = Math.max(50, Math.ceil(mapW / gridSize) + 10);
+        const rows = Math.max(50, Math.ceil(mapH / gridSize) + 10);
+
+        activeDragPath = findPath(
+          { gx: draggingToken.x, gy: draggingToken.y },
+          { gx, gy },
+          {
+            cols,
+            rows,
+            gridSize,
+            allowDiagonal: true,
+            diagonal5105: true,
+            walls: segs,
+            tokenSizeCells: draggingToken.size || 1,
+          }
+        );
+      } else {
+        activeDragPath = [];
+      }
     }
   }
 
+  function handleWindowMouseMove(e: MouseEvent) {
+    if (!isPanning) return;
+    vpX = panStart.ox + (e.clientX - panStart.x);
+    vpY = panStart.oy + (e.clientY - panStart.y);
+    canvasStore.setDmViewport({ x: vpX, y: vpY, zoom: vpZoom });
+    broadcastBattlematUpdate({
+      type: 'VIEWPORT_UPDATE',
+      x: vpX,
+      y: vpY,
+      zoom: vpZoom,
+    });
+  }
+
+  function handleWindowMouseUp(e: MouseEvent) {
+    if (isPanning) {
+      isPanning = false;
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    }
+  }
+
+  function handleToggleFogTool() {
+    activeDrawingTool = activeDrawingTool === 'fog_carve' ? 'select' : 'fog_carve';
+  }
+
+  function handleTriggerPing() {
+    if (!canvasEl) return;
+    const rect = canvasEl.getBoundingClientRect();
+    const { wx, wy } = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    const { gx, gy } = worldToGrid(wx, wy);
+    targetingStore.setReticule(gx, gy);
+  }
+
   function handleMouseUp(e: MouseEvent) {
-    if (isPanning) { isPanning = false; return; }
+    if (isPanning) {
+      isPanning = false;
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+      return;
+    }
 
     if (activeTool === 'ruler') {
       rulerStart = null;
     }
 
     if (draggingToken && dragCurrentGrid) {
-      const { gx, gy } = dragCurrentGrid;
-      tokens = tokens.map(t =>
-        t.id === draggingToken!.id ? { ...t, x: gx, y: gy } : t
-      );
-      canvasStore.moveToken(draggingToken.id, gx, gy);
-      broadcastBattlematUpdate({
-        type: 'TOKEN_MOVE',
-        tokenId: draggingToken.id,
-        x: gx,
-        y: gy
-      });
-      onTokenMove?.(draggingToken.id, gx, gy);
+      const movedTokId = draggingToken.id;
+      const targetGx = dragCurrentGrid.gx;
+      const targetGy = dragCurrentGrid.gy;
+
+      if (activeDragPath.length > 1) {
+        // Sequential Waypoint Traversal: animate through waypoints and update fog iteratively
+        const waypointsCopy = [...activeDragPath];
+        let stepIdx = 0;
+
+        const stepTraversal = () => {
+          if (stepIdx >= waypointsCopy.length) {
+            tokens = tokens.map(t =>
+              t.id === movedTokId ? { ...t, x: targetGx, y: targetGy } : t
+            );
+            canvasStore.moveToken(movedTokId, targetGx, targetGy);
+            broadcastBattlematUpdate({
+              type: 'TOKEN_MOVE',
+              tokenId: movedTokId,
+              x: targetGx,
+              y: targetGy,
+            });
+            onTokenMove?.(movedTokId, targetGx, targetGy);
+            return;
+          }
+
+          const wp = waypointsCopy[stepIdx];
+          tokens = tokens.map(t =>
+            t.id === movedTokId ? { ...t, x: wp.gx, y: wp.gy } : t
+          );
+          canvasStore.moveToken(movedTokId, wp.gx, wp.gy);
+          canvasStore.revealFogAt(wp.gx, wp.gy);
+
+          stepIdx++;
+          if (stepIdx < waypointsCopy.length) {
+            setTimeout(stepTraversal, 50);
+          } else {
+            onTokenMove?.(movedTokId, targetGx, targetGy);
+          }
+        };
+
+        stepTraversal();
+      } else {
+        tokens = tokens.map(t =>
+          t.id === movedTokId ? { ...t, x: targetGx, y: targetGy } : t
+        );
+        canvasStore.moveToken(movedTokId, targetGx, targetGy);
+        broadcastBattlematUpdate({
+          type: 'TOKEN_MOVE',
+          tokenId: movedTokId,
+          x: targetGx,
+          y: targetGy,
+        });
+        onTokenMove?.(movedTokId, targetGx, targetGy);
+      }
     }
     draggingToken = null;
     dragCurrentGrid = null;
+    activeDragPath = [];
+    isPathModifierActive = false;
   }
 
   let spaceDown = $state(false);
   function handleKeyDown(e: KeyboardEvent) {
-    // If active in an input/textarea, ignore hotkeys
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+    // If active in an input/textarea/contenteditable, ignore hotkeys
+    if (isTypingInInput(e.target)) {
       return;
     }
 
@@ -689,6 +920,24 @@
 
   // ── Map image loading ──────────────────────────────────────────────────────
   function loadMapFromUrl(url: string) {
+    // Route animated video battlemaps through VideoBackgroundRenderer
+    if (/\.(mp4|webm|ogg)([?#]|$)/i.test(url)) {
+      if (!videoRenderer) videoRenderer = new VideoBackgroundRenderer();
+      videoRenderer.loadVideo(url, { loop: true, muted: true }).then((el) => {
+        // Ensure an off-screen canvas exists to blit video frames into mapImage
+        if (!videoFrameCanvas) {
+          videoFrameCanvas = document.createElement('canvas');
+          videoFrameCtx = videoFrameCanvas.getContext('2d');
+        }
+        videoFrameCanvas.width = el.videoWidth || 1920;
+        videoFrameCanvas.height = el.videoHeight || 1080;
+        mapImg = null; // clear static image
+        mapImageUrl = url;
+      }).catch(() => {});
+      return;
+    }
+    // Static image path
+    if (videoRenderer) { videoRenderer.destroy(); videoRenderer = null; }
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
@@ -752,6 +1001,7 @@
     const detail = (e as CustomEvent<{
       url?: string;
       dataUrl?: string;
+      videoUrl?: string;
       fileName?: string;
       mapId?: string;
       gridSize?: number;
@@ -760,7 +1010,7 @@
       height?: number;
     }>).detail;
     if (!detail) return;
-    const targetUrl = detail.dataUrl || detail.url;
+    const targetUrl = detail.videoUrl || detail.dataUrl || detail.url;
     if (targetUrl) {
       loadMapFromUrl(targetUrl);
       if (detail.fileName) {
@@ -985,6 +1235,8 @@
     window.addEventListener('vtt:load-battle-map', handleBattleMapEvent);
     window.addEventListener('vtt:spawn-token', handleSpawnTokenEvent);
     window.addEventListener('vtt:weather-changed', handleWeatherChangedEvent);
+    window.addEventListener('vtt:toggle-fog-tool', handleToggleFogTool);
+    window.addEventListener('vtt:trigger-ping', handleTriggerPing);
     rafId = requestAnimationFrame(render);
   });
 
@@ -994,11 +1246,15 @@
     weatherRenderer?.destroy();
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
+    window.removeEventListener('mousemove', handleWindowMouseMove);
+    window.removeEventListener('mouseup', handleWindowMouseUp);
     window.removeEventListener('vtt:maps-updated', reloadTacticalMapsList);
     window.removeEventListener('vtt:campaign-assets-refreshed', reloadTacticalMapsList);
     window.removeEventListener('vtt:load-battle-map', handleBattleMapEvent);
     window.removeEventListener('vtt:spawn-token', handleSpawnTokenEvent);
     window.removeEventListener('vtt:weather-changed', handleWeatherChangedEvent);
+    window.removeEventListener('vtt:toggle-fog-tool', handleToggleFogTool);
+    window.removeEventListener('vtt:trigger-ping', handleTriggerPing);
     cleanupDmSyncListener();
     if (mapImageUrl && mapImageUrl.startsWith('blob:')) {
       try {
@@ -1019,6 +1275,10 @@
     }
     ctx = null;
     mapImg = null;
+    videoRenderer?.destroy();
+    videoRenderer = null;
+    videoFrameCanvas = null;
+    videoFrameCtx = null;
   });
 </script>
 
@@ -1287,7 +1547,7 @@
         onmousemove={handleMouseMove}
         onmouseup={handleMouseUp}
         oncontextmenu={handleContextMenu}
-        onmouseleave={() => { hoveredCell = null; handleMouseUp(new MouseEvent('mouseup')); }}
+        onmouseleave={() => { hoveredCell = null; if (!isPanning) handleMouseUp(new MouseEvent('mouseup')); }}
       ></canvas>
 
       <!-- Weather Particle FX Canvas Layer -->
