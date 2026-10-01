@@ -12,6 +12,7 @@
   import { campaignDirectoryStore } from '../../stores/campaignDirectoryStore.svelte';
   import { mapsDb } from '../../db/mapsDb';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
+  import { ingestPipelineStore } from '../../services/ingest/ingestPipelineStore.svelte';
   import Step2Scaffolding from './Step2Scaffolding.svelte';
   import {
     SUNKEN_CRYPT_BATTLEMAP,
@@ -61,6 +62,54 @@
   // Step 3 Ingestion
   let isDragging = $state(false);
   let importedFiles = $state<string[]>([]);
+  let hasTriggeredAutoScan = $state(false);
+
+  $effect(() => {
+    if (step === 3 && selectedDirectory && !hasTriggeredAutoScan) {
+      hasTriggeredAutoScan = true;
+      triggerAutoScan();
+    }
+  });
+
+  async function triggerAutoScan(targetPath?: string) {
+    const dir = targetPath || selectedDirectory;
+    if (!dir) return;
+    const res = await ingestPipelineStore.scanCampaignFolder(dir);
+    if (res && res.entries.length > 0) {
+      ingestPipelineStore.startIngestion().catch((err) => {
+        console.warn('Auto-ingestion error:', err);
+      });
+    }
+  }
+
+  const detectedMaps = $derived(
+    ingestPipelineStore.queue.filter((i) => {
+      const lower = i.name.toLowerCase();
+      return (
+        i.category === 'image' &&
+        !lower.includes('token') &&
+        (lower.endsWith('.png') ||
+          lower.endsWith('.webp') ||
+          lower.endsWith('.jpg') ||
+          lower.endsWith('.jpeg') ||
+          lower.endsWith('.dd2vtt') ||
+          lower.endsWith('.uvtt') ||
+          lower.endsWith('.ds') ||
+          lower.endsWith('.geojson'))
+      );
+    })
+  );
+
+  const detectedTokens = $derived(
+    ingestPipelineStore.queue.filter((i) => {
+      const lower = (i.name + ' ' + i.relativePath).toLowerCase();
+      return lower.includes('token') || (i.category === 'image' && lower.startsWith('tokens'));
+    })
+  );
+
+  const detectedDocs = $derived(
+    ingestPipelineStore.queue.filter((i) => i.category === 'source')
+  );
 
   onMount(async () => {
     await campaignStore.initPromise;
@@ -355,11 +404,111 @@
                 const base = parts.filter(Boolean).at(-1);
                 if (base) campaignName = base;
               }
+              triggerAutoScan(path);
+              step = 3;
             }}
           />
         {:else if step === 3}
           <div class="space-y-4">
-            <div>
+            <!-- Automated Campaign Ingestion & Entity Preview (Automated Viewer) -->
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <div>
+                  <h3 class="font-bold text-sm text-slate-200">Campaign Auto-Ingestion Pipeline</h3>
+                  <p class="text-[10px] text-slate-400">
+                    {#if selectedDirectory}
+                      Scanning: <span class="font-mono text-indigo-300">{selectedDirectory}</span>
+                    {:else}
+                      No directory selected yet.
+                    {/if}
+                  </p>
+                </div>
+                {#if selectedDirectory}
+                  <button
+                    type="button"
+                    onclick={() => { triggerAutoScan(); }}
+                    disabled={ingestPipelineStore.isScanning || ingestPipelineStore.isProcessing}
+                    class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold rounded-lg border border-slate-700 transition-colors disabled:opacity-50"
+                  >
+                    {ingestPipelineStore.isScanning ? '⏳ Scanning…' : '🔄 Rescan'}
+                  </button>
+                {/if}
+              </div>
+
+              <!-- Real-time Progress Bar -->
+              {#if ingestPipelineStore.isScanning || ingestPipelineStore.isProcessing || ingestPipelineStore.totalCount > 0}
+                <div class="bg-slate-950 border border-slate-800/80 rounded-xl p-3 space-y-2">
+                  <div class="flex items-center justify-between text-[11px]">
+                    <span class="text-slate-300 font-semibold flex items-center gap-1.5">
+                      {#if ingestPipelineStore.isScanning}
+                        <span class="animate-spin">⏳</span> Detecting assets in vault…
+                      {:else if ingestPipelineStore.isProcessing}
+                        <span class="animate-pulse text-indigo-400">⚡</span> Processing {ingestPipelineStore.processingCount} of {ingestPipelineStore.totalCount} items…
+                      {:else}
+                        <span class="text-emerald-400">✓</span> Ingestion pipeline idle ({ingestPipelineStore.doneCount} completed)
+                      {/if}
+                    </span>
+                    <span class="font-mono font-bold text-indigo-300">{ingestPipelineStore.overallProgressPercent}%</span>
+                  </div>
+                  <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+                    <div
+                      class="bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-500 h-full transition-all duration-300"
+                      style="width: {ingestPipelineStore.overallProgressPercent}%"
+                    ></div>
+                  </div>
+                </div>
+              {/if}
+
+              <!-- Entity Count Preview Badges -->
+              <div class="grid grid-cols-3 gap-2">
+                <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 flex items-center gap-2">
+                  <span class="text-lg">🗺️</span>
+                  <div>
+                    <span class="font-black text-slate-100 text-xs block">{detectedMaps.length}</span>
+                    <span class="text-[10px] text-slate-400 block">Maps Detected</span>
+                  </div>
+                </div>
+                <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 flex items-center gap-2">
+                  <span class="text-lg">🛡️</span>
+                  <div>
+                    <span class="font-black text-slate-100 text-xs block">{detectedTokens.length}</span>
+                    <span class="text-[10px] text-slate-400 block">Tokens Detected</span>
+                  </div>
+                </div>
+                <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 flex items-center gap-2">
+                  <span class="text-lg">📜</span>
+                  <div>
+                    <span class="font-black text-slate-100 text-xs block">{detectedDocs.length}</span>
+                    <span class="text-[10px] text-slate-400 block">Docs &amp; Lore</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Detected Asset Preview List -->
+              {#if ingestPipelineStore.queue.length > 0}
+                <div class="border border-slate-800 rounded-xl bg-slate-950/60 p-2 max-h-36 overflow-y-auto space-y-1">
+                  {#each ingestPipelineStore.queue.slice(0, 15) as item}
+                    <div class="flex items-center justify-between text-[10px] px-2 py-1 rounded bg-slate-900/60 border border-slate-800/40">
+                      <div class="flex items-center gap-1.5 truncate max-w-[70%]">
+                        <span>{item.category === 'image' ? (item.name.toLowerCase().includes('token') ? '🛡️' : '🗺️') : item.category === 'audio' ? '🎵' : '📄'}</span>
+                        <span class="text-slate-300 font-mono truncate" title={item.name}>{item.name}</span>
+                      </div>
+                      <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono uppercase {item.status === 'done' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50' : item.status === 'processing' ? 'bg-indigo-950 text-indigo-300 border border-indigo-800/50' : item.status === 'error' ? 'bg-rose-950 text-rose-300 border border-rose-800/50' : 'bg-slate-800 text-slate-400'}">
+                        {item.status}
+                      </span>
+                    </div>
+                  {/each}
+                  {#if ingestPipelineStore.queue.length > 15}
+                    <div class="text-[9px] text-slate-500 text-center py-0.5 font-mono">
+                      + {ingestPipelineStore.queue.length - 15} more assets queued
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+
+            <!-- Display Architecture -->
+            <div class="pt-2 border-t border-slate-800">
               <h3 class="font-bold text-sm text-slate-200 mb-2">Display Architecture</h3>
               <div class="grid grid-cols-3 gap-2">
                 <button
@@ -392,7 +541,8 @@
               </div>
             </div>
 
-            <div class="space-y-1.5">
+            <!-- Table Rules Preset (5e SRD) -->
+            <div class="space-y-1.5 pt-2 border-t border-slate-800">
               <h3 class="font-bold text-sm text-slate-200">Table Rules Preset (5e SRD)</h3>
               <div class="space-y-1.5">
                 <label class="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
@@ -417,29 +567,6 @@
                   <input type="checkbox" bind:checked={ruleDurability} class="accent-indigo-500 rounded" />
                 </label>
               </div>
-            </div>
-
-            <!-- Source Material Ingestion -->
-            <div class="space-y-2 pt-2 border-t border-slate-800">
-              <h3 class="font-bold text-sm text-slate-200">Source Material Ingestion (Optional)</h3>
-              <div
-                role="region"
-                aria-label="Dropzone"
-                ondragover={(e) => { e.preventDefault(); isDragging = true; }}
-                ondragleave={() => isDragging = false}
-                ondrop={handleDropFiles}
-                class="border-2 border-dashed rounded-xl p-5 text-center transition-all {isDragging ? 'border-indigo-400 bg-indigo-950/20' : 'border-slate-800 bg-slate-950/50'}"
-              >
-                <span class="text-2xl block mb-1">📂</span>
-                <span class="font-bold text-slate-300 block">Drop Sourcebooks, PDFs or Azgaar Maps</span>
-                <span class="text-[10px] text-slate-500 block">Accepts .pdf, .md, .txt, .geojson, .dd2vtt</span>
-              </div>
-
-              {#if importedFiles.length > 0}
-                <div class="text-[10px] text-emerald-400 font-mono">
-                  Imported: {importedFiles.join(', ')}
-                </div>
-              {/if}
             </div>
           </div>
         {/if}

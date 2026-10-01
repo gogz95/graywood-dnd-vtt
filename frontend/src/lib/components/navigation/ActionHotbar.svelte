@@ -176,6 +176,17 @@
       closeContextMenu();
     }
   }
+  function triggerGridCalibration() {
+    window.dispatchEvent(new CustomEvent('vtt:open-grid-calibration'));
+  }
+
+  function triggerVisionFog() {
+    window.dispatchEvent(new CustomEvent('vtt:toggle-fog-tool'));
+  }
+
+  function triggerFloorLayers() {
+    window.dispatchEvent(new CustomEvent('vtt:context-tool', { detail: { tool: 'layers' } }));
+  }
 </script>
 
 <svelte:window onclick={handleWindowClick} />
@@ -187,6 +198,33 @@
   class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-950/80 backdrop-blur-xl border border-slate-800/90 rounded-2xl p-1.5 shadow-2xl shadow-black/80 flex items-center gap-1.5 select-none pointer-events-auto transition-all"
   aria-label="Macro & Quick-Action Hotbar"
 >
+  <!-- HUD System Controls: Grid Calibration, Vision/Fog, Floor Layers -->
+  <div class="flex items-center gap-1 pr-1.5 border-r border-slate-800/80">
+    <button
+      type="button"
+      onclick={triggerGridCalibration}
+      class="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center border border-slate-800/80 bg-slate-900/90 hover:bg-indigo-950/70 hover:border-indigo-500/70 text-indigo-300 transition-all active:scale-95 shadow-md shadow-black/50"
+      title="Grid Calibration & Alignment Overlay"
+    >
+      <span class="text-base sm:text-lg">📐</span>
+    </button>
+    <button
+      type="button"
+      onclick={triggerVisionFog}
+      class="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center border border-slate-800/80 bg-slate-900/90 hover:bg-emerald-950/70 hover:border-emerald-500/70 text-emerald-300 transition-all active:scale-95 shadow-md shadow-black/50"
+      title="Toggle Fog of War and Vision Controls"
+    >
+      <span class="text-base sm:text-lg">👁️</span>
+    </button>
+    <button
+      type="button"
+      onclick={triggerFloorLayers}
+      class="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center border border-slate-800/80 bg-slate-900/90 hover:bg-sky-950/70 hover:border-sky-500/70 text-sky-300 transition-all active:scale-95 shadow-md shadow-black/50"
+      title="Floor Layers & Elevation Drawer"
+    >
+      <span class="text-base sm:text-lg">🥞</span>
+    </button>
+  </div>
   {#each hotbarStore.slots as slot, idx (idx)}
     {@const hotkeyLabel = getHotkeyBadge(idx)}
     {@const isTriggered = hotbarStore.activeTriggeredSlot === idx}

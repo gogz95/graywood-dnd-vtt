@@ -10,6 +10,9 @@ import {
   hexDistance,
   hexDistanceFeet,
   getHexVertices,
+  getHexRing,
+  getHexSpiral,
+  getHexCone,
 } from './gridCalculations';
 
 describe('Hexagonal Grid Calculations', () => {
@@ -86,6 +89,46 @@ describe('Hexagonal Grid Calculations', () => {
     for (const v of vertices) {
       const dist = Math.sqrt((v.x - 100) ** 2 + (v.y - 100) ** 2);
       expect(Math.abs(dist - 50)).toBeLessThan(0.001);
+    }
+  });
+
+  it('computes exact hex rings without fractional cell clipping', () => {
+    const center = { q: 0, r: 0 };
+    // Radius 0: just center
+    expect(getHexRing(center, 0)).toEqual([center]);
+    // Radius 1: exactly 6 cells
+    const ring1 = getHexRing(center, 1);
+    expect(ring1).toHaveLength(6);
+    for (const cell of ring1) {
+      expect(hexDistance(center, cell)).toBe(1);
+    }
+
+    // Radius 2: exactly 12 cells
+    const ring2 = getHexRing(center, 2);
+    expect(ring2).toHaveLength(12);
+    for (const cell of ring2) {
+      expect(hexDistance(center, cell)).toBe(2);
+    }
+  });
+
+  it('computes hex spiral circular burst areas matching 3*N*(N+1)+1 count', () => {
+    const center = { q: 0, r: 0 };
+    // Radius 1: 1 + 6 = 7 cells
+    expect(getHexSpiral(center, 1)).toHaveLength(7);
+    // Radius 2: 1 + 6 + 12 = 19 cells
+    expect(getHexSpiral(center, 2)).toHaveLength(19);
+    // Radius 3: 1 + 6 + 12 + 18 = 37 cells
+    expect(getHexSpiral(center, 3)).toHaveLength(37);
+  });
+
+  it('computes 60-degree hex wedge cones along orientation angle', () => {
+    const origin = { q: 0, r: 0 };
+    // 0 radian wedge along +X axis
+    const coneEast = getHexCone(origin, 0, 3, 'pointy');
+    expect(coneEast.length).toBeGreaterThan(1);
+    expect(coneEast).toContainEqual(origin);
+    for (const hex of coneEast) {
+      expect(hexDistance(origin, hex)).toBeLessThanOrEqual(3);
     }
   });
 });

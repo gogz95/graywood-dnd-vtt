@@ -215,7 +215,8 @@
         activeTab = 'battlemat';
         onSelectTab?.('battlemat');
         if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('vtt:context-tool', { detail: { tool: 'ruler', active: true } }));
+          window.dispatchEvent(new CustomEvent('vtt:context-tool', { detail: { tool: 'grid', active: true } }));
+          window.dispatchEvent(new CustomEvent('vtt:open-grid-calibration'));
         }
         break;
 

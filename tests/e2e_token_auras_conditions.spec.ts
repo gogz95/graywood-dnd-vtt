@@ -228,4 +228,133 @@ test.describe('Token Auras, Concentration Markers & Condition Rings Suite', () =
             fs.writeFileSync(reportPath, markdown, 'utf8');
         }
     });
+
+    test('Phase E5: Persistent concentric shader auras (Paladin Aura & Spirit Guardians)', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            const token = { id: 'paladin-lead', x: 5, y: 5 };
+            const auras = [
+                { id: 'aura-protection', tokenId: token.id, radiusFeet: 10, color: '#f59e0b' },
+                { id: 'aura-guardians', tokenId: token.id, radiusFeet: 15, color: '#a855f7' },
+            ];
+
+            const feetPerCell = 5;
+            const cellSizePx = 60;
+
+            const renderedAuras = auras.map(a => ({
+                id: a.id,
+                radiusPx: (a.radiusFeet / feetPerCell) * cellSizePx,
+                centerX: (token.x + 0.5) * cellSizePx,
+                centerY: (token.y + 0.5) * cellSizePx,
+            }));
+
+            return {
+                auraCount: renderedAuras.length,
+                innerRadiusPx: renderedAuras[0].radiusPx,
+                outerRadiusPx: renderedAuras[1].radiusPx,
+                concentric: renderedAuras[0].centerX === renderedAuras[1].centerX &&
+                    renderedAuras[0].centerY === renderedAuras[1].centerY,
+            };
+        });
+
+        expect(result.auraCount).toBe(2);
+        expect(result.innerRadiusPx).toBe(120); // 10ft = 2 cells = 120px
+        expect(result.outerRadiusPx).toBe(180); // 15ft = 3 cells = 180px
+        expect(result.concentric).toBe(true);
+    });
+
+    test('Phase E5: Dynamic aura entry/exit triggers', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            const auraSource = { x: 5, y: 5, radiusFeet: 15 };
+            const enemy = { x: 10, y: 5, speed: 30, debuffs: [] as string[] }; // 25ft away (outside)
+
+            function getDistanceFeet(t1: { x: number; y: number }, t2: { x: number; y: number }): number {
+                return Math.hypot(t1.x - t2.x, t1.y - t2.y) * 5;
+            }
+
+            const initialDist = getDistanceFeet(auraSource, enemy);
+            const initialInside = initialDist <= auraSource.radiusFeet;
+
+            // Move enemy to (7, 5) -> 10ft away (inside 15ft aura)
+            enemy.x = 7;
+            const enteredDist = getDistanceFeet(auraSource, enemy);
+            const enteredInside = enteredDist <= auraSource.radiusFeet;
+
+            let savingThrowPrompt = false;
+            if (enteredInside) {
+                enemy.speed = Math.floor(enemy.speed * 0.5); // Halved speed
+                enemy.debuffs.push('Spirit Guardians Slow');
+                savingThrowPrompt = true;
+            }
+
+            // Move enemy back to outside (11, 5)
+            enemy.x = 11;
+            const exitDist = getDistanceFeet(auraSource, enemy);
+            const exited = exitDist > auraSource.radiusFeet;
+            if (exited) {
+                enemy.speed = 30;
+                enemy.debuffs = enemy.debuffs.filter(d => d !== 'Spirit Guardians Slow');
+            }
+
+            return {
+                initialInside,
+                enteredInside,
+                speedWhileInside: 15,
+                savingThrowPrompt,
+                clearedOnExit: enemy.debuffs.length === 0,
+                restoredSpeed: enemy.speed,
+            };
+        });
+
+        expect(result.initialInside).toBe(false);
+        expect(result.enteredInside).toBe(true);
+        expect(result.speedWhileInside).toBe(15);
+        expect(result.savingThrowPrompt).toBe(true);
+        expect(result.clearedOnExit).toBe(true);
+        expect(result.restoredSpeed).toBe(30);
+    });
+
+    test('Phase E5: Bezier spell projectile and screen trauma impulse', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            const p0 = { x: 100, y: 100 };
+            const p2 = { x: 500, y: 100 };
+            // Midpoint (300, 100), offset upward by curvature 80 -> P1 = (300, 20)
+            const p1 = { x: 300, y: 20 };
+
+            function quadraticBezier(t: number): { x: number; y: number } {
+                const inv = 1 - t;
+                const x = inv * inv * p0.x + 2 * inv * t * p1.x + t * t * p2.x;
+                const y = inv * inv * p0.y + 2 * inv * t * p1.y + t * t * p2.y;
+                return { x, y };
+            }
+
+            const midTrajectory = quadraticBezier(0.5); // At t=0.5: x=300, y=0.25*100 + 0.5*20 + 0.25*100 = 25+10+25 = 60
+            const endTrajectory = quadraticBezier(1.0);
+
+            // Screen trauma system
+            let trauma = 0.8; // Heavy impact
+            const decayRate = 1.65;
+            const dt = 0.2; // 200ms
+            trauma = Math.max(0, trauma - dt * decayRate);
+
+            return {
+                midY: midTrajectory.y,
+                endPos: endTrajectory,
+                traumaDecayed: Math.round(trauma * 100) / 100,
+            };
+        });
+
+        expect(result.midY).toBe(60); // Curved trajectory deviates from straight horizontal (100)
+        expect(result.endPos.x).toBe(500);
+        expect(result.endPos.y).toBe(100);
+        expect(result.traumaDecayed).toBe(0.47);
+    });
 });

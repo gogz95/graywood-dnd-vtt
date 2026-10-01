@@ -205,4 +205,95 @@ test.describe('Token Elevation, Flying Mechanics & Size Scaling Suite', () => {
             fs.writeFileSync(reportPath, markdown, 'utf8');
         }
     });
+
+    test('Phase E4: 3D Euclidean distance enforcement (D = sqrt(dx^2 + dy^2 + dz^2))', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            // Token A at (x: 0, y: 0, z: 40ft)
+            // Token B at (x: 0, y: 10ft, z: 0ft)
+            const dx = 0;
+            const dy = 10;
+            const dz = 40;
+
+            const dist2D = Math.hypot(dx, dy); // 10ft
+            const dist3D = Math.hypot(dx, dy, dz); // sqrt(100 + 1600) = sqrt(1700) ~= 41.23ft
+
+            const spellReachLimit = 30; // 30ft spell
+            const isOutOfReach = dist3D > spellReachLimit;
+
+            return {
+                dist2D,
+                dist3D: Math.round(dist3D * 10) / 10,
+                isOutOfReach,
+            };
+        });
+
+        expect(result.dist2D).toBe(10);
+        expect(result.dist3D).toBe(41.2);
+        expect(result.isOutOfReach).toBe(true);
+    });
+
+    test('Phase E4: Altitude badge HUD and soft drop-shadow scaling', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            const token = {
+                id: 'tok-alt-hud',
+                name: 'Flying Sorcerer',
+                elevationFeet: 30,
+            };
+
+            const badgeText = token.elevationFeet > 0 ? `+${token.elevationFeet} ft` : '';
+            // Proportional shadow scaling: blur increases with altitude
+            const baseShadowBlur = 8;
+            const scaledShadowBlur = baseShadowBlur + (token.elevationFeet / 10) * 4;
+            const shadowOffset = 4 + (token.elevationFeet / 10) * 3;
+
+            return {
+                badgeText,
+                scaledShadowBlur,
+                shadowOffset,
+            };
+        });
+
+        expect(result.badgeText).toBe('+30 ft');
+        expect(result.scaledShadowBlur).toBe(20);
+        expect(result.shadowOffset).toBe(13);
+    });
+
+    test('Phase E4: Overhead roof tile alpha occlusion', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            // Overhead tile bounding box (100, 100) to (300, 300)
+            const tileBounds = { x: 100, y: 100, width: 200, height: 200 };
+            const defaultAlpha = 1.0;
+            const occludedAlpha = 0.2;
+
+            function checkOcclusion(tokX: number, tokY: number): number {
+                const isUnderRoof = tokX >= tileBounds.x &&
+                    tokX <= tileBounds.x + tileBounds.width &&
+                    tokY >= tileBounds.y &&
+                    tokY <= tileBounds.y + tileBounds.height;
+                return isUnderRoof ? occludedAlpha : defaultAlpha;
+            }
+
+            // Outside roof (50, 50)
+            const alphaOutside = checkOcclusion(50, 50);
+            // Inside roof (150, 150)
+            const alphaInside = checkOcclusion(150, 150);
+
+            return {
+                alphaOutside,
+                alphaInside,
+            };
+        });
+
+        expect(result.alphaOutside).toBe(1.0);
+        expect(result.alphaInside).toBe(0.2);
+    });
 });

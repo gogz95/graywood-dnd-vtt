@@ -14,6 +14,13 @@ export interface AudioEmitter {
   isPlaying?: boolean;
   isProcedural?: boolean; // If true, synthesizes ambient sound (fire, river, humming crystal)
   proceduralType?: 'fire' | 'water' | 'hum' | 'wind';
+
+  // Directional sound cone parameters (Web Audio PannerNode)
+  coneInnerAngle?: number; // In degrees (e.g. 60 deg)
+  coneOuterAngle?: number; // In degrees (e.g. 120 deg)
+  coneOuterGain?: number; // Gain outside cone (0.0 to 1.0)
+  orientationX?: number; // Orientation vector X (-1.0 to 1.0)
+  orientationY?: number; // Orientation vector Y (-1.0 to 1.0)
 }
 
 export interface ListenerPosition {

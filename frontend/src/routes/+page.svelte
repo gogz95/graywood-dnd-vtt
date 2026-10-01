@@ -24,6 +24,7 @@
   import { uiStore } from '../lib/stores/uiStore.svelte';
   import FullBestiaryView from '../lib/components/bestiary/FullBestiaryView.svelte';
   import MapManagerModal from '../lib/components/map/MapManagerModal.svelte';
+  import ImportExportModal from '../lib/components/navigation/ImportExportModal.svelte';
   import UnifiedHoldingsView from '../lib/components/downtime/UnifiedHoldingsView.svelte';
   import UniversalIngestModal from '../lib/components/ingest/UniversalIngestModal.svelte';
   import { ingestPipelineStore } from '../lib/services/ingest/ingestPipelineStore.svelte';
@@ -43,6 +44,7 @@
   import MerchantShopModal from '../lib/components/modals/MerchantShopModal.svelte';
   import CalendarTimelineModal from '../lib/components/modals/CalendarTimelineModal.svelte';
   import QuestTrackerModal from '../lib/components/modals/QuestTrackerModal.svelte';
+  import GeneratorHubModal from '../lib/components/generators/GeneratorHubModal.svelte';
   import { hotkeyManager } from '../lib/services/hotkeyManager';
   import { projectorStore } from '../lib/stores/projectorStore.svelte';
   import { curtainStore } from '../lib/stores/curtainStore.svelte';
@@ -94,6 +96,8 @@
   let isMerchantShopOpen = $state(false);
   let isCalendarModalOpen = $state(false);
   let isQuestTrackerOpen = $state(false);
+  let isImportExportOpen = $state(false);
+  let isGeneratorHubOpen = $state(false);
   let quickIngestToast = $state<string | null>(null);
 
   async function handleQuickIngestComplete(report: UniversalIngestionReport) {
@@ -232,6 +236,16 @@
     window.addEventListener('vtt:toggle-audio', handleToggleAudio);
     window.addEventListener('vtt:open-ingest-modal', handleOpenIngest);
 
+    const handleOpenImportExport = () => {
+      isImportExportOpen = true;
+    };
+    window.addEventListener('vtt:open-import-export', handleOpenImportExport);
+
+    const handleOpenGeneratorHub = () => {
+      isGeneratorHubOpen = true;
+    };
+    window.addEventListener('vtt:open-generator-hub', handleOpenGeneratorHub);
+
     const handleToast = (e: Event) => {
       const detail = (e as CustomEvent<{ message: string }>).detail;
       if (detail?.message) {
@@ -333,6 +347,8 @@
       window.removeEventListener('vtt:switch-tab', handleSwitchTab);
       window.removeEventListener('vtt:toggle-audio', handleToggleAudio);
       window.removeEventListener('vtt:open-ingest-modal', handleOpenIngest);
+      window.removeEventListener('vtt:open-import-export', handleOpenImportExport);
+      window.removeEventListener('vtt:open-generator-hub', handleOpenGeneratorHub);
       window.removeEventListener('vtt:toast', handleToast);
       window.removeEventListener('vtt:open-npc-generator', handleOpenNpcGen);
       window.removeEventListener('vtt:open-merchant-shop', handleOpenMerchantShop);
@@ -473,6 +489,12 @@
 
   <!-- Universal Map Manager Modal -->
   <MapManagerModal bind:isOpen={isMapManagerOpen} />
+
+  <!-- Campaign Vault & Ecosystem Migrations Modal -->
+  <ImportExportModal bind:isOpen={isImportExportOpen} />
+
+  <!-- Sandboxed Procedural Map Generator Hub Modal -->
+  <GeneratorHubModal bind:isOpen={isGeneratorHubOpen} />
 
   <!-- Universal Multi-Category Asset Ingestion Pipeline Modal -->
   <UniversalIngestModal bind:isOpen={ingestPipelineStore.isModalOpen} />

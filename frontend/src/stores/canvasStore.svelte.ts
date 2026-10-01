@@ -577,6 +577,10 @@ class CanvasStoreClass {
     this.broadcast('FOG_EXPLORED_SYNC', this.fogExplored);
   }
 
+  revealFogAt(gx: number, gy: number) {
+    this.carveFog([`${gx},${gy}`]);
+  }
+
   concealFog(cells: string[]) {
     const cellSet = new Set(cells);
     this.fogExplored = this.fogExplored.filter(c => !cellSet.has(c));

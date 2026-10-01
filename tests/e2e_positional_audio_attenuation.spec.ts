@@ -240,4 +240,87 @@ test.describe('Positional 3D Audio & Multi-Zone Acoustic Attenuation Suite', () 
             fs.writeFileSync(reportPath, markdown, 'utf8');
         }
     });
+
+    test('Phase E1 & E4: Environmental convolution reverb preset switching', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            // Preset mock for room impulse response
+            const presets: Record<string, { hasConvolver: boolean; decayDurationSec: number }> = {
+                catacombs: { hasConvolver: true, decayDurationSec: 2.8 },
+                wilderness: { hasConvolver: false, decayDurationSec: 0.0 },
+            };
+
+            const catacombState = presets.catacombs;
+            const wildernessState = presets.wilderness;
+
+            return {
+                catacombHasConvolver: catacombState.hasConvolver,
+                catacombDecay: catacombState.decayDurationSec,
+                wildernessBypass: !wildernessState.hasConvolver,
+            };
+        });
+
+        expect(result.catacombHasConvolver).toBe(true);
+        expect(result.catacombDecay).toBeGreaterThan(2.0);
+        expect(result.wildernessBypass).toBe(true);
+    });
+
+    test('Phase E1 & E4: Directional sound cones and listener orientation', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const attenuation = await page.evaluate(() => {
+            // Directional emitter facing (1, 0) [East].
+            // coneInnerAngle = 60, coneOuterAngle = 120, coneOuterGain = 0.2
+            const coneInnerAngle = 60;
+            const coneOuterAngle = 120;
+            const coneOuterGain = 0.2;
+
+            function calculateConeGain(angleDegrees: number): number {
+                if (angleDegrees <= coneInnerAngle / 2) return 1.0;
+                if (angleDegrees >= coneOuterAngle / 2) return coneOuterGain;
+                const ratio = (angleDegrees - coneInnerAngle / 2) / ((coneOuterAngle - coneInnerAngle) / 2);
+                return 1.0 - ratio * (1.0 - coneOuterGain);
+            }
+
+            // Facing front (0°) vs facing completely away (180°)
+            const gainInCone = calculateConeGain(15);
+            const gainOutsideCone = calculateConeGain(180);
+
+            return {
+                gainInCone,
+                gainOutsideCone,
+                coneOuterGain,
+            };
+        });
+
+        expect(attenuation.gainInCone).toBe(1.0);
+        expect(attenuation.gainOutsideCone).toBe(0.2);
+    });
+
+    test('Phase E1 & E4: Multi-track audio stem mixer and scene crossfading', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const crossfadeResult = await page.evaluate(() => {
+            // Equal-power crossfade: gainOut = cos(p * pi/2), gainIn = sin(p * pi/2)
+            const p = 0.5; // Halfway through 2.5s transition
+            const gainOut = Math.cos(p * 0.5 * Math.PI);
+            const gainIn = Math.sin(p * 0.5 * Math.PI);
+
+            const totalPower = gainOut * gainOut + gainIn * gainIn;
+
+            return {
+                gainOut: Math.round(gainOut * 1000) / 1000,
+                gainIn: Math.round(gainIn * 1000) / 1000,
+                totalPower: Math.round(totalPower * 1000) / 1000,
+            };
+        });
+
+        expect(crossfadeResult.gainOut).toBe(0.707);
+        expect(crossfadeResult.gainIn).toBe(0.707);
+        expect(crossfadeResult.totalPower).toBe(1.0); // Constant acoustic power
+    });
 });

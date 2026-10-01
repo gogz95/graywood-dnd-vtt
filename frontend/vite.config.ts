@@ -1,12 +1,13 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [svelte() as any],
   test: {
-    include: ['src/**/*.{test,spec}.{ts,js}'],
-    exclude: ['**/node_modules/**', '**/dist/**'],
+    root: path.resolve(import.meta.dirname),
+    include: ['src/**/*.{test,spec}.{ts,js}', 'frontend/src/**/*.{test,spec}.{ts,js}'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/tests/**', 'tests/**'],
     globals: true,
   },
   resolve: {
@@ -24,11 +25,26 @@ export default defineConfig({
           if (id.includes('srdCompendiumSeed.json')) {
             return 'compendium-data';
           }
-          if (id.includes('pdfjs-dist')) {
+          if (id.includes('node_modules/pixi.js') || id.includes('node_modules/@pixi') || id.includes('pixi.js') || id.includes('@pixi')) {
+            return 'pixi-vendor';
+          }
+          if (id.includes('node_modules/dexie') || id.includes('dexie')) {
+            return 'dexie-vendor';
+          }
+          if (id.includes('node_modules/pdfjs-dist') || id.includes('pdfjs-dist')) {
             return 'pdf-vendor';
           }
-          if (id.includes('pixi.js') || id.includes('@pixi')) {
-            return 'pixi-vendor';
+          if (id.includes('node_modules/leaflet') || id.includes('leaflet')) {
+            return 'leaflet-vendor';
+          }
+          if (id.includes('node_modules/jszip') || id.includes('jszip')) {
+            return 'jszip-vendor';
+          }
+          if (id.includes('node_modules/svelte') || id.includes('@sveltejs')) {
+            return 'svelte-vendor';
+          }
+          if (id.includes('node_modules/@tauri-apps')) {
+            return 'tauri-vendor';
           }
           if (id.includes('/routes/play/') || id.includes('\\routes\\play\\')) {
             return 'route-play';
@@ -43,10 +59,7 @@ export default defineConfig({
             return 'route-portal';
           }
           if (id.includes('node_modules')) {
-            if (id.includes('jszip')) return 'jszip-vendor';
-            if (id.includes('dexie')) return 'dexie-vendor';
-            if (id.includes('@tauri-apps')) return 'tauri-vendor';
-            if (id.includes('svelte')) return 'svelte-vendor';
+            return 'vendor';
           }
         },
       },

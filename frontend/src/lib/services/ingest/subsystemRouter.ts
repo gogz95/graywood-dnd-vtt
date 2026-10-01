@@ -71,6 +71,47 @@ async function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+async function persistMapVectorToBackend(
+  mapId: string,
+  name: string,
+  gridSize: number,
+  walls: MapWall[] = []
+): Promise<void> {
+  const wallPayload = walls.map((w) => ({
+    id: w.id,
+    x1: w.p1.x,
+    y1: w.p1.y,
+    x2: w.p2.x,
+    y2: w.p2.y,
+    blocks_light: true,
+    blocks_movement: !w.type.startsWith('door_open'),
+  }));
+  const req = {
+    map_id: mapId,
+    name,
+    grid_size: gridSize,
+    walls: wallPayload,
+  };
+  try {
+    const win = typeof window !== 'undefined' ? (window as any) : {};
+    if (win.__TAURI__?.core?.invoke) {
+      await win.__TAURI__.core.invoke('save_map_vector_geometry', { request: req });
+      return;
+    }
+  } catch {
+    // fallback
+  }
+  try {
+    await fetch('/api/campaign/save-map-vector', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+  } catch (err) {
+    console.warn('[SubsystemRouter] SQLite map vector persistence warning:', err);
+  }
+}
+
 /**
  * Helper to get the contents of a queue item as string.
  * Text extraction is offloaded to the background parse worker so large vault
@@ -80,10 +121,13 @@ async function blobToBase64(blob: Blob): Promise<string> {
  */
 async function getItemText(item: IngestQueueItem): Promise<string> {
   let raw = '';
-  if (item.file) {
+  if (item.content) {
+    raw = item.content;
+  } else if (item.file) {
     raw = await (item.file as Blob).text();
   } else if (item.fullPath) {
-    const res = await fetch(`/api/campaign/assets/${item.relativePath}`);
+    const cleanRel = (item.relativePath || '').replace(/\\/g, '/');
+    const res = await fetch(`/api/campaign/assets/${cleanRel}`);
     if (res.ok) raw = await res.text();
   }
   if (!raw) {
@@ -321,6 +365,23 @@ async function routeSourceMaterial(
   if (result.tables.length > 0) {
     await compendiumDb.ingestedTables.bulkAdd(result.tables);
   }
+
+  // Persist markdown note directly into compendiumDb.journal
+  if (compendiumDb.journal) {
+    await compendiumDb.journal.put({
+      id: `journal-${item.name}`,
+      title: item.name.replace(/\.[^/.]+$/, ''),
+      category: 'Lore',
+      content: text,
+      sourceBook: item.name,
+      packageId: 'notes',
+      createdAt: Date.now(),
+    });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('vtt:journal-updated'));
+    }
+  }
+
   await notifyMonstersUpdated();
 
   return {
@@ -361,6 +422,56 @@ async function routeImageOrMap(
   }
 
   if (isToken) {
+    await compendiumDb.media.put({
+      id: `token-${item.name}`,
+      name: item.name,
+      sourceBook: 'Campaign Tokens',
+      mimeType: item.mimeType || 'image/png',
+      createdAt: Date.now(),
+      url: fileUrl,
+      category: 'token',
+    });
+
+    // Mirror token into compendiumDb.monsters for immediate actor compendium visibility
+    const cleanActorName = item.name
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[-_]token/i, '')
+      .replace(/[-_]/g, ' ')
+      .trim();
+    const existingMonster = await compendiumDb.monsters
+      .where('name')
+      .equalsIgnoreCase(cleanActorName)
+      .first();
+    if (!existingMonster) {
+      await compendiumDb.monsters.put({
+        id: `actor-token-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name: cleanActorName,
+        cr: 1,
+        size: 'Medium',
+        type: 'humanoid',
+        alignment: 'unaligned',
+        ac: 10,
+        hp: 10,
+        speed: '30 ft.',
+        str: 10,
+        dex: 10,
+        con: 10,
+        int: 10,
+        wis: 10,
+        cha: 10,
+        actions: [{ name: 'Token Action', description: 'Custom action for ingested token actor.' }],
+        sourceBook: 'Campaign Tokens',
+        packageId: 'tokens',
+        origin: 'USER_IMPORT',
+      });
+    }
+
+    await notifyMonstersUpdated();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('compendium:tokens-updated', { detail: { token: item.name, url: fileUrl } })
+      );
+    }
     return { success: true, summary: `Saved token portrait to tokens/${item.name}` };
   }
 
@@ -460,9 +571,26 @@ async function routeImageOrMap(
       canvasStore.setSceneLights(sceneLights);
     }
 
-    await mapsDb.tacticalMaps.put(
-      createTacticalMapRecord(mapId, item.name.replace(/\.[^/.]+$/, ''), ppg, walls, blob)
+    const mapRecord = createTacticalMapRecord(
+      mapId,
+      item.name.replace(/\.[^/.]+$/, ''),
+      ppg,
+      walls,
+      blob
     );
+    await mapsDb.tacticalMaps.put(mapRecord);
+
+    // Persist resolution, grid size, and wall colliders into SQLite backend
+    await persistMapVectorToBackend(
+      mapId,
+      item.name.replace(/\.[^/.]+$/, ''),
+      ppg,
+      walls
+    );
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('vtt:maps-updated'));
+    }
 
     return {
       success: true,
@@ -478,6 +606,9 @@ async function routeImageOrMap(
     await mapsDb.tacticalMaps.put(
       createTacticalMapRecord(mapId, watabou.name || item.name.replace(/\.[^/.]+$/, ''), 50, [], blob)
     );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('vtt:maps-updated'));
+    }
     return {
       success: true,
       summary: `Registered Watabou settlement with ${watabou.districts.length} districts & ${watabou.buildings.length} buildings`,
@@ -486,11 +617,29 @@ async function routeImageOrMap(
 
   // Standard Raster Image Map (png, jpg, webp)
   const mapId = `map-${Date.now()}`;
-  await mapsDb.tacticalMaps.put(
-    createTacticalMapRecord(mapId, item.name.replace(/\.[^/.]+$/, ''), 60, [], blob)
+  const gridSize = item.gridSize || 60;
+  const rasterMapRecord = createTacticalMapRecord(
+    mapId,
+    item.name.replace(/\.[^/.]+$/, ''),
+    gridSize,
+    [],
+    blob
+  );
+  await mapsDb.tacticalMaps.put(rasterMapRecord);
+
+  // Persist raster map record into SQLite
+  await persistMapVectorToBackend(
+    mapId,
+    item.name.replace(/\.[^/.]+$/, ''),
+    gridSize,
+    []
   );
 
-  return { success: true, summary: `Saved map to maps/${item.name} and calibrated 60px grid layer` };
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('vtt:maps-updated'));
+  }
+
+  return { success: true, summary: `Saved map to maps/${item.name} and calibrated ${gridSize}px grid layer` };
 }
 
 /**

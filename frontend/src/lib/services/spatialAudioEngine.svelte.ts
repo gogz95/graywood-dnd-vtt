@@ -8,6 +8,8 @@ import { queryWallsInRadius, type LineSegment } from '../canvas/raycastVisionEng
 
 const STORAGE_PREFIX = 'vtt_spatial_emitters_';
 
+export type ReverbPreset = 'catacomb' | 'tavern' | 'outdoors';
+
 interface ActiveNodeInstance {
   emitterId: string;
   sourceNode: AudioBufferSourceNode | MediaElementAudioSourceNode | null;
@@ -15,6 +17,7 @@ interface ActiveNodeInstance {
   gainNode: GainNode;
   pannerNode: StereoPannerNode | PannerNode | null;
   occlusionFilter: BiquadFilterNode | null;
+  reverbSendNode: GainNode | null;
   proceduralInterval: ReturnType<typeof setInterval> | null;
   isPlaying: boolean;
 }
@@ -25,8 +28,11 @@ class SpatialAudioEngine {
   selectedEmitterId = $state<string | null>(null);
   masterEnabled = $state<boolean>(true);
   currentMapKey = $state<string>('');
+  currentReverbPreset = $state<ReverbPreset>('outdoors');
 
   private ctx: AudioContext | null = null;
+  private convolverNode: ConvolverNode | null = null;
+  private reverbWetGain: GainNode | null = null;
   private instances = new Map<string, ActiveNodeInstance>();
   private audioBufferCache = new Map<string, AudioBuffer>();
   private updateFrameId: number | null = null;
@@ -39,11 +45,61 @@ class SpatialAudioEngine {
     }
   }
 
+  // ── Procedural Impulse Response Synthesizer ────────────────────────────────
+  /**
+   * Generates a procedural impulse response buffer:
+   * - catacomb: 2.5s decay with high stone reflection density and dark tail
+   * - tavern: 0.8s warm wooden room decay
+   * - outdoors: 0.1s dry/minimal reflection
+   */
+  public generateImpulseResponse(ctx: AudioContext, duration: number, decay: number): AudioBuffer {
+    const sampleRate = ctx.sampleRate;
+    const length = Math.floor(sampleRate * duration);
+    const impulse = ctx.createBuffer(2, length, sampleRate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+
+    for (let i = 0; i < length; i++) {
+      const t = i / length;
+      const envelope = Math.exp(-t * decay);
+      left[i] = (Math.random() * 2 - 1) * envelope;
+      right[i] = (Math.random() * 2 - 1) * envelope;
+    }
+    return impulse;
+  }
+
+  public setEnvironmentPreset(preset: ReverbPreset): void {
+    this.currentReverbPreset = preset;
+    if (!this.ctx || !this.convolverNode || !this.reverbWetGain) return;
+
+    if (preset === 'outdoors') {
+      // Dry/bypassed
+      this.reverbWetGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+    } else if (preset === 'tavern') {
+      // 0.8s warm wood decay
+      this.convolverNode.buffer = this.generateImpulseResponse(this.ctx, 0.8, 3.5);
+      this.reverbWetGain.gain.setTargetAtTime(0.25, this.ctx.currentTime, 0.05);
+    } else if (preset === 'catacomb') {
+      // 2.5s stone reverb with high wet mix
+      this.convolverNode.buffer = this.generateImpulseResponse(this.ctx, 2.5, 2.0);
+      this.reverbWetGain.gain.setTargetAtTime(0.65, this.ctx.currentTime, 0.05);
+    }
+  }
+
   // ── Audio Context Initialization ───────────────────────────────────────────
   private async getAudioContext(): Promise<AudioContext | null> {
     if (typeof window === 'undefined') return null;
     if (!this.ctx) {
       this.ctx = await audioEngine.resumeContext();
+      if (this.ctx) {
+        // Build global Environmental Convolver Reverb chain
+        this.convolverNode = this.ctx.createConvolver();
+        this.reverbWetGain = this.ctx.createGain();
+        this.reverbWetGain.gain.setValueAtTime(0, this.ctx.currentTime); // default dry/outdoors
+
+        this.convolverNode.connect(this.reverbWetGain);
+        this.reverbWetGain.connect(this.ctx.destination);
+      }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
       await this.ctx.resume();
@@ -136,13 +192,45 @@ class SpatialAudioEngine {
     occlusionFilter.frequency.setValueAtTime(20000, ctx.currentTime);
     occlusionFilter.Q.setValueAtTime(0.707, ctx.currentTime);
 
+    // Reverb send gain node connecting into the global ConvolverNode
+    const reverbSendNode = ctx.createGain();
+    reverbSendNode.gain.setValueAtTime(0.3, ctx.currentTime);
+    if (this.convolverNode) {
+      occlusionFilter.connect(reverbSendNode);
+      reverbSendNode.connect(this.convolverNode);
+    }
+
+    // PannerNode: supports 3D spatial panning & directional sound cones
     let pannerNode: StereoPannerNode | PannerNode | null = null;
-    if (typeof ctx.createStereoPanner === 'function') {
-      pannerNode = ctx.createStereoPanner();
-      pannerNode.pan.setValueAtTime(0, ctx.currentTime);
+    if (typeof ctx.createPanner === 'function') {
+      const panner = ctx.createPanner();
+      panner.panningModel = 'HRTF';
+      panner.distanceModel = 'linear';
+      panner.refDistance = Math.max(1, emitter.innerRadius);
+      panner.maxDistance = Math.max(emitter.innerRadius + 1, emitter.outerRadius);
+      panner.rolloffFactor = 1.0;
+
+      // Configure directional sound cone if specified (e.g. dragon breath, waterfall stream)
+      if (emitter.coneInnerAngle !== undefined) {
+        panner.coneInnerAngle = emitter.coneInnerAngle;
+        panner.coneOuterAngle = emitter.coneOuterAngle ?? (emitter.coneInnerAngle + 60);
+        panner.coneOuterGain = emitter.coneOuterGain ?? 0.2;
+        panner.orientationX.setValueAtTime(emitter.orientationX ?? 1, ctx.currentTime);
+        panner.orientationY.setValueAtTime(emitter.orientationY ?? 0, ctx.currentTime);
+        panner.orientationZ.setValueAtTime(0, ctx.currentTime);
+      }
+
       gainNode.connect(occlusionFilter);
-      occlusionFilter.connect(pannerNode);
-      pannerNode.connect(ctx.destination);
+      occlusionFilter.connect(panner);
+      panner.connect(ctx.destination);
+      pannerNode = panner;
+    } else if (typeof ctx.createStereoPanner === 'function') {
+      const panner = ctx.createStereoPanner();
+      panner.pan.setValueAtTime(0, ctx.currentTime);
+      gainNode.connect(occlusionFilter);
+      occlusionFilter.connect(panner);
+      panner.connect(ctx.destination);
+      pannerNode = panner;
     } else {
       gainNode.connect(occlusionFilter);
       occlusionFilter.connect(ctx.destination);
@@ -155,6 +243,7 @@ class SpatialAudioEngine {
       gainNode,
       pannerNode,
       occlusionFilter,
+      reverbSendNode,
       proceduralInterval: null,
       isPlaying: true,
     };
@@ -338,16 +427,30 @@ class SpatialAudioEngine {
       inst.gainNode.gain.setTargetAtTime(occludedGain, this.ctx.currentTime, 0.05);
     }
 
-    // Stereo Panning (-1.0 left to +1.0 right)
-    if (inst.pannerNode && 'pan' in inst.pannerNode) {
-      const maxSpreadPx = (outer / 5) * gridSize;
-      const panRaw = maxSpreadPx > 0 ? dx / maxSpreadPx : 0;
-      const panClamped = Math.max(-1.0, Math.min(1.0, panRaw));
-      (inst.pannerNode as StereoPannerNode).pan.setTargetAtTime(
-        panClamped,
-        this.ctx.currentTime,
-        0.05
-      );
+    // Stereo Panning or 3D Directional Panning
+    if (inst.pannerNode) {
+      if ('positionX' in inst.pannerNode) {
+        // Standard Web Audio 3D PannerNode with directional cone
+        const p3d = inst.pannerNode as PannerNode;
+        p3d.positionX.setTargetAtTime(emitter.x, this.ctx.currentTime, 0.05);
+        p3d.positionY.setTargetAtTime(emitter.y, this.ctx.currentTime, 0.05);
+        p3d.positionZ.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+
+        if (emitter.orientationX !== undefined || emitter.orientationY !== undefined) {
+          p3d.orientationX.setTargetAtTime(emitter.orientationX ?? 1, this.ctx.currentTime, 0.05);
+          p3d.orientationY.setTargetAtTime(emitter.orientationY ?? 0, this.ctx.currentTime, 0.05);
+          p3d.orientationZ.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+        }
+      } else if ('pan' in inst.pannerNode) {
+        const maxSpreadPx = (outer / 5) * gridSize;
+        const panRaw = maxSpreadPx > 0 ? dx / maxSpreadPx : 0;
+        const panClamped = Math.max(-1.0, Math.min(1.0, panRaw));
+        (inst.pannerNode as StereoPannerNode).pan.setTargetAtTime(
+          panClamped,
+          this.ctx.currentTime,
+          0.05
+        );
+      }
     }
   }
 

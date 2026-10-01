@@ -101,24 +101,61 @@
     isSelectingFolder = true;
     verifyError = null;
     try {
-      const info: any = await campaignDirectoryStore.selectDirectory();
-      if (!info) {
-        if (campaignDirectoryStore.errorMessage) {
-          verifyError = campaignDirectoryStore.errorMessage;
+      let resolvedPath: string | null = null;
+      const win = typeof window !== 'undefined' ? (window as any) : {};
+
+      // 1. Try Tauri v2 plugin-dialog
+      let dialog = win.__TAURI__?.dialog ?? win.__TAURI_PLUGIN_DIALOG__;
+      if (!dialog) {
+        try {
+          const mod = '@tauri-apps/plugin-dialog';
+          dialog = await import(/* @vite-ignore */ mod);
+        } catch {
+          // ignore
         }
-        return;
       }
 
-      const resolvedPath: string | undefined =
-        typeof info === 'string'
-          ? info
-          : (info.root_path ?? info.path ?? info.directoryPath);
+      if (dialog && typeof dialog.open === 'function') {
+        const selected = await dialog.open({
+          directory: true,
+          multiple: false,
+          title: 'Select Campaign Directory',
+        });
+        if (selected) {
+          resolvedPath = Array.isArray(selected) ? selected[0] : selected;
+        }
+      }
 
-      if (resolvedPath) {
-        manualPath = resolvedPath;
-        await runVerify(resolvedPath);
-      } else {
-        verifyError = 'No valid folder path returned from file picker.';
+      // 2. Try Tauri IPC command open_directory_dialog
+      if (!resolvedPath && win.__TAURI__?.core?.invoke) {
+        try {
+          const ipcPath = await win.__TAURI__.core.invoke('open_directory_dialog');
+          if (ipcPath && typeof ipcPath === 'string' && ipcPath.trim()) {
+            resolvedPath = ipcPath.trim();
+          }
+        } catch (ipcErr) {
+          console.warn('[FolderPicker] IPC open_directory_dialog failed:', ipcErr);
+        }
+      }
+
+      // 3. Fallback to unified campaignDirectoryStore picker
+      if (!resolvedPath) {
+        const info: any = await campaignDirectoryStore.selectDirectory();
+        if (info) {
+          resolvedPath =
+            typeof info === 'string'
+              ? info
+              : (info.root_path ?? info.path ?? info.directoryPath);
+        }
+      }
+
+      if (resolvedPath && typeof resolvedPath === 'string' && resolvedPath.trim()) {
+        const clean = resolvedPath.trim();
+        manualPath = clean;
+        selectedDirectory = clean;
+        await runVerify(clean);
+      } else if (campaignDirectoryStore.errorMessage) {
+        verifyError = campaignDirectoryStore.errorMessage;
       }
     } catch (err: any) {
       console.error('[FolderPicker]', err);

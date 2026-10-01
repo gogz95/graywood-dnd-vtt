@@ -320,7 +320,11 @@ export function executeAssayConversion(sunDisksToConvert: number): {
   return { mintedSovereigns, assayFeeRetained };
 }
 
-export async function executeShortRest(hpRecovered: number, hitDiceSpent: number): Promise<void> {
+export async function executeShortRest(
+  hpRecovered: number,
+  hitDiceSpent: number,
+  pactSlotsRecovered: boolean = true
+): Promise<void> {
   const current = get(characterStore);
   const token = get(tokenStore);
   if (!current) return;
@@ -328,10 +332,33 @@ export async function executeShortRest(hpRecovered: number, hitDiceSpent: number
   const nextHp = Math.min(current.max_hp, current.current_hp + hpRecovered);
   const nextHd = Math.max(0, current.hit_dice_current - hitDiceSpent);
 
-  // Reset resources flagged with resetOn: 'short'
+  // Reset resources flagged with resetOn: 'short', specifically restoring Action Surge, Second Wind, Monk Ki, and Pact slots
   classResourcesStore.update((resources) =>
-    resources.map((r) => (r.resetOn === 'short' ? { ...r, used: 0 } : r))
+    resources.map((r) => {
+      const isShortReset =
+        r.resetOn === 'short' ||
+        r.id === 'res-surge' ||
+        r.id === 'res-second-wind' ||
+        r.id === 'res-ki' ||
+        r.name.toLowerCase().includes('action surge') ||
+        r.name.toLowerCase().includes('second wind') ||
+        r.name.toLowerCase().includes('ki') ||
+        r.name.toLowerCase().includes('pact');
+      return isShortReset ? { ...r, used: 0 } : r;
+    })
   );
+
+  // Restore Warlock Pact Magic slots on Short Rest
+  if (pactSlotsRecovered) {
+    spellSlotsStore.update((slots) =>
+      slots.map((s) => {
+        if ((s as any).isPactMagic || (s as any).name?.toLowerCase().includes('pact')) {
+          return { ...s, used: 0 };
+        }
+        return s;
+      })
+    );
+  }
 
   characterStore.update((c) =>
     c ? { ...c, current_hp: nextHp, hit_dice_current: nextHd } : null
@@ -446,4 +473,32 @@ export function applyBlackOrbToggleFromWs(characterId: string, isOrbSealed: bool
   if (char && char.id === characterId) {
     characterStore.update((c) => (c ? { ...c, is_orb_sealed: isOrbSealed } : null));
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 5E SRD DERIVED STATS ENGINE (Adapted from 5e-bits/5e-database)
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface Derived5eStats {
+  spellSaveDc: number;
+  spellAttackBonus: number;
+  passivePerception: number;
+}
+
+/**
+ * Computes official 5e SRD derived spellcasting and sensory values:
+ * - Spell Save DC: 8 + proficiencyBonus + spellcastingAbilityMod
+ * - Spell Attack Bonus: proficiencyBonus + spellcastingAbilityMod
+ * - Passive Perception: 10 + perceptionSkillMod
+ */
+export function calculateDerived5eStats(
+  proficiencyBonus: number,
+  spellcastingAbilityMod: number,
+  perceptionSkillMod: number
+): Derived5eStats {
+  return {
+    spellSaveDc: 8 + proficiencyBonus + spellcastingAbilityMod,
+    spellAttackBonus: proficiencyBonus + spellcastingAbilityMod,
+    passivePerception: 10 + perceptionSkillMod,
+  };
 }

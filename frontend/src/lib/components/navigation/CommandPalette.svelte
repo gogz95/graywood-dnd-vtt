@@ -52,6 +52,12 @@
     isOpen = false;
   }
 
+  $effect(() => {
+    if (isOpen) {
+      setTimeout(() => inputEl?.focus(), 40);
+    }
+  });
+
   function handleKeyDown(e: KeyboardEvent) {
     if (!isOpen) return;
 
@@ -459,7 +465,14 @@
       tabindex="-1"
       aria-label="Tactical Command Palette"
       onclick={(e) => e.stopPropagation()}
-      onkeydown={(e) => e.stopPropagation()}
+      onkeydown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          close();
+        } else {
+          e.stopPropagation();
+        }
+      }}
     >
       <!-- Search Input Header -->
       <div class="flex items-center gap-3 px-4 py-3 bg-slate-950/80 border-b border-slate-800">

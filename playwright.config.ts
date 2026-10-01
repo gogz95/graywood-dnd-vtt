@@ -7,4 +7,10 @@ export default defineConfig({
   use: {
     headless: true,
   },
+  webServer: {
+    command: 'npm --prefix frontend run dev',
+    port: 5173,
+    reuseExistingServer: true,
+    timeout: 120000,
+  },
 });

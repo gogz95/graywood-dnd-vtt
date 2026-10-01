@@ -193,6 +193,11 @@ export class CalendarEngine {
     // Trigger hooks: active spell timers
     this.tickSpellTimers(secondsToAdd);
 
+    // Celestial Event hook: Check for Full Moon phases to tag Lycanthrope actors
+    if (extraDays > 0 || secondsToAdd >= 3600) {
+      this.checkCelestialFullMoonHook();
+    }
+
     // Weather shift (probabilistic shift on time jumps > 6 hours)
     if (secondsToAdd >= 6 * 3600) {
       this.updateWeather();
@@ -415,6 +420,52 @@ export class CalendarEngine {
     if (h >= 14 && h < 18) return 'Afternoon';
     if (h >= 18 && h < 20) return 'Dusk';
     return 'Night';
+  }
+
+  /**
+   * Celestial Event Hook: Evaluates active moon phases and fires custom event
+   * when any moon achieves Full Moon phase, tagging Lycanthrope actors in the compendium.
+   */
+  public async checkCelestialFullMoonHook(): Promise<void> {
+    const phases = this.getMoonPhases();
+    const fullMoon = phases.find((p) => p.phase === 'Full Moon');
+    if (!fullMoon) return;
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('onCelestialEvent', {
+          detail: {
+            type: 'FULL_MOON',
+            moonName: fullMoon.moonName,
+            illumination: fullMoon.illumination,
+            dateTime: { ...this.currentTime },
+          },
+        })
+      );
+    }
+
+    // Tag Lycanthrope monster records in compendiumDb with active lunar frenzy flag
+    try {
+      if (compendiumDb && compendiumDb.monsters) {
+        const lycanthropes = await compendiumDb.monsters
+          .filter((m) => !!m.name && /werewolf|weretiger|werebear|wereboar|wererat/i.test(m.name))
+          .toArray();
+
+        for (const mon of lycanthropes) {
+          await compendiumDb.monsters.update(mon.id, {
+            traits: [
+              ...(mon.traits || []),
+              {
+                name: `Lunar Frenzy (${fullMoon.moonName})`,
+                description: 'Under the light of the full moon, this lycanthrope has advantage on Strength checks and melee attack rolls.',
+              },
+            ],
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[CalendarEngine] Celestial hook error:', e);
+    }
   }
 }
 

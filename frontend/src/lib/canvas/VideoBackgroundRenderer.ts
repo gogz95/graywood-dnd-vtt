@@ -17,9 +17,33 @@ export class VideoBackgroundRenderer {
   private sprite: Sprite | null = null;
   private isDestroyed: boolean = false;
   private onFrameUpdate?: (video: HTMLVideoElement) => void;
+  private contextLostHandler: (() => void) | null = null;
+  private contextRestoredHandler: (() => void) | null = null;
 
   constructor(options?: { onFrameUpdate?: (video: HTMLVideoElement) => void }) {
     this.onFrameUpdate = options?.onFrameUpdate;
+    this.bindContextListeners();
+  }
+
+  private bindContextListeners() {
+    if (typeof window === 'undefined') return;
+    this.contextLostHandler = () => {
+      this.pause();
+    };
+    this.contextRestoredHandler = () => {
+      if (this.videoEl && !this.isDestroyed) {
+        try {
+          this.texture = Texture.from(this.videoEl);
+          if (this.sprite) {
+            this.sprite.texture = this.texture;
+          }
+        } catch (_) {}
+        this.play().catch(() => {});
+      }
+    };
+
+    window.addEventListener('webglcontextlost', this.contextLostHandler);
+    window.addEventListener('webglcontextrestored', this.contextRestoredHandler);
   }
 
   /**
@@ -189,6 +213,14 @@ export class VideoBackgroundRenderer {
    */
   public destroy(): void {
     this.isDestroyed = true;
+    if (typeof window !== 'undefined') {
+      if (this.contextLostHandler) {
+        window.removeEventListener('webglcontextlost', this.contextLostHandler);
+      }
+      if (this.contextRestoredHandler) {
+        window.removeEventListener('webglcontextrestored', this.contextRestoredHandler);
+      }
+    }
     this.cleanup();
   }
 }

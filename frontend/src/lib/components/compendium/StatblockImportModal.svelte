@@ -4,6 +4,7 @@
 <script lang="ts">
   import { parseStatblock, parsedToMonster, type ParsedStatblock, type ParsedAction } from '../../services/statblockParser';
   import { compendiumDb } from '../../db/compendiumDb';
+  import { canvasStore } from '../../../stores/canvasStore.svelte';
 
   interface Props {
     isOpen?: boolean;
@@ -50,6 +51,47 @@
   function clearAll() {
     rawText = '';
     parsed = null;
+  }
+
+  function spawnToActiveScene() {
+    if (!parsed) return;
+    const monsterName = parsed.name || 'Monster';
+    const hp = parsed.hp?.average || 15;
+    const ac = parsed.ac?.value || 12;
+
+    // Find first unallocated grid coordinate
+    const occupied = new Set(canvasStore.tokens.map((t) => `${t.x},${t.y}`));
+    let spawnGx = 1;
+    let spawnGy = 1;
+    for (let r = 1; r < 30; r++) {
+      let found = false;
+      for (let c = 1; c < 30; c++) {
+        if (!occupied.has(`${c},${r}`)) {
+          spawnGx = c;
+          spawnGy = r;
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
+
+    canvasStore.addToken({
+      id: `token-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: monsterName,
+      x: spawnGx,
+      y: spawnGy,
+      hp,
+      maxHp: hp,
+      ac,
+      color: '#ef4444',
+      isPlayer: false,
+      size: 1,
+      elevation: 0,
+      conditions: [],
+    });
+
+    showToast(`⚔️ Spawned "${monsterName}" at (${spawnGx}, ${spawnGy})`);
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -139,6 +181,13 @@ Shortbow. Ranged Weapon Attack: +4 to hit, range 80/320 ft., one target. Hit: 5 
         </div>
         <div class="flex items-center gap-2">
           {#if parsed}
+            <button
+              type="button"
+              onclick={spawnToActiveScene}
+              class="px-3 py-1.5 bg-gradient-to-r from-indigo-700 to-violet-700 hover:from-indigo-600 hover:to-violet-600 text-white font-bold text-xs rounded-xl transition-all shadow-lg"
+            >
+              ⚔️ Spawn to Scene
+            </button>
             <button
               type="button"
               id="statblock-save-btn"

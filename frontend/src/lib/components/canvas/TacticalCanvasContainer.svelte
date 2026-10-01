@@ -5,7 +5,15 @@
   import { onMount, onDestroy } from 'svelte';
   import { parseDungeonScrawl, toggleDoorState, hitTestDoor, type WallSegment, type DoorPrimitive, type DungeonScrawlParsedMap } from '../../canvas/parsers/dungeonScrawlParser';
   import { parseWatabouGeoJson, hitTestBuildingParcel, assignParcelEntity, type WatabouCityMap, type BuildingParcel, type SettlementEntityType } from '../../canvas/parsers/watabouParser';
-  import { renderDynamicLighting, renderWallSegments, renderDoors, renderWatabouDistricts, type VisionSource } from '../../canvas/LightShadowRenderer';
+  import {
+    renderDynamicLighting,
+    renderExploredFogOfWar,
+    renderWallSegments,
+    renderDoors,
+    renderWatabouDistricts,
+    PointLight,
+    type VisionSource,
+  } from '../../canvas/LightShadowRenderer';
   import MapImportModal from './MapImportModal.svelte';
   import {
     executeLayerStackRender,
@@ -20,9 +28,10 @@
     renderRulerOnCanvas,
     calculateGridDistanceFeet,
   } from '../map/MeasurementTool';
-  import { snapToHex, hexAxialToPixel } from '../../canvas/gridCalculations';
+  import { snapToHex, hexAxialToPixel, snapByGridType } from '../../canvas/gridCalculations';
   import { findPath, type PathWaypoint } from '../../canvas/pathfindingEngine';
   import { wallsToLineSegments } from '../../canvas/raycastVisionEngine';
+  import { globalSpatialIndex } from '../../canvas/spatialIndex';
   import {
     renderConditionRingsOnCanvas,
     renderTurnReticleOnCanvas,
@@ -30,6 +39,8 @@
   } from '../map/TokenOverlay';
   import { targetingStore } from '../../stores/targetingStore.svelte';
   import GeneratorDrawer from '../map/GeneratorDrawer.svelte';
+  import GridCalibrationModal from '../map/GridCalibrationModal.svelte';
+  import { mapLayers } from '../../stores/mapLayerStore.svelte';
   import CanvasDrawingToolbar, { type DrawTool } from '../map/CanvasDrawingToolbar.svelte';
   import { chatStore } from '../../stores/chatStore.svelte';
   import { importDungeonScrawlFile } from '../../importers/dungeonScrawlImporter';
@@ -144,6 +155,37 @@
   // ── Tactical Operational Tools ─────────────────────────────────────────────
   let activeTool = $state<'select' | 'ruler' | 'circle' | 'cone' | 'cube' | 'line'>('select');
   let activeDrawingTool = $state<DrawTool>('select');
+  let showGridCalibration = $state(false);
+  let showFloorLayersDrawer = $state(false);
+  let showFogVisionPanel = $state(false);
+
+  function toggleVisionFogMode() {
+    showFogVisionPanel = !showFogVisionPanel;
+    if (showFogVisionPanel) {
+      activeDrawingTool = 'fog_carve';
+      activeTool = 'select';
+    } else {
+      activeDrawingTool = 'select';
+    }
+  }
+
+  function handleContextTool(e: Event) {
+    const detail = (e as CustomEvent<{ tool: string; active?: boolean }>).detail;
+    if (!detail) return;
+    if (detail.tool === 'ruler') {
+      activeTool = 'ruler';
+    } else if (detail.tool === 'grid') {
+      showGridCalibration = true;
+    } else if (detail.tool === 'fog') {
+      toggleVisionFogMode();
+    } else if (detail.tool === 'layers') {
+      showFloorLayersDrawer = !showFloorLayersDrawer;
+    }
+  }
+
+  function handleOpenGridCalibration() {
+    showGridCalibration = true;
+  }
   let aoePublic = $state(true);
   let rulerStart = $state<{ gx: number; gy: number } | null>(null);
   let animTime = $state(0);
@@ -210,7 +252,7 @@
       gridSize,
       gridOpacity,
       gridColor: `rgba(99, 102, 241, ${gridOpacity})`,
-      gridType,
+      gridType: gridType === 'hex_pointy' ? 'hex-v' : gridType === 'hex_flat' ? 'hex-h' : 'square',
       mapImage: (() => {
         // Prefer live video frame over static image
         if (videoRenderer?.isPlaying() && videoFrameCanvas && videoFrameCtx) {
@@ -270,30 +312,71 @@
           height: h / vpZoom,
         };
 
-        const visionSources: VisionSource[] = tokens.map(t => ({
-          id: t.id,
-          x: t.x * gridSize + gridSize / 2,
-          y: t.y * gridSize + gridSize / 2,
+        // Connect token movement coordinates directly to point light vision sources
+        const activeMovingTok = draggingToken && dragCurrentGrid ? {
+          id: draggingToken.id,
+          x: (dragCurrentGrid.gx + 0.5) * gridSize,
+          y: (dragCurrentGrid.gy + 0.5) * gridSize,
           radius: gridSize * 5,
-          color: t.isPlayer ? 'rgba(251, 191, 36, 0.2)' : 'rgba(239, 68, 68, 0.15)',
-        }));
+          color: draggingToken.isPlayer ? 'rgba(251, 191, 36, 0.25)' : 'rgba(239, 68, 68, 0.2)',
+        } : null;
+
+        const visionSources: VisionSource[] = tokens.map(t => {
+          if (activeMovingTok && t.id === activeMovingTok.id) {
+            return activeMovingTok;
+          }
+          const ptLight = new PointLight({
+            id: t.id,
+            x: t.x * gridSize + gridSize / 2,
+            y: t.y * gridSize + gridSize / 2,
+            radius: gridSize * 5,
+            color: t.isPlayer ? 'rgba(251, 191, 36, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+            attenuation: 1.5,
+          });
+          return ptLight.toVisionSource();
+        });
 
         // Merge imported UVTT/map point-light emitters into the vision pass
         for (const sceneLight of canvasStore.sceneLights) {
-          visionSources.push(sceneLight);
+          const ptLight = new PointLight({
+            id: sceneLight.id,
+            x: sceneLight.x,
+            y: sceneLight.y,
+            radius: sceneLight.radius,
+            color: sceneLight.color,
+            intensity: sceneLight.intensity,
+            attenuation: 1.8,
+          });
+          visionSources.push(ptLight.toVisionSource());
         }
 
         if (visionSources.length === 0 && walls.length > 0) {
-          visionSources.push({
+          const ambientLight = new PointLight({
             id: 'ambient-explorer-light',
             x: gridSize * 3,
             y: gridSize * 3,
             radius: gridSize * 6,
             color: 'rgba(251, 191, 36, 0.25)',
+            attenuation: 1.2,
           });
+          visionSources.push(ambientLight.toVisionSource());
         }
 
-        renderDynamicLighting(renderCtx, viewBounds, visionSources, walls, doors, 0.65);
+        if (canvasStore.fogExplored.length > 0) {
+          renderExploredFogOfWar(
+            renderCtx,
+            viewBounds,
+            visionSources,
+            walls,
+            doors,
+            canvasStore.fogExplored,
+            gridSize,
+            0.98,
+            0.72
+          );
+        } else {
+          renderDynamicLighting(renderCtx, viewBounds, visionSources, walls, doors, 0.65);
+        }
       }
 
       // Hovered cell highlight
@@ -304,7 +387,7 @@
 
       // Public & Private Spell AOE Overlays
       for (const aoe of canvasStore.aoeTemplates) {
-        renderAoeTemplateOnCanvas(renderCtx, aoe, gridSize);
+        renderAoeTemplateOnCanvas(renderCtx, aoe, gridSize, gridType);
       }
 
       // Active Vector Ruler Measurement
@@ -519,17 +602,8 @@
   }
 
   function worldToGrid(wx: number, wy: number) {
-    if (gridType === 'hex_pointy') {
-      const radius = gridSize / Math.sqrt(3);
-      const hex = snapToHex(wx, wy, radius, 'pointy');
-      return { gx: hex.q, gy: hex.r };
-    }
-    if (gridType === 'hex_flat') {
-      const radius = gridSize / Math.sqrt(3);
-      const hex = snapToHex(wx, wy, radius, 'flat');
-      return { gx: hex.q, gy: hex.r };
-    }
-    return { gx: Math.floor(wx / gridSize), gy: Math.floor(wy / gridSize) };
+    const snap = snapByGridType(wx, wy, gridSize, gridType, false);
+    return { gx: snap.gx, gy: snap.gy };
   }
 
   function tokenAt(gx: number, gy: number): MapToken | undefined {
@@ -661,6 +735,14 @@
       if (clickedDoor) {
         doors = toggleDoorState(doors, clickedDoor.id);
         canvasStore.toggleDoor(clickedDoor.id);
+        const updated = doors.find(d => d.id === clickedDoor.id);
+        const isClosed = updated ? updated.state === 'CLOSED' : false;
+        globalSpatialIndex.updateCollider(clickedDoor.id, {
+          minX: Math.min(clickedDoor.x1, clickedDoor.x2),
+          minY: Math.min(clickedDoor.y1, clickedDoor.y2),
+          maxX: Math.max(clickedDoor.x1, clickedDoor.x2),
+          maxY: Math.max(clickedDoor.y1, clickedDoor.y2),
+        }, 'door', isClosed, updated);
         return;
       }
 
@@ -728,31 +810,37 @@
 
     if (draggingToken) {
       dragCurrentGrid = { gx, gy };
-      isPathModifierActive = e.shiftKey;
+      isPathModifierActive = true;
 
-      if (e.shiftKey || activeDragPath.length > 0) {
-        const segs = wallsToLineSegments(walls);
-        const mapW = canvasEl.width || 1920;
-        const mapH = canvasEl.height || 1080;
-        const cols = Math.max(50, Math.ceil(mapW / gridSize) + 10);
-        const rows = Math.max(50, Math.ceil(mapH / gridSize) + 10);
+      // Update token position in spatial index during drag
+      const tokSize = (draggingToken.size || 1) * gridSize;
+      globalSpatialIndex.updateToken(draggingToken.id, {
+        minX: gx * gridSize,
+        minY: gy * gridSize,
+        maxX: gx * gridSize + tokSize,
+        maxY: gy * gridSize + tokSize,
+      }, draggingToken);
 
-        activeDragPath = findPath(
-          { gx: draggingToken.x, gy: draggingToken.y },
-          { gx, gy },
-          {
-            cols,
-            rows,
-            gridSize,
-            allowDiagonal: true,
-            diagonal5105: true,
-            walls: segs,
-            tokenSizeCells: draggingToken.size || 1,
-          }
-        );
-      } else {
-        activeDragPath = [];
-      }
+      // Live A* path calculation avoiding wall and closed door colliders
+      const segs = wallsToLineSegments(walls);
+      const mapW = canvasEl.width || 1920;
+      const mapH = canvasEl.height || 1080;
+      const cols = Math.max(50, Math.ceil(mapW / gridSize) + 10);
+      const rows = Math.max(50, Math.ceil(mapH / gridSize) + 10);
+
+      activeDragPath = findPath(
+        { gx: draggingToken.x, gy: draggingToken.y },
+        { gx, gy },
+        {
+          cols,
+          rows,
+          gridSize,
+          allowDiagonal: true,
+          diagonal5105: true,
+          walls: segs,
+          tokenSizeCells: draggingToken.size || 1,
+        }
+      );
     }
   }
 
@@ -778,7 +866,7 @@
   }
 
   function handleToggleFogTool() {
-    activeDrawingTool = activeDrawingTool === 'fog_carve' ? 'select' : 'fog_carve';
+    toggleVisionFogMode();
   }
 
   function handleTriggerPing() {
@@ -786,7 +874,7 @@
     const rect = canvasEl.getBoundingClientRect();
     const { wx, wy } = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
     const { gx, gy } = worldToGrid(wx, wy);
-    targetingStore.setReticule(gx, gy);
+    broadcastPingPoint({ x: gx, y: gy });
   }
 
   function handleMouseUp(e: MouseEvent) {
@@ -893,6 +981,7 @@
         e.preventDefault();
         tokens = tokens.filter(t => t.id !== tokIdToDelete);
         canvasStore.tokens = canvasStore.tokens.filter(t => t.id !== tokIdToDelete);
+        globalSpatialIndex.remove(tokIdToDelete);
         if (canvasStore.activeTokenId === tokIdToDelete) {
           canvasStore.setActiveToken(null);
         }
@@ -974,7 +1063,10 @@
     spawnName = '';
   }
 
-  function removeToken(id: string) { tokens = tokens.filter(t => t.id !== id); }
+  function removeToken(id: string) {
+    tokens = tokens.filter(t => t.id !== id);
+    globalSpatialIndex.remove(id);
+  }
 
   async function handleCastBattlemat() {
     try {
@@ -1180,6 +1272,25 @@
     vpX = 0;
     vpY = 0;
     vpZoom = 1.0;
+
+    // Populate spatial index with loaded walls and closed doors
+    for (const w of map.walls) {
+      globalSpatialIndex.updateCollider(w.id, {
+        minX: Math.min(w.x1, w.x2),
+        minY: Math.min(w.y1, w.y2),
+        maxX: Math.max(w.x1, w.x2),
+        maxY: Math.max(w.y1, w.y2),
+      }, 'wall', true, w);
+    }
+    for (const d of map.doors) {
+      const isClosed = d.state === 'CLOSED';
+      globalSpatialIndex.updateCollider(d.id, {
+        minX: Math.min(d.x1, d.x2),
+        minY: Math.min(d.y1, d.y2),
+        maxX: Math.max(d.x1, d.x2),
+        maxY: Math.max(d.y1, d.y2),
+      }, 'door', isClosed, d);
+    }
   }
 
   function handleLoadWatabouCity(city: WatabouCityMap) {
@@ -1234,8 +1345,9 @@
     window.addEventListener('vtt:campaign-assets-refreshed', reloadTacticalMapsList);
     window.addEventListener('vtt:load-battle-map', handleBattleMapEvent);
     window.addEventListener('vtt:spawn-token', handleSpawnTokenEvent);
-    window.addEventListener('vtt:weather-changed', handleWeatherChangedEvent);
     window.addEventListener('vtt:toggle-fog-tool', handleToggleFogTool);
+    window.addEventListener('vtt:context-tool', handleContextTool);
+    window.addEventListener('vtt:open-grid-calibration', handleOpenGridCalibration);
     window.addEventListener('vtt:trigger-ping', handleTriggerPing);
     rafId = requestAnimationFrame(render);
   });
@@ -1254,6 +1366,8 @@
     window.removeEventListener('vtt:spawn-token', handleSpawnTokenEvent);
     window.removeEventListener('vtt:weather-changed', handleWeatherChangedEvent);
     window.removeEventListener('vtt:toggle-fog-tool', handleToggleFogTool);
+    window.removeEventListener('vtt:context-tool', handleContextTool);
+    window.removeEventListener('vtt:open-grid-calibration', handleOpenGridCalibration);
     window.removeEventListener('vtt:trigger-ping', handleTriggerPing);
     cleanupDmSyncListener();
     if (mapImageUrl && mapImageUrl.startsWith('blob:')) {
@@ -1329,6 +1443,36 @@
     >
       <span>🗺️</span>
       <span>Generators</span>
+    </button>
+
+    <!-- Grid Calibration Tool -->
+    <button
+      onclick={() => { showGridCalibration = true; }}
+      class="px-2.5 py-1 text-xs font-semibold rounded transition-colors flex items-center gap-1 border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300"
+      title="Open 3-Point Grid Alignment & Calibration Tool"
+    >
+      <span>📐</span>
+      <span>Grid Calib</span>
+    </button>
+
+    <!-- Vision & Fog of War Tool -->
+    <button
+      onclick={toggleVisionFogMode}
+      class="px-2.5 py-1 text-xs font-semibold rounded transition-colors flex items-center gap-1 border {showFogVisionPanel ? 'bg-emerald-950/70 border-emerald-500/60 text-emerald-300 shadow' : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'}"
+      title="Toggle Fog of War and Vision Controls"
+    >
+      <span>👁️</span>
+      <span>Vision/Fog</span>
+    </button>
+
+    <!-- Floor Layers Drawer -->
+    <button
+      onclick={() => { showFloorLayersDrawer = !showFloorLayersDrawer; }}
+      class="px-2.5 py-1 text-xs font-semibold rounded transition-colors flex items-center gap-1 border {showFloorLayersDrawer ? 'bg-sky-950/70 border-sky-500/60 text-sky-300 shadow' : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'}"
+      title="Open Multi-Floor Layer Management Drawer"
+    >
+      <span>🥞</span>
+      <span>Floors ({mapLayers.floors.length || 1})</span>
     </button>
 
     <button
@@ -1629,6 +1773,144 @@
       window.dispatchEvent(new CustomEvent('vtt:open-grid-calibration'));
     }}
   />
+
+  <!-- ── 3-Point Grid Alignment & Calibration Modal ──────────────────────────── -->
+  <GridCalibrationModal
+    bind:isOpen={showGridCalibration}
+    onApply={(config) => {
+      gridSize = config.pixelsPerSquare;
+      canvasStore.setGridSize(config.pixelsPerSquare);
+      if (activeBattlemapId) {
+        mapsDb.tacticalMaps.update(activeBattlemapId, {
+          'grid.sizePx': config.pixelsPerSquare,
+          'grid.offsetX': config.offsetX,
+          'grid.offsetY': config.offsetY,
+        }).catch(() => {});
+      }
+    }}
+  />
+
+  <!-- ── Multi-Floor Layer Management Flyout ─────────────────────────────────── -->
+  {#if showFloorLayersDrawer}
+    <div class="fixed top-14 right-4 z-40 w-72 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4 text-xs space-y-3 animate-in fade-in select-none">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+        <div class="flex items-center gap-1.5 font-bold text-slate-200">
+          <span>🥞</span>
+          <span class="uppercase tracking-wider">Floor &amp; Elevation Layers</span>
+        </div>
+        <button onclick={() => showFloorLayersDrawer = false} class="text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <div class="space-y-1.5 max-h-52 overflow-y-auto">
+        {#if mapLayers.floors.length === 0}
+          <div class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+            <div>
+              <span class="font-bold text-slate-200 block">Ground Level (Base)</span>
+              <span class="text-[10px] text-slate-500 font-mono">Elevation: 0 ft</span>
+            </div>
+            <span class="px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">Active</span>
+          </div>
+        {:else}
+          {#each mapLayers.floors as floor, i}
+            <div
+              class="p-2 rounded-lg border transition-all flex items-center justify-between {mapLayers.activeFloorIndex === i ? 'bg-indigo-950/60 border-indigo-500 text-indigo-200' : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'}"
+            >
+              <button
+                type="button"
+                onclick={() => mapLayers.setFloor(i)}
+                class="flex-1 text-left"
+              >
+                <span class="font-bold block text-slate-200">{floor.name}</span>
+                <span class="text-[10px] text-slate-500 font-mono">{floor.elevationFt} ft elevation</span>
+              </button>
+              <div class="flex items-center gap-1">
+                {#if mapLayers.activeFloorIndex === i}
+                  <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">Active</span>
+                {/if}
+                <button
+                  type="button"
+                  onclick={() => mapLayers.removeFloor(i)}
+                  class="text-slate-600 hover:text-rose-400 text-xs px-1"
+                  title="Remove Floor"
+                >✕</button>
+              </div>
+            </div>
+          {/each}
+        {/if}
+      </div>
+
+      <div class="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onclick={() => {
+            const elev = mapLayers.floors.length * 10;
+            mapLayers.addFloor({
+              id: `floor-${Date.now()}`,
+              name: `Floor ${mapLayers.floors.length + 1}`,
+              elevationFt: elev,
+              assetUrl: mapImageUrl || '',
+              gridConfig: { pixelsPerSquare: gridSize, offsetX: 0, offsetY: 0 },
+              wallPolygons: [],
+            });
+          }}
+          class="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-center transition-colors shadow"
+        >
+          + Add Floor Layer
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- ── Vision & Fog Quick Config Panel ───────────────────────────────────── -->
+  {#if showFogVisionPanel}
+    <div class="fixed top-14 left-72 z-40 w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-3 text-xs space-y-2.5 animate-in fade-in select-none">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+        <div class="flex items-center gap-1.5 font-bold text-slate-200">
+          <span>👁️</span>
+          <span class="uppercase tracking-wider">Vision &amp; Fog of War</span>
+        </div>
+        <button onclick={() => showFogVisionPanel = false} class="text-slate-400 hover:text-white">✕</button>
+      </div>
+      <div class="space-y-1.5">
+        <label class="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
+          <span class="text-slate-300">Dynamic Raycast Lighting</span>
+          <input type="checkbox" bind:checked={dynamicLightingEnabled} class="accent-indigo-500 rounded" />
+        </label>
+        <label class="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
+          <span class="text-slate-300">Wall Occlusion Lines</span>
+          <input type="checkbox" bind:checked={wallVisibilityEnabled} class="accent-indigo-500 rounded" />
+        </label>
+      </div>
+      <div class="grid grid-cols-2 gap-1.5 pt-1">
+        <button
+          onclick={() => { activeDrawingTool = 'fog_carve'; activeTool = 'select'; }}
+          class="py-1 px-2 rounded-lg font-bold text-[11px] border transition-colors {activeDrawingTool === 'fog_carve' ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-800 text-slate-300 border-slate-700'}"
+        >
+          Carve Fog
+        </button>
+        <button
+          onclick={() => { activeDrawingTool = 'fog_conceal'; activeTool = 'select'; }}
+          class="py-1 px-2 rounded-lg font-bold text-[11px] border transition-colors {activeDrawingTool === 'fog_conceal' ? 'bg-rose-700 text-white border-rose-600' : 'bg-slate-800 text-slate-300 border-slate-700'}"
+        >
+          Conceal Fog
+        </button>
+      </div>
+      <div class="flex items-center gap-1.5 pt-1 border-t border-slate-800">
+        <button
+          onclick={() => canvasStore.revealAllFog()}
+          class="flex-1 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded text-[10px]"
+        >
+          Reveal All
+        </button>
+        <button
+          onclick={() => canvasStore.clearFog()}
+          class="flex-1 py-1 bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 font-bold rounded text-[10px]"
+        >
+          Reset Fog
+        </button>
+      </div>
+    </div>
+  {/if}
 
   <!-- DS Import Feedback Toast -->
   {#if dsImportFeedback}

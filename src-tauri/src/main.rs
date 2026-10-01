@@ -84,6 +84,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             graywood_vtt_lib::commands::pick_and_read_campaign_folder,
             graywood_vtt_lib::commands::scan_ingest_directory,
             graywood_vtt_lib::commands::search_campaign_fts,
+            graywood_vtt_lib::commands::export_vttbundle_cmd,
+            graywood_vtt_lib::commands::import_vttbundle_cmd,
+            graywood_vtt_lib::commands::transpile_foundry_scene_cmd,
+            graywood_vtt_lib::commands::transpile_roll20_page_cmd,
             graywood_vtt_lib::services::pdf_importer::parse_adventure_pdf,
         ])
         .run(tauri::generate_context!())

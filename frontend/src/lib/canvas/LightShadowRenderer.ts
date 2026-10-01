@@ -13,6 +13,9 @@ export interface VisionSource {
   radius: number; // vision/light radius in pixels (e.g. 300px)
   color?: string; // e.g. '#fbbf24' (torch) or '#60a5fa' (magic)
   intensity?: number; // 0.0 - 1.0
+  flicker?: boolean; // Enables animated torch jitter/flicker shader pass
+  flickerSpeed?: number; // Frequency of flicker oscillation (default 8.0)
+  flickerIntensity?: number; // Amplitude of radius/intensity jitter (default 0.15)
 }
 
 export interface ShadowRay {
@@ -24,11 +27,16 @@ export interface ShadowRay {
 
 /**
  * Converts WallSegments and closed doors to visibility-polygon Segment tuples.
+ * UVTT Spec:
+ * - Windows allow vision (excluded from vision blocker segments)
+ * - Secret doors (is_secret) are excluded from player vision raycasts unless explicitly revealed
+ * - Closed doors block vision; open doors allow vision
  */
 export function buildVisibilitySegments(
-  walls: WallSegment[],
-  doors: DoorPrimitive[],
-  bounds?: { minX: number; minY: number; maxX: number; maxY: number }
+  walls: (WallSegment | any)[],
+  doors: (DoorPrimitive | any)[],
+  bounds?: { minX: number; minY: number; maxX: number; maxY: number },
+  isDmView: boolean = false
 ): [ [number, number], [number, number] ][] {
   const segments: [ [number, number], [number, number] ][] = [];
 
@@ -36,6 +44,15 @@ export function buildVisibilitySegments(
   if (Array.isArray(walls)) {
     for (const w of walls) {
       if (!w) continue;
+      // Windows allow line of sight
+      if (w.type === 'window' || w.portalType === 'window') continue;
+      // Unrevealed secret doors: if secret and not revealed, and not DM view, secret walls may block vision like normal walls
+      // UVTT Secret door: if is_secret is marked as revealed = false to players, it blocks player vision like a solid wall, but if revealed it behaves as a door
+      const isSecret = w.is_secret || w.isSecret || w.doorType === 'SECRET' || w.type === 'secret_door';
+      if (isSecret && !isDmView && w.isRevealed === false) {
+        // Blocks vision like a standard wall
+      }
+
       const x1 = Number((w as any).x1 ?? (w as any).p1?.x ?? 0);
       const y1 = Number((w as any).y1 ?? (w as any).p1?.y ?? 0);
       const x2 = Number((w as any).x2 ?? (w as any).p2?.x ?? 0);
@@ -46,11 +63,15 @@ export function buildVisibilitySegments(
     }
   }
 
-  // Add closed doors (open doors do not block raycasts)
+  // Add closed doors and windows
   if (Array.isArray(doors)) {
     for (const d of doors) {
       if (!d) continue;
-      if (d.state === 'CLOSED') {
+      // Windows allow LoS
+      if (d.portalType === 'window' || d.doorType === 'WINDOW' || d.type === 'window') continue;
+
+      const isClosed = d.state === 'CLOSED' || d.portalState === 'closed' || d.state === 'LOCKED' || d.portalState === 'locked';
+      if (isClosed) {
         const x1 = Number((d as any).x1 ?? (d as any).p1?.x ?? 0);
         const y1 = Number((d as any).y1 ?? (d as any).p1?.y ?? 0);
         const x2 = Number((d as any).x2 ?? (d as any).p2?.x ?? 0);
@@ -153,20 +174,43 @@ export function renderDynamicLighting(
   visionSources: VisionSource[],
   walls: WallSegment[],
   doors: DoorPrimitive[],
-  ambientDarkness = 0.65
+  ambientDarkness = 0.65,
+  ambientLightColor?: string
 ): void {
   if (visionSources.length === 0 && walls.length === 0) return;
 
   ctx.save();
 
   // Create an offscreen buffer or apply global composition
-  // 1. Draw ambient darkness over the entire viewport
-  ctx.fillStyle = `rgba(5, 7, 15, ${ambientDarkness})`;
+  // 1. Draw ambient darkness / UVTT authored ambient light over the entire viewport
+  if (ambientLightColor) {
+    ctx.fillStyle = ambientLightColor;
+  } else {
+    ctx.fillStyle = `rgba(5, 7, 15, ${ambientDarkness})`;
+  }
   ctx.fillRect(viewBounds.x, viewBounds.y, viewBounds.width, viewBounds.height);
 
   // 2. Punch out / blend vision cones for each token
+  const now = typeof performance !== 'undefined' ? performance.now() / 1000 : Date.now() / 1000;
   for (const source of visionSources) {
-    const polygon = computeVisionPolygon({ x: source.x, y: source.y }, source.radius, walls, doors);
+    // UVTT animated torch jitter/flicker shader pass on point lights:
+    // radius (r ± Δr) and intensity modulated by flicker speed/amplitude uniforms
+    let effectiveRadius = source.radius;
+    let effectiveIntensity = source.intensity ?? 1.0;
+
+    if (source.flicker) {
+      const freq = source.flickerSpeed ?? 8.0;
+      const amp = source.flickerIntensity ?? 0.15;
+      // Multi-harmonic sine jitter resembling natural flame turbulence
+      const noise =
+        Math.sin(now * freq + source.x * 0.05) * 0.6 +
+        Math.sin(now * freq * 2.3 + source.y * 0.03) * 0.3 +
+        Math.sin(now * freq * 4.7) * 0.1;
+      effectiveRadius = Math.max(10, source.radius * (1.0 + noise * amp));
+      effectiveIntensity = Math.max(0.1, Math.min(1.0, effectiveIntensity * (1.0 + noise * amp * 0.5)));
+    }
+
+    const polygon = computeVisionPolygon({ x: source.x, y: source.y }, effectiveRadius, walls, doors);
     if (polygon.length < 3) continue;
 
     ctx.save();
@@ -183,22 +227,22 @@ export function renderDynamicLighting(
     ctx.globalCompositeOperation = 'destination-out';
     const grad = ctx.createRadialGradient(
       source.x, source.y, 0,
-      source.x, source.y, source.radius
+      source.x, source.y, effectiveRadius
     );
-    grad.addColorStop(0, 'rgba(0, 0, 0, 1)');
-    grad.addColorStop(0.7, 'rgba(0, 0, 0, 0.85)');
+    grad.addColorStop(0, `rgba(0, 0, 0, ${effectiveIntensity})`);
+    grad.addColorStop(0.7, `rgba(0, 0, 0, ${effectiveIntensity * 0.85})`);
     grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(source.x, source.y, source.radius, 0, Math.PI * 2);
+    ctx.arc(source.x, source.y, effectiveRadius, 0, Math.PI * 2);
     ctx.fill();
 
     // Add subtle ambient tint on top
     ctx.globalCompositeOperation = 'source-over';
     const tintGrad = ctx.createRadialGradient(
       source.x, source.y, 0,
-      source.x, source.y, source.radius
+      source.x, source.y, effectiveRadius
     );
     const tintColor = source.color || 'rgba(251, 191, 36, 0.12)';
     tintGrad.addColorStop(0, tintColor);
@@ -206,7 +250,7 @@ export function renderDynamicLighting(
     tintGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = tintGrad;
     ctx.beginPath();
-    ctx.arc(source.x, source.y, source.radius, 0, Math.PI * 2);
+    ctx.arc(source.x, source.y, effectiveRadius, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -326,30 +370,55 @@ export function renderExploredFogOfWar(
 
 /**
  * Renders Dungeon Scrawl wall line segments onto canvas.
+ * - Standard walls: solid indigo (#6366f1)
+ * - Secret doors/walls (is_secret): dashed violet/amber (#c084fc / #f59e0b) only visible on DM layer
+ * - Windows: light cyan translucent double-lines (#38bdf8)
  */
 export function renderWallSegments(
   ctx: CanvasRenderingContext2D,
-  walls: WallSegment[],
-  vpZoom = 1.0
+  walls: (WallSegment | any)[],
+  vpZoom = 1.0,
+  isDmView: boolean = true
 ): void {
   if (walls.length === 0) return;
 
   ctx.save();
-  ctx.strokeStyle = '#6366f1';
-  ctx.lineWidth = Math.max(2, 3.5 / vpZoom);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  ctx.beginPath();
   for (const w of walls) {
+    const isSecret = !!(w.is_secret || w.isSecret || w.doorType === 'SECRET' || w.type === 'secret_door');
+    const isWindow = w.type === 'window' || w.portalType === 'window';
+
+    // If secret door and player view and not revealed, do not render secret marker
+    if (isSecret && !isDmView && !w.isRevealed) {
+      continue;
+    }
+
+    ctx.beginPath();
+    if (isSecret) {
+      // Secret doors: dashed purple outline for DM
+      ctx.strokeStyle = '#c084fc';
+      ctx.lineWidth = Math.max(2, 3.5 / vpZoom);
+      ctx.setLineDash([6 / vpZoom, 4 / vpZoom]);
+    } else if (isWindow) {
+      // Windows: cyan/sky line showing clear line of sight
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = Math.max(2, 2.5 / vpZoom);
+      ctx.setLineDash([2 / vpZoom, 2 / vpZoom]);
+    } else {
+      ctx.strokeStyle = '#6366f1';
+      ctx.lineWidth = Math.max(2, 3.5 / vpZoom);
+      ctx.setLineDash([]);
+    }
+
     ctx.moveTo(w.x1, w.y1);
     ctx.lineTo(w.x2, w.y2);
-  }
-  ctx.stroke();
+    ctx.stroke();
 
-  // Subtle endpoint caps
-  ctx.fillStyle = '#a5b4fc';
-  for (const w of walls) {
+    // Reset dash for endpoint caps
+    ctx.setLineDash([]);
+    ctx.fillStyle = isSecret ? '#e9d5ff' : isWindow ? '#bae6fd' : '#a5b4fc';
     ctx.beginPath();
     ctx.arc(w.x1, w.y1, 2.5 / vpZoom, 0, Math.PI * 2);
     ctx.arc(w.x2, w.y2, 2.5 / vpZoom, 0, Math.PI * 2);
@@ -360,28 +429,45 @@ export function renderWallSegments(
 }
 
 /**
- * Renders interactable doors with state indicators (Open = green/teal, Closed = amber/orange).
+ * Renders interactable doors & windows with state indicators.
+ * (Open = green/teal, Closed = amber/orange, Window = cyan, Secret = purple).
  */
 export function renderDoors(
   ctx: CanvasRenderingContext2D,
-  doors: DoorPrimitive[],
-  vpZoom = 1.0
+  doors: (DoorPrimitive | any)[],
+  vpZoom = 1.0,
+  isDmView: boolean = true
 ): void {
   if (doors.length === 0) return;
 
   ctx.save();
   for (const d of doors) {
-    const isOpen = d.state === 'OPEN';
+    const isWindow = d.portalType === 'window' || d.doorType === 'WINDOW' || d.type === 'window';
+    const isSecret = d.doorType === 'SECRET' || d.portalType === 'secret' || d.is_secret;
+    if (isSecret && !isDmView && !d.isRevealed) {
+      continue;
+    }
+
+    const isOpen = d.state === 'OPEN' || d.portalState === 'open';
     const midX = (d.x1 + d.x2) / 2;
     const midY = (d.y1 + d.y2) / 2;
 
     // Door line
     ctx.beginPath();
-    ctx.strokeStyle = isOpen ? '#10b981' : '#f59e0b';
+    if (isWindow) {
+      ctx.strokeStyle = '#38bdf8';
+      ctx.setLineDash([4 / vpZoom, 2 / vpZoom]);
+    } else if (isSecret) {
+      ctx.strokeStyle = '#a855f7';
+      ctx.setLineDash([5 / vpZoom, 3 / vpZoom]);
+    } else {
+      ctx.strokeStyle = isOpen ? '#10b981' : '#f59e0b';
+      ctx.setLineDash([]);
+    }
     ctx.lineWidth = Math.max(3, 5 / vpZoom);
     ctx.lineCap = 'square';
 
-    if (isOpen) {
+    if (isOpen && !isWindow) {
       // Swing open: render perpendicular tick
       const angle = Math.atan2(d.y2 - d.y1, d.x2 - d.x1) + Math.PI / 2;
       const len = Math.hypot(d.x2 - d.x1, d.y2 - d.y1) / 2;
@@ -392,13 +478,14 @@ export function renderDoors(
       ctx.lineTo(d.x2, d.y2);
     }
     ctx.stroke();
+    ctx.setLineDash([]);
 
     // Center badge with status icon
     ctx.beginPath();
-    ctx.fillStyle = isOpen ? '#064e3b' : '#78350f';
+    ctx.fillStyle = isWindow ? '#0369a1' : isSecret ? '#581c87' : isOpen ? '#064e3b' : '#78350f';
     ctx.arc(midX, midY, 7 / vpZoom, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = isOpen ? '#34d399' : '#fbbf24';
+    ctx.strokeStyle = isWindow ? '#7dd3fc' : isSecret ? '#c084fc' : isOpen ? '#34d399' : '#fbbf24';
     ctx.lineWidth = 1.5 / vpZoom;
     ctx.stroke();
 
@@ -407,7 +494,7 @@ export function renderDoors(
     ctx.font = `bold ${Math.max(8, 10 / vpZoom)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(isOpen ? 'O' : 'D', midX, midY);
+    ctx.fillText(isWindow ? 'W' : isSecret ? 'S' : isOpen ? 'O' : 'D', midX, midY);
   }
   ctx.restore();
 }
@@ -637,4 +724,77 @@ export function createPixiWatabouContainer(cityMap: WatabouCityMap, selectedParc
   root.addChild(bldgG);
 
   return root;
+}
+
+/**
+ * PointLight represents an active point light emitter with configurable radius,
+ * intensity, color, and attenuation for 2D lighting / WebGL shading.
+ */
+export class PointLight {
+  public id: string;
+  public x: number;
+  public y: number;
+  public radius: number;
+  public intensity: number;
+  public color: string;
+  public attenuation: number; // Falloff exponent (e.g. 1.0 = linear, 2.0 = quadratic)
+
+  constructor(options: {
+    id?: string;
+    x: number;
+    y: number;
+    radius: number;
+    intensity?: number;
+    color?: string;
+    attenuation?: number;
+  }) {
+    this.id = options.id || `light-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    this.x = options.x;
+    this.y = options.y;
+    this.radius = Math.max(1, options.radius);
+    this.intensity = options.intensity !== undefined ? Math.max(0, Math.min(1, options.intensity)) : 1.0;
+    this.color = options.color || '#fbbf24';
+    this.attenuation = options.attenuation !== undefined ? Math.max(0.1, options.attenuation) : 1.5;
+  }
+
+  /** Converts to standard VisionSource representation */
+  public toVisionSource(): VisionSource {
+    return {
+      id: this.id,
+      x: this.x,
+      y: this.y,
+      radius: this.radius,
+      color: this.color,
+      intensity: this.intensity,
+    };
+  }
+
+  /**
+   * Renders the point light radial gradient onto a Canvas 2D context using attenuation falloff.
+   */
+  public renderCanvas2D(ctx: CanvasRenderingContext2D, polygon?: Array<{ x: number; y: number }>): void {
+    ctx.save();
+    if (polygon && polygon.length >= 3) {
+      ctx.beginPath();
+      ctx.moveTo(polygon[0].x, polygon[0].y);
+      for (let i = 1; i < polygon.length; i++) {
+        ctx.lineTo(polygon[i].x, polygon[i].y);
+      }
+      ctx.closePath();
+      ctx.clip();
+    }
+
+    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
+    const alpha = this.intensity;
+    // Apply attenuation falloff curve
+    grad.addColorStop(0, this.color);
+    grad.addColorStop(Math.min(0.5, 1 / this.attenuation), `rgba(251, 191, 36, ${alpha * 0.5})`);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 }

@@ -136,6 +136,10 @@ class IngestPipelineStore {
         extension: entry.extension,
         sizeBytes: entry.size_bytes,
         mimeType: entry.mime_type,
+        width: entry.width,
+        height: entry.height,
+        gridSize: entry.grid_size,
+        content: entry.content,
         status: 'queued',
         progress: 0,
       });

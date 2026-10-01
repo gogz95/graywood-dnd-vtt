@@ -7,10 +7,18 @@ use std::io::Read;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParsedEncounter {
+    pub name: String,
+    pub count: usize,
+    pub monster_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedChapter {
     pub title: String,
     pub content_markdown: String,
     pub section_type: String, // e.g. "Narrative", "Statblock", "Handout"
+    pub encounters: Vec<ParsedEncounter>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,6 +152,39 @@ pub fn parse_pdf_bytes(file_name: &str, bytes: &[u8]) -> Result<PdfImportReport,
 
     let mut current_statblock: Option<ParsedStatblock> = None;
 
+    let extract_encounters = |lines: &[String]| -> Vec<ParsedEncounter> {
+        let mut encounters = Vec::new();
+        // Common standard 5e monsters from 5e-database
+        let monster_catalogs = [
+            "Goblin", "Goblins", "Orc", "Orcs", "Skeleton", "Skeletons", "Zombie", "Zombies",
+            "Kobold", "Kobolds", "Bandit", "Bandits", "Cultist", "Cultists", "Ghoul", "Ghouls",
+            "Bugbear", "Bugbears", "Hobgoblin", "Hobgoblins", "Wolf", "Wolves", "Spider", "Giant Spider",
+            "Ogre", "Ogres", "Troll", "Trolls", "Manticore", "Wraith", "Specter", "Shadow", "Shadows"
+        ];
+
+        for line in lines {
+            for mon in &monster_catalogs {
+                // Look for patterns like "3 Goblins", "4 Orcs", "a Goblin", "two Skeletons"
+                for word in line.split(|c: char| !c.is_alphanumeric()) {
+                    if let Ok(count) = word.parse::<usize>() {
+                        if line.contains(mon) {
+                            let clean_name = mon.trim_end_matches('s').to_string();
+                            let monster_id = clean_name.to_lowercase().replace(' ', "-");
+                            if !encounters.iter().any(|e: &ParsedEncounter| e.monster_id == monster_id) {
+                                encounters.push(ParsedEncounter {
+                                    name: clean_name,
+                                    count: count.max(1),
+                                    monster_id,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        encounters
+    };
+
     for line in raw_strings {
         let is_heading = line.starts_with("Chapter ")
             || line.starts_with("CHAPTER ")
@@ -158,10 +199,12 @@ pub fn parse_pdf_bytes(file_name: &str, bytes: &[u8]) -> Result<PdfImportReport,
 
         if is_heading {
             if !current_chapter_lines.is_empty() {
+                let encs = extract_encounters(&current_chapter_lines);
                 chapters.push(ParsedChapter {
                     title: current_chapter_title.clone(),
                     content_markdown: current_chapter_lines.join("\n\n"),
                     section_type: "Narrative".to_string(),
+                    encounters: encs,
                 });
                 current_chapter_lines.clear();
             }
@@ -196,10 +239,12 @@ pub fn parse_pdf_bytes(file_name: &str, bytes: &[u8]) -> Result<PdfImportReport,
     }
 
     if !current_chapter_lines.is_empty() {
+        let encs = extract_encounters(&current_chapter_lines);
         chapters.push(ParsedChapter {
             title: current_chapter_title,
             content_markdown: current_chapter_lines.join("\n\n"),
             section_type: "Narrative".to_string(),
+            encounters: encs,
         });
     }
 

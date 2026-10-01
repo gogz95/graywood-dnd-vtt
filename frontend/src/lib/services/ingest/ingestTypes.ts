@@ -13,6 +13,10 @@ export interface IngestScanEntry {
   extension: string;
   size_bytes: number;
   mime_type: string;
+  width?: number;
+  height?: number;
+  grid_size?: number;
+  content?: string;
 }
 
 export interface IngestScanResult {
@@ -37,6 +41,10 @@ export interface IngestQueueItem {
   message?: string;
   error?: string;
   resultSummary?: string;
+  width?: number;
+  height?: number;
+  gridSize?: number;
+  content?: string;
 }
 
 export interface IngestCategorySummary {

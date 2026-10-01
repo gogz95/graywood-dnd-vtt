@@ -2,6 +2,13 @@
 // Snaps to 5 ft D&D grid increments and supports Circle, Cone, Cube, and Line templates.
 
 import type { SpellAoeTemplate, RulerMeasurement } from '../../../stores/canvasStore.svelte';
+import {
+  getHexSpiral,
+  getHexCone,
+  hexAxialToPixel,
+  getHexVertices,
+  type HexOrientation,
+} from '../../canvas/gridCalculations';
 
 export interface GridPoint {
   gx: number;
@@ -127,21 +134,31 @@ export function calculateLineVertices(
 export function renderAoeTemplateOnCanvas(
   ctx: CanvasRenderingContext2D,
   template: SpellAoeTemplate,
-  gridSize: number
+  gridSize: number,
+  gridType: 'square' | 'hex_pointy' | 'hex_flat' | 'gridless' = 'square'
 ): void {
   const feetPerCell = 5;
   const pixelsPerFoot = gridSize / feetPerCell;
-  const originPx: PixelPoint = {
-    x: (template.originX + 0.5) * gridSize,
-    y: (template.originY + 0.5) * gridSize,
-  };
+  const isHex = gridType === 'hex_pointy' || gridType === 'hex_flat';
+  const hexOrientation: HexOrientation = gridType === 'hex_flat' ? 'flat' : 'pointy';
+  const hexRadius = gridSize / Math.sqrt(3);
 
-  const targetPx: PixelPoint = {
-    x: ((template.targetX ?? template.originX + 1) + 0.5) * gridSize,
-    y: ((template.targetY ?? template.originY) + 0.5) * gridSize,
-  };
+  const originPx: PixelPoint = isHex
+    ? hexAxialToPixel(template.originX, template.originY, hexRadius, hexOrientation)
+    : {
+        x: (template.originX + 0.5) * gridSize,
+        y: (template.originY + 0.5) * gridSize,
+      };
+
+  const targetPx: PixelPoint = isHex
+    ? hexAxialToPixel(template.targetX ?? (template.originX + 1), template.targetY ?? template.originY, hexRadius, hexOrientation)
+    : {
+        x: ((template.targetX ?? template.originX + 1) + 0.5) * gridSize,
+        y: ((template.targetY ?? template.originY) + 0.5) * gridSize,
+      };
 
   const radiusPx = template.sizeFeet * pixelsPerFoot;
+  const radiusInHexes = Math.max(1, Math.round(template.sizeFeet / 5));
 
   ctx.save();
   ctx.fillStyle = template.color || 'rgba(239, 68, 68, 0.35)';
@@ -150,10 +167,25 @@ export function renderAoeTemplateOnCanvas(
 
   switch (template.type) {
     case 'circle': {
-      ctx.beginPath();
-      ctx.arc(originPx.x, originPx.y, radiusPx, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      if (isHex) {
+        // Render discrete hex spiral cells for spell burst without fractional clipping
+        const hexCells = getHexSpiral({ q: template.originX, r: template.originY }, radiusInHexes);
+        for (const hex of hexCells) {
+          const pt = hexAxialToPixel(hex.q, hex.r, hexRadius, hexOrientation);
+          const verts = getHexVertices(pt.x, pt.y, hexRadius, hexOrientation);
+          ctx.beginPath();
+          ctx.moveTo(verts[0].x, verts[0].y);
+          for (let v = 1; v < verts.length; v++) ctx.lineTo(verts[v].x, verts[v].y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      } else {
+        ctx.beginPath();
+        ctx.arc(originPx.x, originPx.y, radiusPx, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
 
       // Center crosshair
       ctx.beginPath();
@@ -164,20 +196,36 @@ export function renderAoeTemplateOnCanvas(
     }
 
     case 'cone': {
-      const cone = calculateConeVertices(originPx, targetPx, radiusPx);
-      ctx.beginPath();
-      ctx.moveTo(cone.p1.x, cone.p1.y);
-      ctx.lineTo(cone.p2.x, cone.p2.y);
-      ctx.arc(
-        originPx.x,
-        originPx.y,
-        radiusPx,
-        Math.atan2(cone.p2.y - originPx.y, cone.p2.x - originPx.x),
-        Math.atan2(cone.p3.y - originPx.y, cone.p3.x - originPx.x)
-      );
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+      if (isHex) {
+        // Render 60-degree hex wedge cone
+        const theta = Math.atan2(targetPx.y - originPx.y, targetPx.x - originPx.x);
+        const hexCells = getHexCone({ q: template.originX, r: template.originY }, theta, radiusInHexes, hexOrientation);
+        for (const hex of hexCells) {
+          const pt = hexAxialToPixel(hex.q, hex.r, hexRadius, hexOrientation);
+          const verts = getHexVertices(pt.x, pt.y, hexRadius, hexOrientation);
+          ctx.beginPath();
+          ctx.moveTo(verts[0].x, verts[0].y);
+          for (let v = 1; v < verts.length; v++) ctx.lineTo(verts[v].x, verts[v].y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      } else {
+        const cone = calculateConeVertices(originPx, targetPx, radiusPx);
+        ctx.beginPath();
+        ctx.moveTo(cone.p1.x, cone.p1.y);
+        ctx.lineTo(cone.p2.x, cone.p2.y);
+        ctx.arc(
+          originPx.x,
+          originPx.y,
+          radiusPx,
+          Math.atan2(cone.p2.y - originPx.y, cone.p2.x - originPx.x),
+          Math.atan2(cone.p3.y - originPx.y, cone.p3.x - originPx.x)
+        );
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
       break;
     }
 

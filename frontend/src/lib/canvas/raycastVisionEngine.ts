@@ -16,6 +16,7 @@ export interface LineSegment {
   p2: Point2D;
   blocksVision: boolean;
   blocksMovement: boolean;
+  is_secret?: boolean;
 }
 
 export interface PointLightEmitter {
@@ -24,6 +25,9 @@ export interface PointLightEmitter {
   color?: string;         // e.g. '#f59e0b'
   isDarkvision?: boolean; // Grayscale illumination within radius
   darkvisionRadiusFt?: number; // e.g. 60 ft
+  flicker?: boolean;
+  flickerSpeed?: number;
+  flickerIntensity?: number;
 }
 
 export interface VisionResult {
@@ -35,7 +39,7 @@ export interface VisionResult {
 /**
  * Converts tactical battlemap walls to 2D line segments, respecting window and door states.
  */
-export function wallsToLineSegments(walls: (MapWall | any)[]): LineSegment[] {
+export function wallsToLineSegments(walls: (MapWall | any)[], isDmView: boolean = false): LineSegment[] {
   if (!walls || !Array.isArray(walls)) return [];
 
   return walls
@@ -43,19 +47,20 @@ export function wallsToLineSegments(walls: (MapWall | any)[]): LineSegment[] {
     .map((w) => {
       let blocksVision = true;
       let blocksMovement = true;
+      const isSecret = !!(w.is_secret || w.isSecret || w.doorType === 'SECRET' || w.type === 'secret_door');
 
       // Resolve door open state from both string-type and state-field patterns
       const isOpenDoor =
         w.type === 'door_open' ||
         (w.isDoor && (w.isOpen || w.state === 'open' || w.state === 'OPEN'));
 
-      if (w.type === 'window') {
+      if (w.type === 'window' || w.portalType === 'window') {
         blocksVision = false;  // Windows pass vision rays, block movement
         blocksMovement = true;
       } else if (isOpenDoor) {
         blocksVision = false;  // Open doors pass both rays and movement
         blocksMovement = false;
-      } else if (w.type === 'door_closed' || w.type === 'wall') {
+      } else if (w.type === 'door_closed' || w.type === 'wall' || isSecret) {
         blocksVision = true;
         blocksMovement = true;
       }

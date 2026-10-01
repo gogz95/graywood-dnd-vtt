@@ -68,6 +68,58 @@ export interface WeatherFxConfig {
   windAngle?: number;
 }
 
+export interface AmbientLightingGrade {
+  color: string;
+  opacity: number;
+  period: 'dawn' | 'day' | 'dusk' | 'night';
+}
+
+/**
+ * Calculates time-of-day ambient canvas lighting color and opacity based on fantasy calendar clock.
+ * Conforms to fantasy-calendar specifications:
+ * - 05:00 - 07:00 (Dawn): Interpolates from dark blue to warm golden amber (#e29b42, opacity 0.4 -> 0.0)
+ * - 07:00 - 17:00 (Day): Full neutral illumination (#ffffff, opacity 0.0)
+ * - 17:00 - 19:30 (Dusk): Warm amber to deep indigo (#4b3869, opacity 0.0 -> 0.5)
+ * - 19:30 - 05:00 (Night): Deep dark blue (#0f172a, opacity 0.85)
+ */
+export function calculateAmbientLightingGrade(hour: number, minute: number = 0): AmbientLightingGrade {
+  const time = hour + minute / 60;
+
+  if (time >= 5.0 && time < 7.0) {
+    // Dawn transition (5.0 to 7.0)
+    const t = (time - 5.0) / 2.0; // 0.0 to 1.0
+    const opacity = 0.4 * (1.0 - t);
+    return {
+      color: '#e29b42',
+      opacity,
+      period: 'dawn',
+    };
+  } else if (time >= 7.0 && time < 17.0) {
+    // Daytime
+    return {
+      color: '#ffffff',
+      opacity: 0.0,
+      period: 'day',
+    };
+  } else if (time >= 17.0 && time < 19.5) {
+    // Dusk transition (17.0 to 19.5)
+    const t = (time - 17.0) / 2.5; // 0.0 to 1.0
+    const opacity = 0.5 * t;
+    return {
+      color: '#4b3869',
+      opacity,
+      period: 'dusk',
+    };
+  } else {
+    // Night (19.5 to 5.0)
+    return {
+      color: '#0f172a',
+      opacity: 0.85,
+      period: 'night',
+    };
+  }
+}
+
 export interface LayerStackRenderContext {
   ctx: CanvasRenderingContext2D;
   viewport: ViewportTransform;
@@ -78,7 +130,7 @@ export interface LayerStackRenderContext {
   gridOpacity: number;
   gridColor?: string;
   gridType?: 'square' | 'hex-h' | 'hex-v' | 'gridless';
-  mapImage?: HTMLImageElement | null;
+  mapImage?: HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | null;
   tokens: CanvasToken[];
   overheadTiles: OverheadTile[];
   dmSecrets: DmSecretItem[];

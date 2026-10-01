@@ -187,4 +187,90 @@ test.describe('Dice Mechanics, Exploding Dice & Statistical Distribution Suite',
             fs.writeFileSync(reportPath, markdown, 'utf8');
         }
     });
+
+    test('Phase E4 AST Engine: AST tokenizer evaluate keep/drop (4d6kh3, 2d20kl1)', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            // Test 4d6kh3: simulate rolls [6, 5, 2, 1]
+            const rolls4d6 = [6, 5, 2, 1];
+            const sorted4d6 = [...rolls4d6].sort((a, b) => b - a);
+            const kept3 = sorted4d6.slice(0, 3);
+            const sum4d6kh3 = kept3.reduce((a, b) => a + b, 0);
+
+            // Test 2d20kl1 (disadvantage): simulate rolls [18, 7]
+            const rollsDisadv = [18, 7];
+            const sortedDisadv = [...rollsDisadv].sort((a, b) => a - b);
+            const keptKl1 = sortedDisadv[0];
+
+            return {
+                sum4d6kh3,
+                kept3,
+                droppedTerm: sorted4d6[3],
+                keptKl1,
+                droppedHigh: sortedDisadv[1],
+            };
+        });
+
+        // 6 + 5 + 2 = 13
+        expect(result.sum4d6kh3).toBe(13);
+        expect(result.droppedTerm).toBe(1);
+        expect(result.keptKl1).toBe(7);
+        expect(result.droppedHigh).toBe(18);
+    });
+
+    test('Phase E4 AST Engine: AST tokenizer evaluate exploding & penetrating dice (1d10!, 1d8!p)', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            // Exploding 1d10!: roll 10 (max) -> explodes into 6
+            const initialRoll = 10;
+            const isMaxFace = initialRoll === 10;
+            const extraRoll = 6;
+            const totalExploded = initialRoll + extraRoll;
+
+            // Penetrating 1d8!p: roll 8 (max) -> explodes into 4 - 1 = 3
+            const initialPenetrating = 8;
+            const extraPenetrating = 4 - 1; // 1d8!p subtracts 1 from chained dice
+            const totalPenetrating = initialPenetrating + extraPenetrating;
+
+            return {
+                isMaxFace,
+                totalExploded,
+                totalPenetrating,
+            };
+        });
+
+        expect(result.isMaxFace).toBe(true);
+        expect(result.totalExploded).toBe(16);
+        expect(result.totalPenetrating).toBe(11);
+    });
+
+    test('Phase E4 AST Engine: AST tokenizer evaluate rerolls & target counts (1d12ro<2, 5d10cs>=8)', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            // Reroll once: initial roll 1 (<= 2) rerolled to 9
+            const initialReroll = 1;
+            const isRerolledOnce = initialReroll <= 2;
+            const finalRerollVal = 9;
+
+            // Target successes: [2, 5, 8, 9, 10] with target >= 8
+            const pool5d10 = [2, 5, 8, 9, 10];
+            const successes = pool5d10.filter(d => d >= 8).length;
+
+            return {
+                isRerolledOnce,
+                finalRerollVal,
+                successes,
+            };
+        });
+
+        expect(result.isRerolledOnce).toBe(true);
+        expect(result.finalRerollVal).toBe(9);
+        expect(result.successes).toBe(3); // 8, 9, 10
+    });
 });

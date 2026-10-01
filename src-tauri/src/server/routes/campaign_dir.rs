@@ -46,9 +46,21 @@ pub async fn get_current_directory(
 }
 
 pub async fn select_campaign_directory(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Json<CampaignDirResponse>, StatusCode> {
-    Ok(Json(CampaignDirResponse { path: None }))
+    let folder_handle = rfd::AsyncFileDialog::new()
+        .set_title("Select Campaign Vault / Lore Directory")
+        .pick_folder()
+        .await;
+
+    if let Some(handle) = folder_handle {
+        let p = handle.path().to_path_buf();
+        let path_str = p.to_string_lossy().to_string();
+        *state.campaign_dir.write().await = Some(p);
+        Ok(Json(CampaignDirResponse { path: Some(path_str) }))
+    } else {
+        Ok(Json(CampaignDirResponse { path: None }))
+    }
 }
 
 pub async fn set_campaign_directory(

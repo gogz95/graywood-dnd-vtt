@@ -190,15 +190,21 @@ pub async fn open_file_dialog(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 /// IPC command to open a native OS directory dialog for selecting folders.
+///
+/// Uses `tauri-plugin-dialog` (system-native picker). Returns an empty string
+/// when the user cancels — never errors on cancellation.
 #[tauri::command]
 pub async fn open_directory_dialog(app: tauri::AppHandle) -> Result<String, String> {
     use tauri_plugin_dialog::DialogExt;
 
-    let folder_path = app.dialog().file().blocking_pick_folder();
-
-    match folder_path {
+    match app
+        .dialog()
+        .file()
+        .set_title("Select Campaign Directory")
+        .blocking_pick_folder()
+    {
         Some(path) => Ok(path.to_string()),
-        None => Ok(String::new()), // User cancelled
+        None => Ok(String::new()), // user cancelled
     }
 }
 
@@ -330,6 +336,14 @@ pub struct IngestScanEntry {
     pub extension: String,
     pub size_bytes: u64,
     pub mime_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_size: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -338,6 +352,108 @@ pub struct IngestScanResult {
     pub total_files: usize,
     pub total_bytes: u64,
     pub entries: Vec<IngestScanEntry>,
+}
+
+fn extract_dimensions_and_content(
+    path: &Path,
+    ext: &str,
+) -> (Option<u32>, Option<u32>, Option<u32>, Option<String>) {
+    match ext {
+        "png" => {
+            if let Ok(buf) = std::fs::read(path) {
+                if buf.len() >= 24 && &buf[0..8] == b"\x89PNG\r\n\x1a\n" {
+                    let w = u32::from_be_bytes([buf[16], buf[17], buf[18], buf[19]]);
+                    let h = u32::from_be_bytes([buf[20], buf[21], buf[22], buf[23]]);
+                    return (Some(w), Some(h), None, None);
+                }
+            }
+            (None, None, None, None)
+        }
+        "jpg" | "jpeg" => {
+            if let Ok(buf) = std::fs::read(path) {
+                if buf.len() > 4 && buf[0] == 0xFF && buf[1] == 0xD8 {
+                    let mut i = 2;
+                    while i + 9 < buf.len() {
+                        if buf[i] != 0xFF {
+                            i += 1;
+                            continue;
+                        }
+                        let marker = buf[i + 1];
+                        if marker == 0xC0 || marker == 0xC1 || marker == 0xC2 {
+                            let h = u16::from_be_bytes([buf[i + 5], buf[i + 6]]) as u32;
+                            let w = u16::from_be_bytes([buf[i + 7], buf[i + 8]]) as u32;
+                            return (Some(w), Some(h), None, None);
+                        }
+                        if marker == 0xD9 || marker == 0xDA {
+                            break;
+                        }
+                        if i + 4 > buf.len() {
+                            break;
+                        }
+                        let len = u16::from_be_bytes([buf[i + 2], buf[i + 3]]) as usize;
+                        i += 2 + len;
+                    }
+                }
+            }
+            (None, None, None, None)
+        }
+        "webp" => {
+            if let Ok(buf) = std::fs::read(path) {
+                if buf.len() >= 30 && &buf[0..4] == b"RIFF" && &buf[8..12] == b"WEBP" {
+                    if &buf[12..16] == b"VP8X" && buf.len() >= 30 {
+                        let w = 1 + (buf[24] as u32 | ((buf[25] as u32) << 8) | ((buf[26] as u32) << 16));
+                        let h = 1 + (buf[27] as u32 | ((buf[28] as u32) << 8) | ((buf[29] as u32) << 16));
+                        return (Some(w), Some(h), None, None);
+                    } else if &buf[12..16] == b"VP8 " && buf.len() >= 30 {
+                        let w = (u16::from_le_bytes([buf[26], buf[27]]) & 0x3FFF) as u32;
+                        let h = (u16::from_le_bytes([buf[28], buf[29]]) & 0x3FFF) as u32;
+                        return (Some(w), Some(h), None, None);
+                    } else if &buf[12..16] == b"VP8L" && buf.len() >= 25 {
+                        let b0 = buf[21] as u32;
+                        let b1 = buf[22] as u32;
+                        let b2 = buf[23] as u32;
+                        let b3 = buf[24] as u32;
+                        let w = 1 + (((b1 & 0x3F) << 8) | b0);
+                        let h = 1 + (((b3 & 0x0F) << 10) | (b2 << 2) | ((b1 & 0xC0) >> 6));
+                        return (Some(w), Some(h), None, None);
+                    }
+                }
+            }
+            (None, None, None, None)
+        }
+        "dd2vtt" | "uvtt" => {
+            if let Ok(text) = std::fs::read_to_string(path) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                    let ppg = val
+                        .pointer("/resolution/pixels_per_grid")
+                        .and_then(|v| v.as_u64())
+                        .map(|p| p as u32);
+                    let gx = val.pointer("/resolution/map_size/x").and_then(|v| v.as_f64());
+                    let gy = val.pointer("/resolution/map_size/y").and_then(|v| v.as_f64());
+                    let (w, h) = match (gx, gy, ppg) {
+                        (Some(x), Some(y), Some(p)) => (
+                            Some((x * p as f64).round() as u32),
+                            Some((y * p as f64).round() as u32),
+                        ),
+                        (Some(x), Some(y), None) => {
+                            (Some(x.round() as u32), Some(y.round() as u32))
+                        }
+                        _ => (None, None),
+                    };
+                    return (w, h, ppg, Some(text));
+                }
+                return (None, None, None, Some(text));
+            }
+            (None, None, None, None)
+        }
+        "md" | "txt" | "json" | "ds" => {
+            if let Ok(text) = std::fs::read_to_string(path) {
+                return (None, None, None, Some(text));
+            }
+            (None, None, None, None)
+        }
+        _ => (None, None, None, None),
+    }
 }
 
 /// Categorizes a file path using folder topology or extension/MIME inspection.
@@ -418,14 +534,8 @@ pub async fn scan_ingest_directory(
         return Err(format!("Directory does not exist: {:?}", folder_path));
     }
 
-    // If folder contains an 'Ingest' or 'ingest' child directory, prioritize that
-    let scan_root = if folder_path.join("Ingest").is_dir() {
-        folder_path.join("Ingest")
-    } else if folder_path.join("ingest").is_dir() {
-        folder_path.join("ingest")
-    } else {
-        folder_path.clone()
-    };
+    // Scan target directory directly (covering maps/, tokens/, audio/, Ingest/, etc.)
+    let scan_root = folder_path.clone();
 
     let mut entries = Vec::new();
     let mut total_bytes: u64 = 0;
@@ -474,6 +584,9 @@ pub async fn scan_ingest_directory(
 
                 let category = classify_ingest_file(Path::new(&rel_path), &ext, &mime);
 
+                let (width, height, grid_size, content) =
+                    extract_dimensions_and_content(&path, &ext);
+
                 total_bytes += size_bytes;
                 entries.push(IngestScanEntry {
                     name: file_name,
@@ -483,6 +596,10 @@ pub async fn scan_ingest_directory(
                     extension: ext,
                     size_bytes,
                     mime_type: mime,
+                    width,
+                    height,
+                    grid_size,
+                    content,
                 });
             }
         }
@@ -657,3 +774,51 @@ pub async fn search_campaign_fts(
 
     Ok(results)
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PHASE E5: VTTBUNDLE PACKAGING & FOREIGN SCENE TRANSPILERS
+// ═════════════════════════════════════════════════════════════════════════════
+
+use crate::services::campaign_packager::{
+    export_vttbundle, import_vttbundle, ImportVttBundleResult, VttBundleManifest,
+};
+use crate::services::scene_importers::foundry::{transpile_foundry_scene, TranspiledFoundryScene};
+use crate::services::scene_importers::roll20::{transpile_roll20_page, TranspiledRoll20Page};
+
+#[tauri::command]
+pub async fn export_vttbundle_cmd(
+    db_path: String,
+    assets_dir: String,
+    dexie_json: Option<String>,
+    output_bundle_path: String,
+    campaign_name: Option<String>,
+) -> Result<VttBundleManifest, String> {
+    let db = Path::new(&db_path);
+    let assets = Path::new(&assets_dir);
+    let out = Path::new(&output_bundle_path);
+    let name = campaign_name.as_deref().unwrap_or("Graywood Campaign");
+
+    export_vttbundle(db, assets, dexie_json.as_deref(), out, name)
+}
+
+#[tauri::command]
+pub async fn import_vttbundle_cmd(
+    bundle_path: String,
+    target_campaign_dir: String,
+) -> Result<ImportVttBundleResult, String> {
+    let bundle = Path::new(&bundle_path);
+    let target = Path::new(&target_campaign_dir);
+
+    import_vttbundle(bundle, target)
+}
+
+#[tauri::command]
+pub fn transpile_foundry_scene_cmd(json_content: String) -> Result<TranspiledFoundryScene, String> {
+    transpile_foundry_scene(&json_content)
+}
+
+#[tauri::command]
+pub fn transpile_roll20_page_cmd(json_content: String) -> Result<TranspiledRoll20Page, String> {
+    transpile_roll20_page(&json_content)
+}
+

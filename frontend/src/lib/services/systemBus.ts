@@ -10,7 +10,8 @@ export type SystemBusEventType =
   | 'DAMAGE_APPLIED'
   | 'REST_COMPLETED'
   | 'HANDOUT_SHARED'
-  | 'STORAGE_QUOTA_WARNING';
+  | 'STORAGE_QUOTA_WARNING'
+  | 'ROLL_3D_DICE';
 
 export interface SystemBusPayloads {
   SCENE_CHANGE: { mapId: string; mapType: 'tactical' | 'atlas'; name?: string };
@@ -21,6 +22,7 @@ export interface SystemBusPayloads {
   REST_COMPLETED: { characterId: string; restType: 'short' | 'long'; hpRestored: number; hdSpent?: number; hdRecovered?: number };
   HANDOUT_SHARED: { id: string; title: string; playerContent: string; imageUrl?: string };
   STORAGE_QUOTA_WARNING: { usageBytes: number; quotaBytes: number; usagePercent: number };
+  ROLL_3D_DICE: { formula: string } | string;
 }
 
 type Listener<T extends SystemBusEventType> = (payload: SystemBusPayloads[T]) => void;

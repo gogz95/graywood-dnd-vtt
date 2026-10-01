@@ -243,3 +243,46 @@ export async function applyDamageToToken(
   audioEngine.triggerSfx('sfx-sword');
   return { previousHp, nextHp, tempHpDepleted, concentrationBroken };
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 5E CONDITION MECHANICAL ENFORCEMENT (Adapted from 5e-bits/5e-database)
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface SavingThrowEvaluation {
+  autoFail: boolean;
+  disadvantage: boolean;
+  reason?: string;
+}
+
+/**
+ * Evaluates 5e SRD condition rules on ability saving throws:
+ * - Paralyzed, Unconscious, Petrified, Stunned: Automatically fail Strength and Dexterity saving throws.
+ * - Restrained: Disadvantage on Dexterity saving throws.
+ */
+export function evaluateSavingThrowConditionPenalties(
+  ability: 'STR' | 'DEX' | 'CON' | 'INT' | 'WIS' | 'CHA',
+  conditions: string[] = []
+): SavingThrowEvaluation {
+  const norm = conditions.map((c) => c.toLowerCase().trim());
+
+  if (ability === 'STR' || ability === 'DEX') {
+    if (norm.includes('paralyzed')) {
+      return { autoFail: true, disadvantage: false, reason: 'Paralyzed creatures automatically fail Strength and Dexterity saving throws.' };
+    }
+    if (norm.includes('unconscious')) {
+      return { autoFail: true, disadvantage: false, reason: 'Unconscious creatures automatically fail Strength and Dexterity saving throws.' };
+    }
+    if (norm.includes('petrified')) {
+      return { autoFail: true, disadvantage: false, reason: 'Petrified creatures automatically fail Strength and Dexterity saving throws.' };
+    }
+    if (norm.includes('stunned')) {
+      return { autoFail: true, disadvantage: false, reason: 'Stunned creatures automatically fail Strength and Dexterity saving throws.' };
+    }
+  }
+
+  if (ability === 'DEX' && norm.includes('restrained')) {
+    return { autoFail: false, disadvantage: true, reason: 'Restrained creatures have disadvantage on Dexterity saving throws.' };
+  }
+
+  return { autoFail: false, disadvantage: false };
+}

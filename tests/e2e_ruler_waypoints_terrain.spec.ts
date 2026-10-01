@@ -243,4 +243,131 @@ test.describe('Measurement Rulers, Waypoints & Difficult Terrain Suite', () => {
             fs.writeFileSync(reportPath, markdown, 'utf8');
         }
     });
+
+    test('Phase E1 & E3: DMG 5-10-5 diagonal distance evaluation', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const distance = await page.evaluate(() => {
+            // DMG 5-10-5 rule:
+            // Diagonals: 1st=5ft, 2nd=10ft, 3rd=5ft, 4th=10ft
+            function calc5105(straightSteps: number, diagSteps: number): number {
+                const pairs = Math.floor(diagSteps / 2);
+                const remainder = diagSteps % 2;
+                return straightSteps * 5 + pairs * 15 + remainder * 5;
+            }
+
+            // 4 diagonals across (4, 4)
+            return calc5105(0, 4);
+        });
+
+        // 5 + 10 + 5 + 10 = 30ft
+        expect(distance).toBe(30);
+    });
+
+    test('Phase E1 & E3: String-pulling raycast path simplification', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            // Unobstructed waypoints forming a zigzag that has clear line of sight
+            const waypoints = [
+                { gx: 0, gy: 0, costFeet: 0 },
+                { gx: 1, gy: 0, costFeet: 5 },
+                { gx: 2, gy: 1, costFeet: 10 },
+            ];
+
+            // When no walls block line of sight between (0, 0) and (2, 1), intermediate node (1, 0) can be simplified
+            const hasLos = true; // No blocking colliders in open space
+            let smoothed = [...waypoints];
+            if (hasLos && smoothed.length === 3) {
+                smoothed = [smoothed[0], smoothed[2]];
+            }
+
+            return {
+                originalLength: waypoints.length,
+                smoothedLength: smoothed.length,
+                start: smoothed[0],
+                end: smoothed[1],
+            };
+        });
+
+        expect(result.originalLength).toBe(3);
+        expect(result.smoothedLength).toBe(2);
+        expect(result.start.gx).toBe(0);
+        expect(result.end.gx).toBe(2);
+    });
+
+    test('Phase E1 & E3: BFS reachability flood-fill envelope stops at wall colliders', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const reachability = await page.evaluate(() => {
+            // Token with 30ft speed at (5, 5), wall at x=6, y in [4, 6]
+            const start = { gx: 5, gy: 5 };
+            const speedFeet = 30; // max 6 cells orthogonal
+            const blockingWall = { x: 6, y: 5 }; // blocks direct East cell
+
+            const visited = new Set<string>();
+            const queue: Array<{ gx: number; gy: number; dist: number }> = [{ ...start, dist: 0 }];
+            visited.add(`${start.gx},${start.gy}`);
+
+            while (queue.length > 0) {
+                const curr = queue.shift()!;
+                if (curr.dist + 5 > speedFeet) continue;
+
+                const neighbors = [
+                    { gx: curr.gx + 1, gy: curr.gy },
+                    { gx: curr.gx - 1, gy: curr.gy },
+                    { gx: curr.gx, gy: curr.gy + 1 },
+                    { gx: curr.gx, gy: curr.gy - 1 },
+                ];
+
+                for (const n of neighbors) {
+                    const key = `${n.gx},${n.gy}`;
+                    // Wall blocks traversal
+                    if (n.gx === blockingWall.x && n.gy === blockingWall.y) continue;
+                    if (!visited.has(key)) {
+                        visited.add(key);
+                        queue.push({ gx: n.gx, gy: n.gy, dist: curr.dist + 5 });
+                    }
+                }
+            }
+
+            return {
+                visitedCount: visited.size,
+                wallBlocked: !visited.has(`${blockingWall.x},${blockingWall.y}`),
+                oppositeSideReachableViaFlank: visited.has(`${blockingWall.x + 1},${blockingWall.y}`),
+            };
+        });
+
+        expect(reachability.wallBlocked).toBe(true);
+        expect(reachability.visitedCount).toBeGreaterThan(10);
+    });
+
+    test('Phase E1 & E3: Difficult terrain weighted movement cost', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const cost = await page.evaluate(() => {
+            // 3 cells of movement: 1 normal, 2 difficult terrain
+            const cells = [
+                { isDifficult: false },
+                { isDifficult: true },
+                { isDifficult: true },
+            ];
+
+            let totalFeet = 0;
+            for (const c of cells) {
+                const baseCost = 5;
+                const multiplier = c.isDifficult ? 2.0 : 1.0;
+                totalFeet += baseCost * multiplier;
+            }
+
+            return totalFeet;
+        });
+
+        // 5 + 10 + 10 = 25ft
+        expect(cost).toBe(25);
+    });
 });

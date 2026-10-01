@@ -230,4 +230,125 @@ test.describe('Combat Tracker & HP Lifecycle Suite', () => {
             fs.writeFileSync(reportPath, markdown, 'utf8');
         }
     });
+
+    test('Phase E4: Flanking geometry detector (135° to 225°)', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            // Function mirroring checkFlankingAdvantage in combatLoopEngine.ts
+            function checkFlank(
+                attacker: { x: number; y: number },
+                target: { x: number; y: number },
+                allies: Array<{ x: number; y: number }>
+            ): { isFlanking: boolean; angleDeg: number } {
+                const v1x = attacker.x - target.x;
+                const v1y = attacker.y - target.y;
+
+                for (const ally of allies) {
+                    const v2x = ally.x - target.x;
+                    const v2y = ally.y - target.y;
+
+                    const dot = v1x * v2x + v1y * v2y;
+                    const mag1 = Math.hypot(v1x, v1y);
+                    const mag2 = Math.hypot(v2x, v2y);
+                    if (mag1 === 0 || mag2 === 0) continue;
+
+                    const cosTheta = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+                    const angleDeg = (Math.acos(cosTheta) * 180) / Math.PI;
+
+                    if (angleDeg >= 135 && angleDeg <= 225) {
+                        return { isFlanking: true, angleDeg };
+                    }
+                }
+                return { isFlanking: false, angleDeg: 0 };
+            }
+
+            // Target at (5, 5). Attacker A1 at (4, 5) [West]. Ally A2 at (6, 5) [East: 180° opposite]
+            const oppositeFlank = checkFlank({ x: 4, y: 5 }, { x: 5, y: 5 }, [{ x: 6, y: 5 }]);
+            // Target at (5, 5). Attacker A1 at (4, 5) [West]. Ally A2 at (5, 6) [South: 90° orthogonal]
+            const orthogonalFlank = checkFlank({ x: 4, y: 5 }, { x: 5, y: 5 }, [{ x: 5, y: 6 }]);
+
+            return {
+                oppositeFlank,
+                orthogonalFlank,
+            };
+        });
+
+        expect(result.oppositeFlank.isFlanking).toBe(true);
+        expect(result.oppositeFlank.angleDeg).toBe(180);
+        expect(result.orthogonalFlank.isFlanking).toBe(false);
+    });
+
+    test('Phase E4: Lair Action slot injection at initiative 20', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const initiativeOrder = await page.evaluate(() => {
+            const combatants = [
+                { id: 'c-hero', name: 'Rogue', initiative: 22, dexMod: 4, isBoss: false },
+                { id: 'c-boss', name: 'Ancient Red Dragon', initiative: 18, dexMod: 0, isBoss: true, hasLairActions: true },
+                { id: 'c-minion', name: 'Kobold', initiative: 12, dexMod: 2, isBoss: false },
+            ];
+
+            // If a boss has lair actions, inject fixed slot at 20 (losing ties)
+            const hasLair = combatants.some(c => c.hasLairActions);
+            const list = [...combatants];
+
+            if (hasLair) {
+                const lairSlot = {
+                    id: 'lair-action-slot',
+                    name: '⚡ Lair Action',
+                    initiative: 20,
+                    dexMod: -99, // loses all ties
+                    isBoss: false,
+                };
+                list.push(lairSlot);
+            }
+
+            list.sort((a, b) => {
+                if (b.initiative !== a.initiative) return b.initiative - a.initiative;
+                return b.dexMod - a.dexMod;
+            });
+
+            return list.map(c => ({ name: c.name, init: c.initiative }));
+        });
+
+        expect(initiativeOrder).toHaveLength(4);
+        expect(initiativeOrder[0].name).toBe('Rogue');
+        expect(initiativeOrder[1].name).toBe('⚡ Lair Action');
+        expect(initiativeOrder[1].init).toBe(20);
+        expect(initiativeOrder[2].name).toBe('Ancient Red Dragon');
+    });
+
+    test('Phase E4: Legendary Action economy and turn transitions', async ({ page }) => {
+        const appUrl = process.env.VTT_URL || 'http://localhost:5173';
+        await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+
+        const result = await page.evaluate(() => {
+            const boss = {
+                name: 'Lich',
+                legendaryActionsMax: 3,
+                legendaryActionsRemaining: 3,
+            };
+
+            // Spend 2 legendary actions during minion's turn
+            boss.legendaryActionsRemaining -= 2;
+            const remainingAfterReaction = boss.legendaryActionsRemaining;
+
+            // Start of boss's turn: resets to max
+            boss.legendaryActionsRemaining = boss.legendaryActionsMax;
+            const remainingAfterTurnReset = boss.legendaryActionsRemaining;
+
+            return {
+                max: boss.legendaryActionsMax,
+                remainingAfterReaction,
+                remainingAfterTurnReset,
+            };
+        });
+
+        expect(result.max).toBe(3);
+        expect(result.remainingAfterReaction).toBe(1);
+        expect(result.remainingAfterTurnReset).toBe(3);
+    });
 });

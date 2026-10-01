@@ -72,7 +72,11 @@ export function cubeRound(cube: CubeCoord): CubeCoord {
     s = -q - r;
   }
 
-  return { q, r, s };
+  return {
+    q: q === 0 ? 0 : q,
+    r: r === 0 ? 0 : r,
+    s: s === 0 ? 0 : s,
+  };
 }
 
 /**
@@ -206,3 +210,293 @@ export function getHexVertices(
 
   return vertices;
 }
+
+/**
+ * Square snap-to-grid utility:
+ * Snaps pixel coordinates (x, y) to the nearest discrete square cell center or top-left.
+ */
+export function snapToSquareGrid(
+  x: number,
+  y: number,
+  cellSize: number,
+  center: boolean = true,
+  offsetX: number = 0,
+  offsetY: number = 0,
+): Point2D & { gx: number; gy: number } {
+  const relX = x - offsetX;
+  const relY = y - offsetY;
+  const gx = Math.floor(relX / cellSize);
+  const gy = Math.floor(relY / cellSize);
+  const snapOffset = center ? cellSize / 2 : 0;
+
+  return {
+    x: gx * cellSize + snapOffset + offsetX,
+    y: gy * cellSize + snapOffset + offsetY,
+    gx,
+    gy,
+  };
+}
+
+/**
+ * Universal snap utility routing token coordinate snaps based on active scene gridType.
+ */
+export function snapByGridType(
+  x: number,
+  y: number,
+  gridSize: number,
+  gridType: 'square' | 'hex_pointy' | 'hex_flat' | 'gridless',
+  center: boolean = true,
+  offsetX: number = 0,
+  offsetY: number = 0,
+): Point2D & { gx: number; gy: number } {
+  if (gridType === 'gridless') {
+    return {
+      x,
+      y,
+      gx: Math.floor(x / gridSize),
+      gy: Math.floor(y / gridSize),
+    };
+  }
+
+  if (gridType === 'hex_pointy' || gridType === 'hex_flat') {
+    const orientation = gridType === 'hex_pointy' ? 'pointy' : 'flat';
+    const radius = gridSize / Math.sqrt(3);
+    const hex = snapToHex(x, y, radius, orientation, offsetX, offsetY);
+    return {
+      x: hex.x,
+      y: hex.y,
+      gx: hex.q,
+      gy: hex.r,
+    };
+  }
+
+  return snapToSquareGrid(x, y, gridSize, center, offsetX, offsetY);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HEX-PERFECT AOE SPELL TEMPLATES (Adapted from flauwekeul/honeycomb)
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Computes all hexes exactly at distance radius from center (q, r).
+ */
+export function getHexRing(center: AxialCoord, radius: number): AxialCoord[] {
+  if (radius <= 0) return [center];
+
+  const results: AxialCoord[] = [];
+  // Cube directions
+  const directions = [
+    { q: 1, r: 0, s: -1 },
+    { q: 1, r: -1, s: 0 },
+    { q: 0, r: -1, s: 1 },
+    { q: -1, r: 0, s: 1 },
+    { q: -1, r: 1, s: 0 },
+    { q: 0, r: 1, s: -1 },
+  ];
+
+  const centerCube = axialToCube(center);
+  // Start at center + direction[4] * radius
+  let currentCube: CubeCoord = {
+    q: centerCube.q + directions[4].q * radius,
+    r: centerCube.r + directions[4].r * radius,
+    s: centerCube.s + directions[4].s * radius,
+  };
+
+  for (let i = 0; i < 6; i++) {
+    for (let step = 0; step < radius; step++) {
+      results.push(cubeToAxial(currentCube));
+      currentCube = {
+        q: currentCube.q + directions[i].q,
+        r: currentCube.r + directions[i].r,
+        s: currentCube.s + directions[i].s,
+      };
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Computes all discrete hex cells within distance <= radius from center (q, r).
+ * Generates circular spell burst areas without fractional cell clipping.
+ */
+export function getHexSpiral(center: AxialCoord, radius: number): AxialCoord[] {
+  const results: AxialCoord[] = [center];
+  for (let k = 1; k <= radius; k++) {
+    results.push(...getHexRing(center, k));
+  }
+  return results;
+}
+
+/**
+ * Computes the discrete hex cells enclosed by a 60-degree wedge cone given an origin hex,
+ * target direction angle theta (in radians), and radius in hex cells.
+ */
+export function getHexCone(
+  origin: AxialCoord,
+  theta: number,
+  radius: number,
+  orientation: HexOrientation = 'pointy'
+): AxialCoord[] {
+  if (radius <= 0) return [origin];
+
+  const hexRadius = 1; // Normalized coordinate distance
+  const allInRange = getHexSpiral(origin, radius);
+  const coneHalfAngle = Math.PI / 6; // 30 degrees either side -> 60-degree cone wedge
+
+  const originPx = hexAxialToPixel(origin.q, origin.r, hexRadius, orientation);
+
+  return allInRange.filter((hex) => {
+    if (hex.q === origin.q && hex.r === origin.r) return true;
+    const targetPx = hexAxialToPixel(hex.q, hex.r, hexRadius, orientation);
+    const angle = Math.atan2(targetPx.y - originPx.y, targetPx.x - originPx.x);
+    // Angular difference normalized between -PI and PI
+    let diff = angle - theta;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    return Math.abs(diff) <= coneHalfAngle + 0.05;
+  });
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CUBE COORDINATE LINE INTERPOLATION & HEX COVER RAYCAST (flauwekeul/honeycomb)
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Linear interpolation between two cube coordinates at normalized step t (0.0 to 1.0).
+ */
+export function cubeLerp(a: CubeCoord, b: CubeCoord, t: number): CubeCoord {
+  return {
+    q: a.q + (b.q - a.q) * t,
+    r: a.r + (b.r - a.r) * t,
+    s: a.s + (b.s - a.s) * t,
+  };
+}
+
+/**
+ * Draws a discrete Bresenham-style straight line of hexes between two cube coordinates.
+ * Employs a microscopic nudge epsilon to ensure deterministic boundary rounding.
+ */
+export function cubeLinedraw(a: CubeCoord, b: CubeCoord): CubeCoord[] {
+  const dist = Math.max(
+    Math.abs(a.q - b.q),
+    Math.abs(a.r - b.r),
+    Math.abs(a.s - b.s)
+  );
+  if (dist === 0) return [cubeRound(a)];
+
+  const results: CubeCoord[] = [];
+  const aNudge: CubeCoord = { q: a.q + 1e-6, r: a.r + 1e-6, s: a.s - 2e-6 };
+  const bNudge: CubeCoord = { q: b.q + 1e-6, r: b.r + 1e-6, s: b.s - 2e-6 };
+
+  for (let i = 0; i <= dist; i++) {
+    const t = i / dist;
+    results.push(cubeRound(cubeLerp(aNudge, bNudge, t)));
+  }
+  return results;
+}
+
+export type HexCoverType = 'none' | 'half' | 'three-quarters' | 'total';
+
+export interface HexCoverResult {
+  coverType: HexCoverType;
+  acBonus: number;
+  dexSaveBonus: number;
+  blockedHexCount: number;
+  interveningCount: number;
+  canTarget: boolean;
+  description: string;
+}
+
+/**
+ * Calculates 5e SRD cover across hexagonal grids between attacker and defender hexes.
+ * Uses cube coordinate line interpolation to trace line of sight across intervening obstacles and tokens:
+ * - 0 intervening obstacles/tokens: None (+0 AC)
+ * - 1 intervening obstacle or creature token: Half Cover (+2 AC, +2 DEX saves)
+ * - 2+ intervening obstacles or heavy colliders: Three-Quarters Cover (+5 AC, +5 DEX saves)
+ * - Total obstruction: Total Cover (Cannot be targeted)
+ */
+export function calculateHexCover(
+  attacker: AxialCoord,
+  defender: AxialCoord,
+  obstacles: AxialCoord[] = [],
+  tokens: AxialCoord[] = []
+): HexCoverResult {
+  const attackerCube = axialToCube(attacker);
+  const defenderCube = axialToCube(defender);
+
+  const lineHexes = cubeLinedraw(attackerCube, defenderCube);
+
+  // If adjacent or same cell, no intervening cover possible
+  if (lineHexes.length <= 2) {
+    return {
+      coverType: 'none',
+      acBonus: 0,
+      dexSaveBonus: 0,
+      blockedHexCount: 0,
+      interveningCount: 0,
+      canTarget: true,
+      description: 'Clear line of sight (no intervening hexes)',
+    };
+  }
+
+  // Intervening cells (excluding attacker at index 0 and defender at last index)
+  const intervening = lineHexes.slice(1, -1);
+  const obstacleKeys = new Set(obstacles.map((o) => `${o.q},${o.r}`));
+  const tokenKeys = new Set(tokens.map((t) => `${t.q},${t.r}`));
+
+  let blockedHexCount = 0;
+  for (const hex of intervening) {
+    const key = `${hex.q},${hex.r}`;
+    if (obstacleKeys.has(key) || tokenKeys.has(key)) {
+      blockedHexCount++;
+    }
+  }
+
+  if (blockedHexCount === 0) {
+    return {
+      coverType: 'none',
+      acBonus: 0,
+      dexSaveBonus: 0,
+      blockedHexCount: 0,
+      interveningCount: intervening.length,
+      canTarget: true,
+      description: 'No cover (+0 AC)',
+    };
+  }
+
+  if (blockedHexCount === 1) {
+    return {
+      coverType: 'half',
+      acBonus: 2,
+      dexSaveBonus: 2,
+      blockedHexCount,
+      interveningCount: intervening.length,
+      canTarget: true,
+      description: 'Half cover (+2 AC, +2 DEX saves)',
+    };
+  }
+
+  if (blockedHexCount >= intervening.length && intervening.length >= 3) {
+    return {
+      coverType: 'total',
+      acBonus: 99,
+      dexSaveBonus: 99,
+      blockedHexCount,
+      interveningCount: intervening.length,
+      canTarget: false,
+      description: 'Total cover (Target completely obstructed)',
+    };
+  }
+
+  return {
+    coverType: 'three-quarters',
+    acBonus: 5,
+    dexSaveBonus: 5,
+    blockedHexCount,
+    interveningCount: intervening.length,
+    canTarget: true,
+    description: 'Three-quarters cover (+5 AC, +5 DEX saves)',
+  };
+}
+
