@@ -97,7 +97,9 @@ pub fn transpile_roll20_page(raw_json: &str) -> Result<TranspiledRoll20Page, Str
     }
 
     Ok(TranspiledRoll20Page {
-        page_name: page.name.unwrap_or_else(|| "Imported Roll20 Page".to_string()),
+        page_name: page
+            .name
+            .unwrap_or_else(|| "Imported Roll20 Page".to_string()),
         background_image_url,
         grid_size,
         width_px,

@@ -401,8 +401,10 @@ fn extract_dimensions_and_content(
             if let Ok(buf) = std::fs::read(path) {
                 if buf.len() >= 30 && &buf[0..4] == b"RIFF" && &buf[8..12] == b"WEBP" {
                     if &buf[12..16] == b"VP8X" && buf.len() >= 30 {
-                        let w = 1 + (buf[24] as u32 | ((buf[25] as u32) << 8) | ((buf[26] as u32) << 16));
-                        let h = 1 + (buf[27] as u32 | ((buf[28] as u32) << 8) | ((buf[29] as u32) << 16));
+                        let w = 1
+                            + (buf[24] as u32 | ((buf[25] as u32) << 8) | ((buf[26] as u32) << 16));
+                        let h = 1
+                            + (buf[27] as u32 | ((buf[28] as u32) << 8) | ((buf[29] as u32) << 16));
                         return (Some(w), Some(h), None, None);
                     } else if &buf[12..16] == b"VP8 " && buf.len() >= 30 {
                         let w = (u16::from_le_bytes([buf[26], buf[27]]) & 0x3FFF) as u32;
@@ -428,8 +430,12 @@ fn extract_dimensions_and_content(
                         .pointer("/resolution/pixels_per_grid")
                         .and_then(|v| v.as_u64())
                         .map(|p| p as u32);
-                    let gx = val.pointer("/resolution/map_size/x").and_then(|v| v.as_f64());
-                    let gy = val.pointer("/resolution/map_size/y").and_then(|v| v.as_f64());
+                    let gx = val
+                        .pointer("/resolution/map_size/x")
+                        .and_then(|v| v.as_f64());
+                    let gy = val
+                        .pointer("/resolution/map_size/y")
+                        .and_then(|v| v.as_f64());
                     let (w, h) = match (gx, gy, ppg) {
                         (Some(x), Some(y), Some(p)) => (
                             Some((x * p as f64).round() as u32),
@@ -821,4 +827,3 @@ pub fn transpile_foundry_scene_cmd(json_content: String) -> Result<TranspiledFou
 pub fn transpile_roll20_page_cmd(json_content: String) -> Result<TranspiledRoll20Page, String> {
     transpile_roll20_page(&json_content)
 }
-

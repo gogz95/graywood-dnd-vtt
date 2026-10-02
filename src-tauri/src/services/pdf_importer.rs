@@ -156,10 +156,39 @@ pub fn parse_pdf_bytes(file_name: &str, bytes: &[u8]) -> Result<PdfImportReport,
         let mut encounters = Vec::new();
         // Common standard 5e monsters from 5e-database
         let monster_catalogs = [
-            "Goblin", "Goblins", "Orc", "Orcs", "Skeleton", "Skeletons", "Zombie", "Zombies",
-            "Kobold", "Kobolds", "Bandit", "Bandits", "Cultist", "Cultists", "Ghoul", "Ghouls",
-            "Bugbear", "Bugbears", "Hobgoblin", "Hobgoblins", "Wolf", "Wolves", "Spider", "Giant Spider",
-            "Ogre", "Ogres", "Troll", "Trolls", "Manticore", "Wraith", "Specter", "Shadow", "Shadows"
+            "Goblin",
+            "Goblins",
+            "Orc",
+            "Orcs",
+            "Skeleton",
+            "Skeletons",
+            "Zombie",
+            "Zombies",
+            "Kobold",
+            "Kobolds",
+            "Bandit",
+            "Bandits",
+            "Cultist",
+            "Cultists",
+            "Ghoul",
+            "Ghouls",
+            "Bugbear",
+            "Bugbears",
+            "Hobgoblin",
+            "Hobgoblins",
+            "Wolf",
+            "Wolves",
+            "Spider",
+            "Giant Spider",
+            "Ogre",
+            "Ogres",
+            "Troll",
+            "Trolls",
+            "Manticore",
+            "Wraith",
+            "Specter",
+            "Shadow",
+            "Shadows",
         ];
 
         for line in lines {
@@ -170,7 +199,10 @@ pub fn parse_pdf_bytes(file_name: &str, bytes: &[u8]) -> Result<PdfImportReport,
                         if line.contains(mon) {
                             let clean_name = mon.trim_end_matches('s').to_string();
                             let monster_id = clean_name.to_lowercase().replace(' ', "-");
-                            if !encounters.iter().any(|e: &ParsedEncounter| e.monster_id == monster_id) {
+                            if !encounters
+                                .iter()
+                                .any(|e: &ParsedEncounter| e.monster_id == monster_id)
+                            {
                                 encounters.push(ParsedEncounter {
                                     name: clean_name,
                                     count: count.max(1),

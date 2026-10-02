@@ -76,11 +76,7 @@ pub fn transpile_foundry_scene(raw_json: &str) -> Result<TranspiledFoundryScene,
         .map_err(|e| format!("Failed to parse Foundry VTT Scene JSON: {}", e))?;
 
     let grid_size = scene.grid.as_ref().and_then(|g| g.size).unwrap_or(100);
-    let grid_distance_feet = scene
-        .grid
-        .as_ref()
-        .and_then(|g| g.distance)
-        .unwrap_or(5.0);
+    let grid_distance_feet = scene.grid.as_ref().and_then(|g| g.distance).unwrap_or(5.0);
 
     let mut walls: Vec<WallColliderPayload> = Vec::new();
     let mut doors_count = 0;
@@ -137,7 +133,9 @@ pub fn transpile_foundry_scene(raw_json: &str) -> Result<TranspiledFoundryScene,
     }
 
     Ok(TranspiledFoundryScene {
-        scene_name: scene.name.unwrap_or_else(|| "Imported Foundry Scene".to_string()),
+        scene_name: scene
+            .name
+            .unwrap_or_else(|| "Imported Foundry Scene".to_string()),
         image_url: scene.img,
         grid_size,
         grid_distance_feet,

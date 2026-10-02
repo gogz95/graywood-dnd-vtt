@@ -57,7 +57,9 @@ pub async fn select_campaign_directory(
         let p = handle.path().to_path_buf();
         let path_str = p.to_string_lossy().to_string();
         *state.campaign_dir.write().await = Some(p);
-        Ok(Json(CampaignDirResponse { path: Some(path_str) }))
+        Ok(Json(CampaignDirResponse {
+            path: Some(path_str),
+        }))
     } else {
         Ok(Json(CampaignDirResponse { path: None }))
     }

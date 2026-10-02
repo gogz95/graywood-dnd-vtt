@@ -12,7 +12,7 @@ use zip::{ZipArchive, ZipWriter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VttBundleManifest {
-    pub format: String, // "graywood_vttbundle"
+    pub format: String,  // "graywood_vttbundle"
     pub version: String, // "1.0.0"
     pub campaign_name: String,
     pub created_at_epoch: u64,
@@ -46,8 +46,12 @@ pub fn export_vttbundle(
             .map_err(|e| format!("Failed to create bundle parent directory: {}", e))?;
     }
 
-    let file = File::create(output_bundle_path)
-        .map_err(|e| format!("Failed to create bundle archive '{:?}': {}", output_bundle_path, e))?;
+    let file = File::create(output_bundle_path).map_err(|e| {
+        format!(
+            "Failed to create bundle archive '{:?}': {}",
+            output_bundle_path, e
+        )
+    })?;
 
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default()
@@ -93,7 +97,8 @@ pub fn export_vttbundle(
         {
             let path = entry.path();
             if let Ok(rel_path) = path.strip_prefix(assets_dir) {
-                let zip_entry_name = format!("assets/{}", rel_path.to_string_lossy().replace('\\', "/"));
+                let zip_entry_name =
+                    format!("assets/{}", rel_path.to_string_lossy().replace('\\', "/"));
                 zip.start_file(&zip_entry_name, options)
                     .map_err(|e| format!("Zip error starting file '{}': {}", zip_entry_name, e))?;
 
@@ -106,8 +111,9 @@ pub fn export_vttbundle(
 
                 total_bytes += buffer.len() as u64;
                 assets_count += 1;
-                zip.write_all(&buffer)
-                    .map_err(|e| format!("Failed writing asset '{}' into zip: {}", zip_entry_name, e))?;
+                zip.write_all(&buffer).map_err(|e| {
+                    format!("Failed writing asset '{}' into zip: {}", zip_entry_name, e)
+                })?;
             }
         }
     }
