@@ -519,7 +519,7 @@ pub fn generate_circular_token_webp(
     webp_bytes.extend_from_slice(&alph_chunk_size.to_le_bytes());
     webp_bytes.push(0x00); // No preprocessing, uncompressed
     webp_bytes.extend_from_slice(&alpha_data);
-    if alph_chunk_size % 2 != 0 {
+    if !alph_chunk_size.is_multiple_of(2) {
         webp_bytes.push(0x00); // Padding
     }
 
@@ -529,7 +529,7 @@ pub fn generate_circular_token_webp(
     let vp8_size = dummy_vp8.len() as u32;
     webp_bytes.extend_from_slice(&vp8_size.to_le_bytes());
     webp_bytes.extend_from_slice(dummy_vp8);
-    if vp8_size % 2 != 0 {
+    if !vp8_size.is_multiple_of(2) {
         webp_bytes.push(0x00);
     }
 

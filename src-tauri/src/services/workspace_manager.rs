@@ -199,10 +199,8 @@ pub fn validate_workspace(root: &Path) -> Result<bool, String> {
         return Ok(false);
     }
 
-    if db_path.exists() {
-        if Connection::open(&db_path).is_err() {
-            return Ok(false);
-        }
+    if db_path.exists() && Connection::open(&db_path).is_err() {
+        return Ok(false);
     }
 
     Ok(true)

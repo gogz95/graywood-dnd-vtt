@@ -50,7 +50,7 @@ pub fn link_monster_entity(text: &str) -> Option<String> {
 
 /// Parses a dice range string: "01-05", "1-4", "20", "00" -> [min, max]
 pub fn parse_dice_range(range_str: &str, max_dice: i32) -> Option<[i32; 2]> {
-    let trimmed = range_str.trim().replace('–', "-").replace('—', "-");
+    let trimmed = range_str.trim().replace(['–', '—'], "-");
     if trimmed.is_empty() {
         return None;
     }
@@ -308,8 +308,8 @@ pub fn parse_markdown_table(path: &Path, file_rel: &str) -> Result<RollableTable
     let mut name = file_stem.replace('_', " ");
 
     for line in &lines {
-        if line.starts_with("# ") {
-            name = line[2..].trim().to_string();
+        if let Some(stripped) = line.strip_prefix("# ") {
+            name = stripped.trim().to_string();
             break;
         }
     }
