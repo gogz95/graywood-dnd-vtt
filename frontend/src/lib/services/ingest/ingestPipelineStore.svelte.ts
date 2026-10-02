@@ -16,6 +16,13 @@ import type {
   IngestScanEntry,
 } from './ingestTypes';
 
+export interface IngestPdfProgressPayload {
+  filename: string;
+  status: string;
+  count: number;
+  total: number;
+}
+
 function isTauriEnvironment(): boolean {
   return typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
 }
@@ -28,6 +35,32 @@ class IngestPipelineStore {
   activeFilter = $state<string>('all');
   errorMessage = $state<string | null>(null);
   lastScanRoot = $state<string | null>(null);
+  pdfProgress = $state<IngestPdfProgressPayload | null>(null);
+
+  constructor() {
+    if (isTauriEnvironment()) {
+      import('@tauri-apps/api/event')
+        .then(({ listen }) => {
+          listen<IngestPdfProgressPayload>('pdf-ingest-progress', (event) => {
+            this.pdfProgress = event.payload;
+            if (
+              event.payload.status === 'completed' ||
+              event.payload.status === 'error' ||
+              event.payload.status === 'timeout'
+            ) {
+              setTimeout(() => {
+                if (this.pdfProgress?.filename === event.payload.filename) {
+                  this.pdfProgress = null;
+                }
+              }, 4000);
+            }
+          });
+        })
+        .catch((err) => {
+          console.warn('[IngestPipeline] Failed to attach pdf-ingest-progress listener:', err);
+        });
+    }
+  }
 
   openModal() {
     this.isModalOpen = true;

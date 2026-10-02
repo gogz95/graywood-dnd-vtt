@@ -217,6 +217,26 @@
             <span>{ingestPipelineStore.errorMessage}</span>
           </div>
         {/if}
+
+        {#if ingestPipelineStore.pdfProgress}
+          <div class="p-2.5 rounded-xl bg-indigo-950/70 border border-indigo-700/80 text-indigo-200 text-xs flex items-center justify-between gap-3 shadow-md">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="text-sm">📄</span>
+              <div class="truncate">
+                <span class="font-semibold text-white">[{ingestPipelineStore.pdfProgress.count}/{ingestPipelineStore.pdfProgress.total}]</span>
+                <span class="ml-1 truncate font-mono text-indigo-300">{ingestPipelineStore.pdfProgress.filename}</span>
+              </div>
+            </div>
+            <span class="shrink-0 px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider {
+              ingestPipelineStore.pdfProgress.status === 'timeout' ? 'bg-amber-900/80 text-amber-200 border border-amber-700' :
+              ingestPipelineStore.pdfProgress.status === 'completed' ? 'bg-emerald-900/80 text-emerald-200 border border-emerald-700' :
+              ingestPipelineStore.pdfProgress.status === 'error' ? 'bg-rose-900/80 text-rose-200 border border-rose-700' :
+              'bg-indigo-900/80 text-indigo-300 border border-indigo-600 animate-pulse'
+            }">
+              {ingestPipelineStore.pdfProgress.status}
+            </span>
+          </div>
+        {/if}
       </div>
 
       <!-- ═════════════════════════════════════════════════════════════════════

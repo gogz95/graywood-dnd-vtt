@@ -646,7 +646,7 @@ pub async fn scan_ingest_directory(
                     content,
                 });
 
-                if crawled_count % 100 == 0 {
+                if crawled_count.is_multiple_of(100) {
                     eprintln!(
                         "[INGEST-DEBUG] [{}] Phase 3: Crawled {} files so far (latest: {})",
                         debug_timestamp(),

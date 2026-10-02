@@ -64,7 +64,8 @@ export async function extractPdfTextPages(file: File | Blob | ArrayBuffer | Uint
   const pdfDoc = await loadingTask.promise;
   const pagesText: string[] = [];
 
-  for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+  const maxPages = Math.min(pdfDoc.numPages, 300);
+  for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
     const page = await pdfDoc.getPage(pageNum);
     const textContent = await page.getTextContent();
     const pageStrings = textContent.items
@@ -80,6 +81,10 @@ export async function extractPdfTextPages(file: File | Blob | ArrayBuffer | Uint
 
     if (cleanText.length > 0) {
       pagesText.push(cleanText);
+    }
+
+    if (pageNum % 5 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
     }
   }
 
@@ -313,49 +318,83 @@ export async function extractAndStoreCompendiumSource(
     chunks = [text];
   }
 
-  const fullText = chunks.join('\n\n');
+  // Yield to allow UI frame updates
+  await new Promise((r) => setTimeout(r, 0));
 
-  // Extract entities
-  const spellsExtracted = parseSpellsFromText(fullText, fileName, packageId);
-  const subclassesExtracted = parseSubclassesFromText(fullText, fileName, packageId);
-  const facilitiesExtracted = parseFacilitiesFromText(fullText, fileName, packageId);
-  const monstersExtracted = parseMonstersFromText(fullText, fileName, packageId);
+  const spellsExtracted: CompendiumSpell[] = [];
+  const subclassesExtracted: CompendiumSubclass[] = [];
+  const facilitiesExtracted: CompendiumFacility[] = [];
+  const monstersExtracted: CompendiumMonster[] = [];
 
-  // Extract GFM pipe tables
-  const tablesExtracted: IngestedTable[] = [];
-  const tableRegex = /((?:^[ \t]*\|[^\n]+\|[ \t]*(?:\n|$))+)/gm;
-  let tableMatch: RegExpExecArray | null;
-  let tableIdx = 1;
-  while ((tableMatch = tableRegex.exec(fullText)) !== null) {
-    const rawTable = tableMatch[1].trim();
-    const lines = rawTable.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    if (lines.length >= 2) {
-      const parseCells = (rowStr: string): string[] => {
-        return rowStr.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
-      };
-      const headers = parseCells(lines[0]);
-      const hasSeparator = /^\|?([ \t]*:?-+:?[ \t]*\|)+[ \t]*:?-+:?[ \t]*\|?$/.test(lines[1]);
-      const bodyLines = hasSeparator ? lines.slice(2) : lines.slice(1);
-      const rows = bodyLines.map(parseCells);
-      const precedingText = fullText.slice(Math.max(0, tableMatch.index - 200), tableMatch.index);
-      const titleMatch = precedingText.match(/(?:^|\n)(?:#{1,6}\s+)?([^\n]+)\n*$/);
-      const name = titleMatch ? titleMatch[1].replace(/^[#\s*_-]+|[#\s*_-]+$/g, '').trim() : `Table ${tableIdx}`;
-      const diceMatch = (name + ' ' + headers.join(' ')).match(/\b(d\d+|1?d[468]|1?d10|1?d12|1?d20|1?d100)\b/i);
+  // Bounded chunk-by-chunk extraction with pre-filtering
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    if (chunk.includes('Casting Time:') || chunk.includes('cantrip') || chunk.includes('-level')) {
+      spellsExtracted.push(...parseSpellsFromText(chunk, fileName, packageId));
+    }
+    if (chunk.includes('Archetype') || chunk.includes('Domain') || chunk.includes('Circle') || chunk.includes('Oath') || chunk.includes('Tradition')) {
+      subclassesExtracted.push(...parseSubclassesFromText(chunk, fileName, packageId));
+    }
+    if (chunk.includes('Facility') || chunk.includes('Room') || chunk.includes('Chamber') || chunk.includes('Area ')) {
+      facilitiesExtracted.push(...parseFacilitiesFromText(chunk, fileName, packageId));
+    }
+    if (chunk.includes('Armor Class') && chunk.includes('Hit Points')) {
+      monstersExtracted.push(...parseMonstersFromText(chunk, fileName, packageId));
+    }
 
-      tablesExtracted.push({
-        name: name || `Table ${tableIdx}`,
-        category: 'Roll Table',
-        source: fileName,
-        headers,
-        rows,
-        diceFormula: diceMatch ? diceMatch[1].toLowerCase() : undefined,
-        rawMarkdown: rawTable
-      });
-      tableIdx++;
+    if (i % 10 === 0) {
+      await new Promise((r) => setTimeout(r, 0));
     }
   }
 
-  // Bulk persist to compendiumDb
+  const fullText = chunks.join('\n\n');
+
+  // Fallback for short texts where entities may straddle boundary
+  if (monstersExtracted.length === 0 && spellsExtracted.length === 0 && fullText.length < 65536) {
+    spellsExtracted.push(...parseSpellsFromText(fullText, fileName, packageId));
+    subclassesExtracted.push(...parseSubclassesFromText(fullText, fileName, packageId));
+    facilitiesExtracted.push(...parseFacilitiesFromText(fullText, fileName, packageId));
+    monstersExtracted.push(...parseMonstersFromText(fullText, fileName, packageId));
+  }
+
+  // Extract GFM pipe tables
+  const tablesExtracted: IngestedTable[] = [];
+  if (fullText.includes('|')) {
+    const tableRegex = /((?:^[ \t]*\|[^\n]+\|[ \t]*(?:\n|$))+)/gm;
+    let tableMatch: RegExpExecArray | null;
+    let tableIdx = 1;
+    while ((tableMatch = tableRegex.exec(fullText)) !== null) {
+      const rawTable = tableMatch[1].trim();
+      const lines = rawTable.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      if (lines.length >= 2) {
+        const parseCells = (rowStr: string): string[] => {
+          return rowStr.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+        };
+        const headers = parseCells(lines[0]);
+        const hasSeparator = /^\|?([ \t]*:?-+:?[ \t]*\|)+[ \t]*:?-+:?[ \t]*\|?$/.test(lines[1]);
+        const bodyLines = hasSeparator ? lines.slice(2) : lines.slice(1);
+        const rows = bodyLines.map(parseCells);
+        const precedingText = fullText.slice(Math.max(0, tableMatch.index - 200), tableMatch.index);
+        const titleMatch = precedingText.match(/(?:^|\n)(?:#{1,6}\s+)?([^\n]+)\n*$/);
+        const name = titleMatch ? titleMatch[1].replace(/^[#\s*_-]+|[#\s*_-]+$/g, '').trim() : `Table ${tableIdx}`;
+        const diceMatch = (name + ' ' + headers.join(' ')).match(/\b(d\d+|1?d[468]|1?d10|1?d12|1?d20|1?d100)\b/i);
+
+        tablesExtracted.push({
+          name: name || `Table ${tableIdx}`,
+          category: 'Roll Table',
+          source: fileName,
+          headers,
+          rows,
+          diceFormula: diceMatch ? diceMatch[1].toLowerCase() : undefined,
+          rawMarkdown: rawTable
+        });
+        tableIdx++;
+      }
+    }
+  }
+
+  // Bulk persist to compendiumDb with event loop yield
+  await new Promise((r) => setTimeout(r, 0));
   if (spellsExtracted.length > 0) {
     await compendiumDb.spells.bulkPut(spellsExtracted);
   }

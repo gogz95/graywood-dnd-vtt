@@ -456,6 +456,12 @@
                       style="width: {ingestPipelineStore.overallProgressPercent}%"
                     ></div>
                   </div>
+                  {#if ingestPipelineStore.pdfProgress}
+                    <div class="pt-1 text-[10px] text-indigo-300 flex items-center justify-between bg-slate-900/90 px-2 py-1 rounded border border-indigo-900/60 font-mono">
+                      <span class="truncate">📄 [{ingestPipelineStore.pdfProgress.count}/{ingestPipelineStore.pdfProgress.total}] {ingestPipelineStore.pdfProgress.filename}</span>
+                      <span class="uppercase font-bold text-sky-400 shrink-0 ml-2">{ingestPipelineStore.pdfProgress.status}</span>
+                    </div>
+                  {/if}
                 </div>
               {/if}
 
