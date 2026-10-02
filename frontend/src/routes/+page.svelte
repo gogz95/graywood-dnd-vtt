@@ -49,6 +49,7 @@
   import { hotkeyManager } from '../lib/services/hotkeyManager';
   import { projectorStore } from '../lib/stores/projectorStore.svelte';
   import { curtainStore } from '../lib/stores/curtainStore.svelte';
+  import { canvasStore } from '../stores/canvasStore.svelte';
 
   // Aleamos Downtime, Logistics & Crafting
   import AlchemyWorkbench from '../lib/components/crafting/AlchemyWorkbench.svelte';

@@ -1087,7 +1087,7 @@
                 const raw = mobileChatInput.trim();
                 if (!raw) return;
 
-                const senderName = session.characterName || 'Player Companion';
+                const senderName = session?.characterName || 'Player Companion';
                 const senderId = senderName.toLowerCase().replace(/\s+/g, '-');
                 const msgId = `mobile-msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
                 const timestamp = Date.now();

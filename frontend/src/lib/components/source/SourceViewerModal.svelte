@@ -54,7 +54,7 @@
       }
 
       const fileUrl = resolveAssetUrl(relPath);
-      const loadingTask = pdfjsLib.getDocument(fileUrl);
+      const loadingTask = pdfjsLib.getDocument({ url: fileUrl });
       pdfDoc = await loadingTask.promise;
       totalPages = pdfDoc.numPages;
       if (currentPage > totalPages) {
@@ -142,8 +142,12 @@
   >
     <!-- Modal Window -->
     <div
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
       class="bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden w-full max-w-5xl h-[90vh]"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <!-- Header Toolbar -->
       <div class="px-5 py-3.5 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between gap-4">

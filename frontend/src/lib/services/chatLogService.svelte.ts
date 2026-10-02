@@ -104,7 +104,7 @@ export class ChatLogService {
     const formulaMatch = entry.text.match(/(\d+d\d+)/i);
     if (formulaMatch) {
       const dice = parseDiceFormula(formulaMatch[1]);
-      count = Math.max(1, dice.total);
+      count = Math.max(1, dice?.total ?? 1);
     } else {
       const numMatch = entry.text.match(/^(\d+)\s+/);
       if (numMatch) {

@@ -17,6 +17,7 @@ import {
   type EvaluatedToken,
 } from './auraEngine';
 import type { TokenAuraConfig } from '../canvas/vfx/TokenAuraLayer';
+import type { CanvasToken } from '../../stores/canvasStore.svelte';
 
 describe('Phase E5: Spell Projectile & Screen-Shake Engine', () => {
   it('correctly calculates quadratic Bezier projectile positions along trajectory', () => {
@@ -395,7 +396,7 @@ describe('Polish Phase 3: DM Tabletop Ergonomics & Rapid Tactical Controls', () 
       elevation: 0,
     };
 
-    const handled = handleTokenElevationWheel(fakeAltEvent, token);
+    const handled = handleTokenElevationWheel(fakeAltEvent, token as unknown as CanvasToken);
     expect(handled.intercepted).toBe(true);
     expect(prevented).toBe(true);
     expect(stopped).toBe(true);
@@ -410,7 +411,7 @@ describe('Polish Phase 3: DM Tabletop Ergonomics & Rapid Tactical Controls', () 
       stopPropagation: () => {},
     } as unknown as WheelEvent;
 
-    const notHandled = handleTokenElevationWheel(fakeNormalEvent, token);
+    const notHandled = handleTokenElevationWheel(fakeNormalEvent, token as unknown as CanvasToken);
     expect(notHandled.intercepted).toBe(false);
     expect(normalPrevented).toBe(false);
   });

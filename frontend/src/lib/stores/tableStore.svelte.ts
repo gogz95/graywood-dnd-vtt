@@ -90,7 +90,7 @@ export class TableStore {
 
     const formula = table.formula || '1d20';
     const rollResult = parseDiceFormula(formula);
-    const rollTotal = rollResult.total;
+    const rollTotal = rollResult?.total ?? 1;
 
     let matchedEntry = table.entries.find(
       (e) => rollTotal >= e.range[0] && rollTotal <= e.range[1]

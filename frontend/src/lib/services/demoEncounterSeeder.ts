@@ -349,8 +349,25 @@ export async function seedDemoEncounter(forceOverwrite = false): Promise<SeedDem
             id: actor.id,
             name: actor.name,
             type: 'monster',
-            is_activated: true,
-            statblock: actor,
+            is_activated: 1,
+            provenance: {
+              file_rel: 'srd/monsters.pdf',
+              page: 1,
+            },
+            mechanics: {
+              ac: actor.ac,
+              hp: actor.hp,
+              speed: actor.speed,
+              stats: {
+                str: actor.str,
+                dex: actor.dex,
+                con: actor.con,
+                int: actor.int,
+                wis: actor.wis,
+                cha: actor.cha,
+              },
+              cr: actor.cr,
+            },
             updated_at: Date.now(),
           });
         }
