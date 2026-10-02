@@ -309,16 +309,24 @@ class CampaignDirectoryStore {
         throw new Error(`Failed to set directory: ${res.statusText}`);
       }
 
-      const data: CampaignDirInfo = await res.json();
-      this.dirInfo = data;
-      this.directoryPath = data.root_path;
+      const data: any = await res.json();
+      const resolvedPath = data?.root_path || data?.path || path;
+      const cleanInfo: CampaignDirInfo = data?.root_path
+        ? data
+        : {
+            root_path: resolvedPath,
+            name: resolvedPath.split(/[\\/]/).filter(Boolean).pop() || 'Campaign',
+            subfolders: data?.subfolders ?? [],
+          };
+      this.dirInfo = cleanInfo;
+      this.directoryPath = resolvedPath;
       this.persist();
       if (typeof window !== 'undefined') {
         window.dispatchEvent(
-          new CustomEvent('vtt:campaign-directory-changed', { detail: data })
+          new CustomEvent('vtt:campaign-directory-changed', { detail: cleanInfo })
         );
       }
-      return data;
+      return cleanInfo;
     } catch (err: any) {
       this.errorMessage = err?.message || 'Error setting directory';
       return null;

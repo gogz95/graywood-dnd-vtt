@@ -105,7 +105,7 @@ class IngestPipelineStore {
 
       if (scanResult && scanResult.entries) {
         this.lastScanRoot = scanResult.root_path;
-        this.addScannedEntries(scanResult.entries);
+        await this.addScannedEntries(scanResult.entries);
       }
 
       return scanResult;
@@ -118,34 +118,45 @@ class IngestPipelineStore {
   }
 
   /**
-   * Adds files discovered by the native crawler into the ingestion queue.
+   * Adds files discovered by the native crawler into the ingestion queue in non-blocking batches.
    */
-  addScannedEntries(entries: IngestScanEntry[]): void {
+  async addScannedEntries(entries: IngestScanEntry[]): Promise<void> {
     const existingPaths = new Set(this.queue.map((q) => q.relativePath));
-    const newItems: IngestQueueItem[] = [];
+    const batchSize = 50;
 
-    for (const entry of entries) {
-      if (existingPaths.has(entry.relative_path)) continue;
+    for (let i = 0; i < entries.length; i += batchSize) {
+      const slice = entries.slice(i, i + batchSize);
+      const newItems: IngestQueueItem[] = [];
 
-      newItems.push({
-        id: `ingest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: entry.name,
-        relativePath: entry.relative_path,
-        fullPath: entry.full_path,
-        category: entry.category,
-        extension: entry.extension,
-        sizeBytes: entry.size_bytes,
-        mimeType: entry.mime_type,
-        width: entry.width,
-        height: entry.height,
-        gridSize: entry.grid_size,
-        content: entry.content,
-        status: 'queued',
-        progress: 0,
-      });
+      for (const entry of slice) {
+        if (existingPaths.has(entry.relative_path)) continue;
+        existingPaths.add(entry.relative_path);
+
+        newItems.push({
+          id: `ingest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: entry.name,
+          relativePath: entry.relative_path,
+          fullPath: entry.full_path,
+          category: entry.category,
+          extension: entry.extension,
+          sizeBytes: entry.size_bytes,
+          mimeType: entry.mime_type,
+          width: entry.width,
+          height: entry.height,
+          gridSize: entry.grid_size,
+          content: entry.content,
+          status: 'queued',
+          progress: 0,
+        });
+      }
+
+      if (newItems.length > 0) {
+        this.queue = [...this.queue, ...newItems];
+      }
+
+      // Yield to allow the webview DOM paint cycle to breathe
+      await new Promise((r) => setTimeout(r, 0));
     }
-
-    this.queue = [...this.queue, ...newItems];
   }
 
   /**
@@ -241,6 +252,9 @@ class IngestPipelineStore {
             }
           })
         );
+
+        // Yield to allow the webview DOM paint cycle to breathe
+        await new Promise((r) => setTimeout(r, 0));
       }
     } finally {
       this.isProcessing = false;

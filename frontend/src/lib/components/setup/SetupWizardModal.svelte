@@ -62,12 +62,12 @@
   // Step 3 Ingestion
   let isDragging = $state(false);
   let importedFiles = $state<string[]>([]);
-  let hasTriggeredAutoScan = $state(false);
+  let autoScannedDirectory: string | null = null;
 
   $effect(() => {
-    if (step === 3 && selectedDirectory && !hasTriggeredAutoScan) {
-      hasTriggeredAutoScan = true;
-      triggerAutoScan();
+    if (step === 3 && selectedDirectory && autoScannedDirectory !== selectedDirectory) {
+      autoScannedDirectory = selectedDirectory;
+      triggerAutoScan(selectedDirectory);
     }
   });
 

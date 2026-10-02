@@ -91,7 +91,16 @@ pub fn export_vttbundle(
     // 3. Write Assets (maps, tokens, audio, pdfs)
     if assets_dir.exists() && assets_dir.is_dir() {
         for entry in WalkDir::new(assets_dir)
+            .follow_links(false)
+            .max_depth(12)
             .into_iter()
+            .filter_entry(|e| {
+                let name = e.file_name().to_string_lossy();
+                !(name.starts_with('.')
+                    || name.eq_ignore_ascii_case("node_modules")
+                    || name.eq_ignore_ascii_case("target")
+                    || name.eq_ignore_ascii_case("appdata"))
+            })
             .filter_map(|e| e.ok())
             .filter(|e| e.path().is_file())
         {

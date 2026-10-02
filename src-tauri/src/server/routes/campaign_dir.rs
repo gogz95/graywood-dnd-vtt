@@ -56,7 +56,10 @@ pub async fn select_campaign_directory(
     if let Some(handle) = folder_handle {
         let p = handle.path().to_path_buf();
         let path_str = p.to_string_lossy().to_string();
-        *state.campaign_dir.write().await = Some(p);
+        {
+            let mut guard = state.campaign_dir.write().await;
+            *guard = Some(p);
+        }
         Ok(Json(CampaignDirResponse {
             path: Some(path_str),
         }))
@@ -71,7 +74,10 @@ pub async fn set_campaign_directory(
 ) -> Result<Json<CampaignDirResponse>, StatusCode> {
     let p = std::path::PathBuf::from(&payload.path);
     if p.exists() && p.is_dir() {
-        *state.campaign_dir.write().await = Some(p);
+        {
+            let mut guard = state.campaign_dir.write().await;
+            *guard = Some(p);
+        }
         Ok(Json(CampaignDirResponse {
             path: Some(payload.path),
         }))
@@ -107,19 +113,40 @@ pub async fn get_campaign_directory_status(
 pub async fn list_campaign_assets_route(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<String>>, StatusCode> {
-    let guard = state.campaign_dir.read().await;
-    let base_dir = guard.clone().unwrap_or_else(|| state.assets_dir.clone());
-    let mut files = Vec::new();
-    for entry in walkdir::WalkDir::new(&base_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        if entry.file_type().is_file() {
-            if let Ok(rel) = entry.path().strip_prefix(&base_dir) {
-                files.push(rel.to_string_lossy().replace('\\', "/"));
+    let base_dir = {
+        let guard = state.campaign_dir.read().await;
+        guard.clone().unwrap_or_else(|| state.assets_dir.clone())
+    };
+
+    let files = tokio::task::spawn_blocking(move || {
+        let mut files = Vec::new();
+        let walker = walkdir::WalkDir::new(&base_dir)
+            .follow_links(false)
+            .max_depth(12)
+            .into_iter()
+            .filter_entry(|e| {
+                let name = e.file_name().to_string_lossy();
+                !(name.starts_with('.')
+                    || name.eq_ignore_ascii_case("node_modules")
+                    || name.eq_ignore_ascii_case("target")
+                    || name.eq_ignore_ascii_case("appdata")
+                    || name.eq_ignore_ascii_case(".svelte-kit")
+                    || name.eq_ignore_ascii_case(".vite")
+                    || name.eq_ignore_ascii_case(".git"))
+            });
+
+        for entry in walker.filter_map(|e| e.ok()) {
+            if entry.file_type().is_file() {
+                if let Ok(rel) = entry.path().strip_prefix(&base_dir) {
+                    files.push(rel.to_string_lossy().replace('\\', "/"));
+                }
             }
         }
-    }
+        files
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     Ok(Json(files))
 }
 
@@ -374,40 +401,43 @@ pub async fn verify_and_scaffold_campaign(
 pub async fn get_campaign_subfolders(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SubfolderStats>>, String> {
-    let app_dir = state
-        .campaign_dir
-        .read()
-        .await
-        .clone()
-        .unwrap_or_else(|| state.assets_dir.clone());
+    let app_dir = {
+        let guard = state.campaign_dir.read().await;
+        guard.clone().unwrap_or_else(|| state.assets_dir.clone())
+    };
 
-    let mut stats = Vec::new();
-    let subfolders = vec!["maps", "audio", "tokens", "portraits", "data", "journal"];
+    let stats = tokio::task::spawn_blocking(move || {
+        let mut stats = Vec::new();
+        let subfolders = vec!["maps", "audio", "tokens", "portraits", "data", "journal"];
 
-    for folder in subfolders {
-        let folder_path = app_dir.join(folder);
-        let mut size_bytes = 0;
-        let mut file_count = 0;
+        for folder in subfolders {
+            let folder_path = app_dir.join(folder);
+            let mut size_bytes = 0;
+            let mut file_count = 0;
 
-        if folder_path.exists() && folder_path.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&folder_path) {
-                for entry in entries.flatten() {
-                    if let Ok(meta) = entry.metadata() {
-                        if meta.is_file() {
-                            file_count += 1;
-                            size_bytes += meta.len();
+            if folder_path.exists() && folder_path.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&folder_path) {
+                    for entry in entries.flatten() {
+                        if let Ok(meta) = entry.metadata() {
+                            if meta.is_file() {
+                                file_count += 1;
+                                size_bytes += meta.len();
+                            }
                         }
                     }
                 }
             }
-        }
 
-        stats.push(SubfolderStats {
-            name: folder.to_string(),
-            size_bytes,
-            file_count,
-        });
-    }
+            stats.push(SubfolderStats {
+                name: folder.to_string(),
+                size_bytes,
+                file_count,
+            });
+        }
+        stats
+    })
+    .await
+    .map_err(|e| format!("Failed to read subfolders: {}", e))?;
 
     Ok(Json(stats))
 }

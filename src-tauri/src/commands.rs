@@ -189,22 +189,26 @@ pub async fn open_file_dialog(app: tauri::AppHandle) -> Result<String, String> {
     }
 }
 
+fn debug_timestamp() -> String {
+    let now = SystemTime::now();
+    let duration = now.duration_since(UNIX_EPOCH).unwrap_or_default();
+    format!("{}.{:03}s", duration.as_secs(), duration.subsec_millis())
+}
+
 /// IPC command to open a native OS directory dialog for selecting folders.
 ///
-/// Uses `tauri-plugin-dialog` (system-native picker). Returns an empty string
-/// when the user cancels — never errors on cancellation.
+/// Uses async `rfd::AsyncFileDialog` without blocking the Tokio/Tauri event loop.
+/// Returns an empty string when the user cancels — never errors on cancellation.
 #[tauri::command]
-pub async fn open_directory_dialog(app: tauri::AppHandle) -> Result<String, String> {
-    use tauri_plugin_dialog::DialogExt;
-
-    match app
-        .dialog()
-        .file()
+pub async fn open_directory_dialog(_app: tauri::AppHandle) -> Result<String, String> {
+    let handle = rfd::AsyncFileDialog::new()
         .set_title("Select Campaign Directory")
-        .blocking_pick_folder()
-    {
-        Some(path) => Ok(path.to_string()),
-        None => Ok(String::new()), // user cancelled
+        .pick_folder()
+        .await;
+
+    match handle {
+        Some(folder) => Ok(folder.path().to_string_lossy().to_string()),
+        None => Ok(String::new()),
     }
 }
 
@@ -245,65 +249,46 @@ pub async fn pick_and_read_campaign_folder() -> Result<Vec<IngestedFileEntry>, S
 /// blocking pool is for.
 fn read_campaign_folder_entries(folder_path: &Path) -> std::io::Result<Vec<IngestedFileEntry>> {
     let mut entries = Vec::new();
-    let mut dirs_to_visit = vec![folder_path.to_path_buf()];
+    let walker = walkdir::WalkDir::new(folder_path)
+        .follow_links(false)
+        .max_depth(15)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            !(name.starts_with('.')
+                || name.eq_ignore_ascii_case("node_modules")
+                || name.eq_ignore_ascii_case("target")
+                || name.eq_ignore_ascii_case("appdata"))
+        });
 
-    while let Some(dir) = dirs_to_visit.pop() {
-        let read_dir = match std::fs::read_dir(&dir) {
-            Ok(rd) => rd,
-            Err(e) => {
-                return Err(std::io::Error::new(
-                    e.kind(),
-                    format!("Failed to read directory {:?}: {}", dir, e),
-                ))
-            }
-        };
-
-        for entry_res in read_dir {
-            let entry = match entry_res {
-                Ok(e) => e,
-                Err(e) => {
-                    return Err(std::io::Error::new(
-                        e.kind(),
-                        format!("Directory entry error: {}", e),
-                    ))
-                }
-            };
+    for entry in walker.filter_map(|e| e.ok()) {
+        if entry.file_type().is_file() {
             let path = entry.path();
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                let ext_lower = ext.to_lowercase();
+                if matches!(
+                    ext_lower.as_str(),
+                    "md" | "txt" | "json" | "jsonl" | "csv" | "tsv" | "ds" | "dd2vtt"
+                ) {
+                    if let Ok(content) = std::fs::read_to_string(path) {
+                        let metadata = entry.metadata().ok();
+                        let size_bytes = metadata.map(|m| m.len()).unwrap_or(content.len() as u64);
+                        let rel_path = path
+                            .strip_prefix(folder_path)
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|_| path.to_string_lossy().to_string());
+                        let name = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "unnamed".to_string());
 
-            if path.is_dir() {
-                if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
-                    if !dir_name.starts_with('.') {
-                        dirs_to_visit.push(path);
-                    }
-                }
-            } else if path.is_file() {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    let ext_lower = ext.to_lowercase();
-                    if matches!(
-                        ext_lower.as_str(),
-                        "md" | "txt" | "json" | "jsonl" | "csv" | "tsv" | "ds" | "dd2vtt"
-                    ) {
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            let metadata = std::fs::metadata(&path).ok();
-                            let size_bytes =
-                                metadata.map(|m| m.len()).unwrap_or(content.len() as u64);
-                            let rel_path = path
-                                .strip_prefix(folder_path)
-                                .map(|p| p.to_string_lossy().to_string())
-                                .unwrap_or_else(|_| path.to_string_lossy().to_string());
-                            let name = path
-                                .file_name()
-                                .map(|n| n.to_string_lossy().to_string())
-                                .unwrap_or_else(|| "unnamed".to_string());
-
-                            entries.push(IngestedFileEntry {
-                                name,
-                                relative_path: rel_path,
-                                extension: ext_lower,
-                                size_bytes,
-                                content,
-                            });
-                        }
+                        entries.push(IngestedFileEntry {
+                            name,
+                            relative_path: rel_path,
+                            extension: ext_lower,
+                            size_bytes,
+                            content,
+                        });
                     }
                 }
             }
@@ -358,103 +343,128 @@ fn extract_dimensions_and_content(
     path: &Path,
     ext: &str,
 ) -> (Option<u32>, Option<u32>, Option<u32>, Option<String>) {
+    use std::io::Read;
+
     match ext {
         "png" => {
-            if let Ok(buf) = std::fs::read(path) {
-                if buf.len() >= 24 && &buf[0..8] == b"\x89PNG\r\n\x1a\n" {
-                    let w = u32::from_be_bytes([buf[16], buf[17], buf[18], buf[19]]);
-                    let h = u32::from_be_bytes([buf[20], buf[21], buf[22], buf[23]]);
-                    return (Some(w), Some(h), None, None);
+            if let Ok(mut f) = std::fs::File::open(path) {
+                let mut buf = [0u8; 32];
+                if let Ok(n) = f.read(&mut buf) {
+                    if n >= 24 && &buf[0..8] == b"\x89PNG\r\n\x1a\n" {
+                        let w = u32::from_be_bytes([buf[16], buf[17], buf[18], buf[19]]);
+                        let h = u32::from_be_bytes([buf[20], buf[21], buf[22], buf[23]]);
+                        return (Some(w), Some(h), None, None);
+                    }
                 }
             }
             (None, None, None, None)
         }
         "jpg" | "jpeg" => {
-            if let Ok(buf) = std::fs::read(path) {
-                if buf.len() > 4 && buf[0] == 0xFF && buf[1] == 0xD8 {
-                    let mut i = 2;
-                    while i + 9 < buf.len() {
-                        if buf[i] != 0xFF {
-                            i += 1;
-                            continue;
+            if let Ok(mut f) = std::fs::File::open(path) {
+                let mut buf = vec![0u8; 65536];
+                if let Ok(n) = f.read(&mut buf) {
+                    let buf = &buf[..n];
+                    if buf.len() > 4 && buf[0] == 0xFF && buf[1] == 0xD8 {
+                        let mut i = 2;
+                        while i + 9 < buf.len() {
+                            if buf[i] != 0xFF {
+                                i += 1;
+                                continue;
+                            }
+                            let marker = buf[i + 1];
+                            if marker == 0xC0 || marker == 0xC1 || marker == 0xC2 {
+                                let h = u16::from_be_bytes([buf[i + 5], buf[i + 6]]) as u32;
+                                let w = u16::from_be_bytes([buf[i + 7], buf[i + 8]]) as u32;
+                                return (Some(w), Some(h), None, None);
+                            }
+                            if marker == 0xD9 || marker == 0xDA {
+                                break;
+                            }
+                            if i + 4 > buf.len() {
+                                break;
+                            }
+                            let len = u16::from_be_bytes([buf[i + 2], buf[i + 3]]) as usize;
+                            i += 2 + len;
                         }
-                        let marker = buf[i + 1];
-                        if marker == 0xC0 || marker == 0xC1 || marker == 0xC2 {
-                            let h = u16::from_be_bytes([buf[i + 5], buf[i + 6]]) as u32;
-                            let w = u16::from_be_bytes([buf[i + 7], buf[i + 8]]) as u32;
-                            return (Some(w), Some(h), None, None);
-                        }
-                        if marker == 0xD9 || marker == 0xDA {
-                            break;
-                        }
-                        if i + 4 > buf.len() {
-                            break;
-                        }
-                        let len = u16::from_be_bytes([buf[i + 2], buf[i + 3]]) as usize;
-                        i += 2 + len;
                     }
                 }
             }
             (None, None, None, None)
         }
         "webp" => {
-            if let Ok(buf) = std::fs::read(path) {
-                if buf.len() >= 30 && &buf[0..4] == b"RIFF" && &buf[8..12] == b"WEBP" {
-                    if &buf[12..16] == b"VP8X" && buf.len() >= 30 {
-                        let w = 1
-                            + (buf[24] as u32 | ((buf[25] as u32) << 8) | ((buf[26] as u32) << 16));
-                        let h = 1
-                            + (buf[27] as u32 | ((buf[28] as u32) << 8) | ((buf[29] as u32) << 16));
-                        return (Some(w), Some(h), None, None);
-                    } else if &buf[12..16] == b"VP8 " && buf.len() >= 30 {
-                        let w = (u16::from_le_bytes([buf[26], buf[27]]) & 0x3FFF) as u32;
-                        let h = (u16::from_le_bytes([buf[28], buf[29]]) & 0x3FFF) as u32;
-                        return (Some(w), Some(h), None, None);
-                    } else if &buf[12..16] == b"VP8L" && buf.len() >= 25 {
-                        let b0 = buf[21] as u32;
-                        let b1 = buf[22] as u32;
-                        let b2 = buf[23] as u32;
-                        let b3 = buf[24] as u32;
-                        let w = 1 + (((b1 & 0x3F) << 8) | b0);
-                        let h = 1 + (((b3 & 0x0F) << 10) | (b2 << 2) | ((b1 & 0xC0) >> 6));
-                        return (Some(w), Some(h), None, None);
+            if let Ok(mut f) = std::fs::File::open(path) {
+                let mut buf = [0u8; 64];
+                if let Ok(n) = f.read(&mut buf) {
+                    let buf = &buf[..n];
+                    if buf.len() >= 30 && &buf[0..4] == b"RIFF" && &buf[8..12] == b"WEBP" {
+                        if &buf[12..16] == b"VP8X" && buf.len() >= 30 {
+                            let w = 1
+                                + (buf[24] as u32
+                                    | ((buf[25] as u32) << 8)
+                                    | ((buf[26] as u32) << 16));
+                            let h = 1
+                                + (buf[27] as u32
+                                    | ((buf[28] as u32) << 8)
+                                    | ((buf[29] as u32) << 16));
+                            return (Some(w), Some(h), None, None);
+                        } else if &buf[12..16] == b"VP8 " && buf.len() >= 30 {
+                            let w = (u16::from_le_bytes([buf[26], buf[27]]) & 0x3FFF) as u32;
+                            let h = (u16::from_le_bytes([buf[28], buf[29]]) & 0x3FFF) as u32;
+                            return (Some(w), Some(h), None, None);
+                        } else if &buf[12..16] == b"VP8L" && buf.len() >= 25 {
+                            let b0 = buf[21] as u32;
+                            let b1 = buf[22] as u32;
+                            let b2 = buf[23] as u32;
+                            let b3 = buf[24] as u32;
+                            let w = 1 + (((b1 & 0x3F) << 8) | b0);
+                            let h = 1 + (((b3 & 0x0F) << 10) | (b2 << 2) | ((b1 & 0xC0) >> 6));
+                            return (Some(w), Some(h), None, None);
+                        }
                     }
                 }
             }
             (None, None, None, None)
         }
         "dd2vtt" | "uvtt" => {
-            if let Ok(text) = std::fs::read_to_string(path) {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
-                    let ppg = val
-                        .pointer("/resolution/pixels_per_grid")
-                        .and_then(|v| v.as_u64())
-                        .map(|p| p as u32);
-                    let gx = val
-                        .pointer("/resolution/map_size/x")
-                        .and_then(|v| v.as_f64());
-                    let gy = val
-                        .pointer("/resolution/map_size/y")
-                        .and_then(|v| v.as_f64());
-                    let (w, h) = match (gx, gy, ppg) {
-                        (Some(x), Some(y), Some(p)) => (
-                            Some((x * p as f64).round() as u32),
-                            Some((y * p as f64).round() as u32),
-                        ),
-                        (Some(x), Some(y), None) => {
-                            (Some(x.round() as u32), Some(y.round() as u32))
+            if let Ok(meta) = std::fs::metadata(path) {
+                if meta.len() <= 10 * 1024 * 1024 {
+                    if let Ok(text) = std::fs::read_to_string(path) {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                            let ppg = val
+                                .pointer("/resolution/pixels_per_grid")
+                                .and_then(|v| v.as_u64())
+                                .map(|p| p as u32);
+                            let gx = val
+                                .pointer("/resolution/map_size/x")
+                                .and_then(|v| v.as_f64());
+                            let gy = val
+                                .pointer("/resolution/map_size/y")
+                                .and_then(|v| v.as_f64());
+                            let (w, h) = match (gx, gy, ppg) {
+                                (Some(x), Some(y), Some(p)) => (
+                                    Some((x * p as f64).round() as u32),
+                                    Some((y * p as f64).round() as u32),
+                                ),
+                                (Some(x), Some(y), None) => {
+                                    (Some(x.round() as u32), Some(y.round() as u32))
+                                }
+                                _ => (None, None),
+                            };
+                            return (w, h, ppg, Some(text));
                         }
-                        _ => (None, None),
-                    };
-                    return (w, h, ppg, Some(text));
+                        return (None, None, None, Some(text));
+                    }
                 }
-                return (None, None, None, Some(text));
             }
             (None, None, None, None)
         }
         "md" | "txt" | "json" | "ds" => {
-            if let Ok(text) = std::fs::read_to_string(path) {
-                return (None, None, None, Some(text));
+            if let Ok(meta) = std::fs::metadata(path) {
+                if meta.len() <= 5 * 1024 * 1024 {
+                    if let Ok(text) = std::fs::read_to_string(path) {
+                        return (None, None, None, Some(text));
+                    }
+                }
             }
             (None, None, None, None)
         }
@@ -507,17 +517,26 @@ pub fn classify_ingest_file(rel_path: &Path, ext: &str, mime: &str) -> String {
 
 /// Recursively scans an Ingest directory or selected folder without blocking the UI thread.
 ///
-/// Runs as an async Tauri IPC command (`scan_ingest_directory`): directory
-/// traversal uses non-blocking `tokio::fs` reads, and the native folder picker
-/// (`rfd`) only opens when no explicit `target_path` was supplied, so the
-/// webview event loop is never stalled by filesystem I/O.
+/// Runs on Tokio's blocking thread pool (`spawn_blocking`) with bounded WalkDir
+/// traversal (`follow_links(false)`, `max_depth(15)`), eliminating synchronous
+/// event loop stalls and symlink recursion loops.
 #[tauri::command]
 pub async fn scan_ingest_directory(
     target_path: Option<String>,
 ) -> Result<IngestScanResult, String> {
+    let now_ts = debug_timestamp();
+    eprintln!(
+        "[INGEST-DEBUG] [{}] Phase 1: Ingestion scan command started with target: {:?}",
+        now_ts, target_path
+    );
+
     let folder_path = match target_path {
         Some(ref p) if !p.trim().is_empty() => PathBuf::from(p.trim()),
         _ => {
+            eprintln!(
+                "[INGEST-DEBUG] [{}] Phase 1: No target path provided, launching native folder picker...",
+                debug_timestamp()
+            );
             let handle = rfd::AsyncFileDialog::new()
                 .set_title("Select Folder to Ingest (or Ingest/ Root)")
                 .pick_folder()
@@ -525,6 +544,10 @@ pub async fn scan_ingest_directory(
             match handle {
                 Some(h) => h.path().to_path_buf(),
                 None => {
+                    eprintln!(
+                        "[INGEST-DEBUG] [{}] Phase 1: User cancelled folder picker",
+                        debug_timestamp()
+                    );
                     return Ok(IngestScanResult {
                         root_path: String::new(),
                         total_files: 0,
@@ -537,66 +560,81 @@ pub async fn scan_ingest_directory(
     };
 
     if !folder_path.exists() {
-        return Err(format!("Directory does not exist: {:?}", folder_path));
+        let err_msg = format!("Directory does not exist: {:?}", folder_path);
+        eprintln!(
+            "[INGEST-DEBUG] [{}] Phase 1 Error: {}",
+            debug_timestamp(),
+            err_msg
+        );
+        return Err(err_msg);
     }
 
-    // Scan target directory directly (covering maps/, tokens/, audio/, Ingest/, etc.)
     let scan_root = folder_path.clone();
+    eprintln!(
+        "[INGEST-DEBUG] [{}] Phase 2: Scan root resolved and verified: {:?}. Offloading to spawn_blocking...",
+        debug_timestamp(),
+        scan_root
+    );
 
-    let mut entries = Vec::new();
-    let mut total_bytes: u64 = 0;
-    let mut dirs_to_visit = vec![scan_root.clone()];
+    let result = tokio::task::spawn_blocking(move || {
+        let start_time = std::time::Instant::now();
+        eprintln!(
+            "[INGEST-DEBUG] [{}] Phase 3: Directory crawl started on blocking thread pool for {:?}",
+            debug_timestamp(),
+            scan_root
+        );
 
-    while let Some(dir) = dirs_to_visit.pop() {
-        let read_dir = match tokio::fs::read_dir(&dir).await {
-            Ok(rd) => rd,
-            Err(e) => return Err(format!("Failed to read directory {:?}: {}", dir, e)),
-        };
+        let mut entries = Vec::new();
+        let mut total_bytes: u64 = 0;
+        let mut crawled_count: usize = 0;
 
-        let mut stream = read_dir;
-        while let Ok(Some(entry)) = stream.next_entry().await {
-            let path = entry.path();
-            let file_name = entry.file_name().to_string_lossy().to_string();
+        let walker = walkdir::WalkDir::new(&scan_root)
+            .follow_links(false)
+            .max_depth(15)
+            .into_iter()
+            .filter_entry(|e| {
+                let name = e.file_name().to_string_lossy();
+                !(name.starts_with('.')
+                    || name.eq_ignore_ascii_case("node_modules")
+                    || name.eq_ignore_ascii_case("target")
+                    || name.eq_ignore_ascii_case("appdata")
+                    || name.eq_ignore_ascii_case(".svelte-kit")
+                    || name.eq_ignore_ascii_case(".vite")
+                    || name.eq_ignore_ascii_case(".git"))
+            });
 
-            if file_name.starts_with('.') {
-                continue;
-            }
+        for entry in walker.filter_map(|e| e.ok()) {
+            if entry.file_type().is_file() {
+                crawled_count += 1;
+                let path = entry.path();
+                let file_name = entry.file_name().to_string_lossy().to_string();
 
-            let file_type = match entry.file_type().await {
-                Ok(ft) => ft,
-                Err(_) => continue,
-            };
-
-            if file_type.is_dir() {
-                dirs_to_visit.push(path);
-            } else if file_type.is_file() {
                 let ext = path
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
                     .to_lowercase();
 
-                let metadata = entry.metadata().await.ok();
+                let metadata = entry.metadata().ok();
                 let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
-                let mime = mime_guess::from_path(&path)
+                let mime = mime_guess::from_path(path)
                     .first_or_octet_stream()
                     .to_string();
 
                 let rel_path = path
                     .strip_prefix(&scan_root)
-                    .unwrap_or(&path)
+                    .unwrap_or(path)
                     .to_string_lossy()
                     .replace('\\', "/");
 
                 let category = classify_ingest_file(Path::new(&rel_path), &ext, &mime);
-
                 let (width, height, grid_size, content) =
-                    extract_dimensions_and_content(&path, &ext);
+                    extract_dimensions_and_content(path, &ext);
 
                 total_bytes += size_bytes;
                 entries.push(IngestScanEntry {
                     name: file_name,
-                    relative_path: rel_path,
+                    relative_path: rel_path.clone(),
                     full_path: path.to_string_lossy().to_string(),
                     category,
                     extension: ext,
@@ -607,16 +645,42 @@ pub async fn scan_ingest_directory(
                     grid_size,
                     content,
                 });
+
+                if crawled_count % 100 == 0 {
+                    eprintln!(
+                        "[INGEST-DEBUG] [{}] Phase 3: Crawled {} files so far (latest: {})",
+                        debug_timestamp(),
+                        crawled_count,
+                        rel_path
+                    );
+                }
             }
         }
-    }
 
-    Ok(IngestScanResult {
-        root_path: scan_root.to_string_lossy().to_string(),
-        total_files: entries.len(),
-        total_bytes,
-        entries,
+        eprintln!(
+            "[INGEST-DEBUG] [{}] Phase 4: Crawl finished in {:?}. Total files: {}, Total size: {} bytes",
+            debug_timestamp(),
+            start_time.elapsed(),
+            entries.len(),
+            total_bytes
+        );
+
+        IngestScanResult {
+            root_path: scan_root.to_string_lossy().to_string(),
+            total_files: entries.len(),
+            total_bytes,
+            entries,
+        }
     })
+    .await
+    .map_err(|e| format!("Ingestion task panicked or failed: {}", e))?;
+
+    eprintln!(
+        "[INGEST-DEBUG] [{}] Phase 4: Returning {} scan entries to caller",
+        debug_timestamp(),
+        result.total_files
+    );
+    Ok(result)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
