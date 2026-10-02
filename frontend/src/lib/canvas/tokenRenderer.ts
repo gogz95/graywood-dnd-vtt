@@ -2,6 +2,84 @@
 // Complete Tactical Token Renderer: Condition Perimeter Rings, Distance Auras, Vitality Pips & Turn Reticle.
 
 import { CONDITION_REGISTRY, getVitalityState, renderTargetingReticleOnCanvas } from '../components/map/TokenOverlay';
+import * as PIXI from 'pixi.js';
+
+/**
+ * Calculates smooth sinusoidal scale oscillation for active turn combatant token:
+ * scale(t) = 1.0 + 0.035 * sin(2 * PI * 0.8 * t)
+ */
+export function calculateTurnBreathingScale(animTimeSec: number): number {
+  return 1.0 + 0.035 * Math.sin(2 * Math.PI * 0.8 * animTimeSec);
+}
+
+/**
+ * Attaches or detaches PixiJS active turn pulse animation and rotating golden indicator ring.
+ * Rotation angular velocity: omega = 0.5 rad/s.
+ */
+export function syncPixiTokenTurnFocus(
+  container: PIXI.Container,
+  tokenId: string,
+  activeCombatantId: string | null,
+  ticker: PIXI.Ticker
+): (() => void) | null {
+  const existingTicker = (container as any).__turnPulseTicker;
+  const existingRing = (container as any).__turnRingGraphics as PIXI.Graphics | undefined;
+
+  if (tokenId !== activeCombatantId || !activeCombatantId) {
+    if (existingTicker) {
+      ticker.remove(existingTicker);
+      (container as any).__turnPulseTicker = null;
+    }
+    if (existingRing) {
+      container.removeChild(existingRing);
+      existingRing.destroy();
+      (container as any).__turnRingGraphics = null;
+    }
+    container.scale.set(1.0, 1.0);
+    return null;
+  }
+
+  // Active combatant turn focus
+  if (!existingRing) {
+    const ring = new PIXI.Graphics();
+    ring.circle(0, 0, (container.width || 64) * 0.65);
+    ring.stroke({ width: 3, color: 0xf59e0b, alpha: 0.95 });
+    container.addChildAt(ring, 0);
+    (container as any).__turnRingGraphics = ring;
+  }
+
+  if (!existingTicker) {
+    let elapsedSec = 0;
+    const pulseUpdate = (tick: PIXI.Ticker) => {
+      elapsedSec += tick.deltaMS / 1000;
+      const s = calculateTurnBreathingScale(elapsedSec);
+      container.scale.set(s, s);
+
+      const ring = (container as any).__turnRingGraphics as PIXI.Graphics | undefined;
+      if (ring) {
+        ring.rotation = elapsedSec * 0.5; // omega = 0.5 rad/s
+      }
+    };
+
+    ticker.add(pulseUpdate);
+    (container as any).__turnPulseTicker = pulseUpdate;
+
+    return () => {
+      ticker.remove(pulseUpdate);
+      (container as any).__turnPulseTicker = null;
+      const r = (container as any).__turnRingGraphics as PIXI.Graphics | undefined;
+      if (r) {
+        container.removeChild(r);
+        r.destroy();
+        (container as any).__turnRingGraphics = null;
+      }
+      container.scale.set(1.0, 1.0);
+    };
+  }
+
+  return null;
+}
+
 
 export interface TokenAura {
   radiusFeet: number;
@@ -148,22 +226,33 @@ export function renderTacticalToken(
     drawTokenAura(ctx, cx, cy, tok.aura, gridSize, animTime);
   }
 
-  // 2. Draw Active Turn Reticle if active
+  // 2. Draw Active Turn Breathing Ring & Reticle if active
   if (isActiveTurn) {
     ctx.save();
+    // Subtle rotation: omega = 0.5 rad/s
+    const ringAngle = animTime * 0.5;
+    ctx.translate(cx, cy);
+    ctx.rotate(ringAngle);
+
+    // Outer soft glow
+    ctx.shadowColor = '#f59e0b';
+    ctx.shadowBlur = 12 / zoom;
+
+    // Golden luminous indicator ring
     ctx.beginPath();
-    ctx.arc(cx, cy, radius * 1.35, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
+    ctx.arc(0, 0, radius * 1.35, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(251, 191, 36, 0.9)';
     ctx.lineWidth = 2.5 / zoom;
-    ctx.setLineDash([6, 6]);
+    ctx.setLineDash([8, 6]);
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(cx, cy, radius * 1.2, 0, Math.PI * 2);
+    ctx.arc(0, 0, radius * 1.2, 0, Math.PI * 2);
     ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 1.2 / zoom;
+    ctx.lineWidth = 1.5 / zoom;
     ctx.setLineDash([]);
     ctx.stroke();
+
     ctx.restore();
   }
 
@@ -171,6 +260,17 @@ export function renderTacticalToken(
   if (isTargeted) {
     renderTargetingReticleOnCanvas(ctx, cx, cy, radius, animTime);
   }
+
+  // Apply Sinusoidal Scale Oscillation for Active Turn:
+  // scale(t) = 1.0 + 0.035 * sin(2 * PI * 0.8 * t)
+  const breathingScale = isActiveTurn ? calculateTurnBreathingScale(animTime) : 1.0;
+  if (isActiveTurn) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(breathingScale, breathingScale);
+    ctx.translate(-cx, -cy);
+  }
+
 
   // 3. Stowed / Black Orb State
   if (tok.isOrbSealed) {
@@ -242,6 +342,10 @@ export function renderTacticalToken(
   }
 
   ctx.restore();
+
+  if (isActiveTurn) {
+    ctx.restore();
+  }
 
   // 7. Perimeter Condition Badges (Orbiting outside token)
   drawConditionPerimeterBadges(ctx, cx, cy, radius, tok.conditions, animTime);

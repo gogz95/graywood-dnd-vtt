@@ -135,3 +135,16 @@ export function getElevationBadge(elevationFeet: number = 0): {
     cssColor: '#f97316', // Orange subterranean
   };
 }
+
+/**
+ * Steps elevation by deltaFeet (e.g. +/- 5ft per wheel detent),
+ * clamped between -100 ft and +500 ft.
+ */
+export function stepElevationFeet(
+  currentElevationFeet: number = 0,
+  deltaFeet: number = 5
+): number {
+  const next = currentElevationFeet + deltaFeet;
+  return Math.max(-100, Math.min(500, Math.round(next / 5) * 5));
+}
+

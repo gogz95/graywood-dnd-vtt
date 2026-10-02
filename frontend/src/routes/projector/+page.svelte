@@ -34,7 +34,9 @@
   import AtlasMapView from '../../lib/components/map/AtlasMapView.svelte';
   import { broadcaster, type HandoutPayload } from '../../lib/services/broadcaster';
 
-  import TabletopCalibrationOverlay, { type ScreenRotation } from '../../lib/components/projector/TabletopCalibrationOverlay.svelte';
+  import type { ScreenRotation } from '../../lib/components/projector/TabletopCalibrationOverlay.svelte';
+  import ProjectorCalibrationModal from '../../lib/components/navigation/ProjectorCalibrationModal.svelte';
+  import TurnBannerOverlay from '../../lib/components/projector/TurnBannerOverlay.svelte';
   import { broadcastPingPoint, type PingPayload } from '../../lib/components/canvas/PingLayer.svelte';
   import Dice3DOverlay from '../../lib/components/dice/Dice3DOverlay.svelte';
   import { drawingStore } from '../../lib/stores/drawingStore.svelte';
@@ -1029,20 +1031,22 @@
 
       <button
         type="button"
+        class="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 rounded-lg text-xs font-mono font-bold backdrop-blur-md transition-all shadow-xl flex items-center gap-1.5"
+        onclick={() => applyPhysicalScale(physicalPpi)}
+        title="Lock Viewport Scale so 5ft Grid = Exactly 1 Physical Inch on TV Glass"
+      >
+        <span>🔒 Lock 1-Inch Scale</span>
+      </button>
+
+      <button
+        type="button"
         class="px-2.5 py-1 bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white rounded-lg text-xs font-mono font-medium backdrop-blur-md transition-all shadow-xl flex items-center gap-1.5"
         onclick={() => showPhysicalCalibration = !showPhysicalCalibration}
         title="Physical 1-Inch Scale Calibration for Tabletop Displays"
       >
-        <span>📏 1-Inch Scale</span>
+        <span>📏 Calibrate PPI</span>
       </button>
     </div>
-
-    <!-- ── Tabletop Hardware Calibration & TV Orientation Wizard ────────── -->
-    <TabletopCalibrationOverlay
-      bind:isOpen={showPhysicalCalibration}
-      bind:rotation={projectorRotation}
-      onClose={() => showPhysicalCalibration = false}
-    />
 
   </div>
 {/if}
@@ -1099,25 +1103,64 @@
   </div>
 {/if}
 
+<!-- ── Lower-Third Turn Advance Cinematic Banner ────────────────────── -->
+<TurnBannerOverlay />
+
+<!-- ── 1-Inch Physical TV Scale & Specs Calibration Modal ──────────── -->
+<ProjectorCalibrationModal
+  bind:isOpen={showPhysicalCalibration}
+  onClose={() => showPhysicalCalibration = false}
+/>
+
 <!-- ── 3D Synchronized Tabletop Projector Dice Overlay ────────────────────── -->
 <Dice3DOverlay theme="gold" />
 
-<!-- ── DM Staging Curtain ("Blackout Veil") Overlay ────────────────────── -->
+
+<!-- ── DM Staging Curtain ("Blackout Veil" / Privacy Mode) Overlay ────────────────────── -->
 {#if curtainStore.active || isPreloadingMap}
-  <div class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/95 transition-opacity duration-300 select-none">
-    <div class="flex flex-col items-center space-y-4 max-w-md p-6 text-center">
-      <div class="w-16 h-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-3xl shadow-2xl animate-pulse">
-        🎭
+  <!-- Retains all ambient audio loops and spatial stems without interruption -->
+  <div
+    id="projector-curtain"
+    class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/95 select-none transition-all duration-400 ease-in-out overflow-hidden"
+    style="transition: opacity 400ms cubic-bezier(0.16, 1, 0.3, 1), backdrop-filter 400ms;"
+  >
+    {#if curtainStore.splashImageUrl || canvasStore.mapImageUrl}
+      <div
+        class="absolute inset-0 z-0 bg-cover bg-center opacity-30 filter blur-sm scale-105 transition-all duration-700 pointer-events-none"
+        style="background-image: url('{curtainStore.splashImageUrl || canvasStore.mapImageUrl}');"
+      ></div>
+      <div class="absolute inset-0 z-0 bg-gradient-to-t from-black via-black/80 to-black/60 pointer-events-none"></div>
+    {/if}
+
+    <div class="relative z-10 flex flex-col items-center space-y-5 max-w-lg p-8 text-center animate-in fade-in zoom-in-95 duration-400">
+      <div class="relative">
+        <div class="w-20 h-20 rounded-full bg-slate-900/90 border border-amber-500/40 flex items-center justify-center text-4xl shadow-2xl shadow-amber-950/40">
+          🎭
+        </div>
+        <span class="absolute -bottom-1 -right-1 flex h-4 w-4">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-4 w-4 bg-amber-500"></span>
+        </span>
       </div>
-      <h2 class="text-xl font-bold font-serif uppercase tracking-widest text-slate-200">
-        The Stage is Being Set
-      </h2>
-      <p class="text-xs text-slate-400 font-mono leading-relaxed">
-        The Dungeon Master is staging the next scene. Please stand by while terrain, tokens, and lighting are calibrated.
+
+      <div class="space-y-1">
+        <h2 class="text-2xl font-black font-serif uppercase tracking-widest text-slate-100 drop-shadow-md">
+          The Stage is Being Set
+        </h2>
+        <p class="text-xs font-mono uppercase tracking-wider text-amber-400/90">
+          Dungeon Master Privacy Curtain Engaged
+        </p>
+      </div>
+
+      <p class="text-xs text-slate-400 font-sans leading-relaxed max-w-md">
+        The Dungeon Master is staging the realm and preparing tactical secrets. Stand by while battle positions, lighting geometry, and fog are calibrated.
       </p>
-      <div class="flex items-center gap-2 text-indigo-400 font-mono text-[11px]">
-        <span class="w-2 h-2 rounded-full bg-indigo-500 animate-ping"></span>
-        <span>Staging Curtain Active</span>
+
+      <div class="flex items-center gap-3 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 text-[11px] font-mono text-slate-400">
+        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+        <span>Atmospheric Audio Active</span>
+        <span class="text-slate-600">•</span>
+        <span class="text-amber-400">F9 to Resume</span>
       </div>
     </div>
   </div>

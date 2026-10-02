@@ -7,6 +7,7 @@
   import type { TacticalBattlemap } from '../../types/maps';
   import { importUniversalMap, type MapImportResult } from '../../services/mapImporter';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
+  import { seedDemoEncounter } from '../../services/demoEncounterSeeder';
 
   let {
     isOpen = $bindable(false),
@@ -121,6 +122,23 @@
     await mapsDb.tacticalMaps.delete(id);
     await loadMaps();
   }
+
+  let isResettingDemo = $state(false);
+
+  async function handleResetDemoScene() {
+    isResettingDemo = true;
+    try {
+      const res = await seedDemoEncounter(true);
+      if (res.success) {
+        statusMessage = `Restored "Ambush at Triboar Trail" in ${res.durationMs.toFixed(0)}ms!`;
+        await loadMaps();
+      }
+    } catch (err) {
+      console.error('Reset demo encounter failed:', err);
+    } finally {
+      isResettingDemo = false;
+    }
+  }
 </script>
 
 {#if isOpen}
@@ -218,9 +236,21 @@
 
         <!-- Tactical Battlemaps In Library -->
         <div>
-          <h3 class="font-bold text-slate-300 uppercase tracking-wider text-[11px] mb-2.5">
-            Saved Battlemaps ({tacticalMaps.length})
-          </h3>
+          <div class="flex items-center justify-between mb-2.5">
+            <h3 class="font-bold text-slate-300 uppercase tracking-wider text-[11px]">
+              Saved Battlemaps ({tacticalMaps.length})
+            </h3>
+            <button
+              type="button"
+              onclick={handleResetDemoScene}
+              disabled={isResettingDemo}
+              class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700 text-amber-300 hover:text-amber-200 font-bold rounded-lg text-[10px] transition-all inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Restore sample forest battlemap with goblins and campfire"
+            >
+              <span>{isResettingDemo ? '⏳' : '🔄'}</span>
+              <span>{isResettingDemo ? 'Restoring…' : 'Reset/Reload Demo Scene'}</span>
+            </button>
+          </div>
           {#if tacticalMaps.length === 0}
             <div class="text-slate-500 text-center py-6 border border-slate-800 rounded-xl bg-slate-950/30">
               No tactical battlemaps saved yet. Drop a .dd2vtt or image file above.

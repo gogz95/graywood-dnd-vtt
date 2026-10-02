@@ -16,6 +16,7 @@
   import MobileInventory, { type InventoryItem, type Currency } from '$lib/components/mobile/MobileInventory.svelte';
   import { compendiumDb } from '$lib/db/compendiumDb';
   import Dice3DOverlay from '$lib/components/dice/Dice3DOverlay.svelte';
+  import ConditionBadgeTooltip from '$lib/components/combat/ConditionBadgeTooltip.svelte';
 
   // ── Svelte 5 Rune State ───────────────────────────────────────────────────
   type MobileTab = 'core' | 'spells' | 'inventory' | 'dice' | 'chat';
@@ -1000,10 +1001,7 @@
             <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Active Conditions</span>
             <div class="flex flex-wrap gap-1.5">
               {#each conditions as cond}
-                <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-950/60 border border-amber-600/40 text-amber-300 flex items-center gap-1 shadow-sm">
-                  <span>⚠️</span>
-                  <span>{cond}</span>
-                </span>
+                <ConditionBadgeTooltip condition={cond} />
               {/each}
             </div>
           </div>

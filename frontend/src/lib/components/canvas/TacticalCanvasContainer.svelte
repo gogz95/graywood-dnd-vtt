@@ -50,9 +50,11 @@
   import { WeatherCanvasRenderer } from '../../canvas/weatherCanvasRenderer';
   import SceneEnvironmentWidget from '../dm/SceneEnvironmentWidget.svelte';
   import type { WeatherType } from '../../types/maps';
-  import { isTypingInInput } from '../../services/keyboardShortcuts';
   import { broadcastPingPoint } from './PingLayer.svelte';
   import { VideoBackgroundRenderer } from '../../canvas/VideoBackgroundRenderer';
+  import { handleTokenElevationWheel } from '../../canvas/interaction/tokenPointerHandler';
+  import { calculateDropShadowParams, getElevationBadge } from '../../canvas/elevationEngine';
+
 
   export interface MapToken {
     id: string;
@@ -563,11 +565,22 @@
       return;
     }
 
+    const elevation = storeTok?.elevation ?? 0;
+    const shadow = calculateDropShadowParams(elevation);
+
+    // Dynamic Altitude Drop Shadow
+    c.save();
+    c.shadowColor = `rgba(0, 0, 0, ${shadow.alpha})`;
+    c.shadowBlur = shadow.blur / vpZoom;
+    c.shadowOffsetX = shadow.offsetX / vpZoom;
+    c.shadowOffsetY = shadow.offsetY / vpZoom;
+
     // Token body
     c.fillStyle = tok.color;
     c.beginPath();
     c.roundRect(x, y, size, size, 6);
     c.fill();
+    c.restore();
 
     // Border
     c.strokeStyle = tok.isPlayer ? '#fbbf24' : '#ef4444';
@@ -589,6 +602,32 @@
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     c.fillText(tok.name.slice(0, 2).toUpperCase(), cx, y + size * 0.44, size - 4);
+
+    // Altitude Badge (+X ft)
+    if (elevation !== 0) {
+      const badge = getElevationBadge(elevation);
+      c.save();
+      c.font = `bold ${Math.max(9, gridSize * 0.2)}px sans-serif`;
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      const badgeText = badge.label;
+      const badgeW = c.measureText(badgeText).width + 8;
+      const badgeH = Math.max(12, gridSize * 0.24);
+      const badgeX = cx - badgeW / 2;
+      const badgeY = y - badgeH / 2;
+
+      c.fillStyle = '#0f172a';
+      c.strokeStyle = badge.cssColor;
+      c.lineWidth = 1.5 / vpZoom;
+      c.beginPath();
+      c.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+      c.fill();
+      c.stroke();
+
+      c.fillStyle = badge.cssColor;
+      c.fillText(badgeText, cx, badgeY + badgeH / 2);
+      c.restore();
+    }
   }
 
   // ── Coordinate helpers ─────────────────────────────────────────────────────
@@ -638,6 +677,20 @@
 
   // ── Event handlers ─────────────────────────────────────────────────────────
   function handleWheel(e: WheelEvent) {
+    // 0. Alt + Scroll: Rapid Token Elevation Stepping (+/- 5ft)
+    if (e.altKey) {
+      const { wx, wy } = screenToWorld(e.clientX, e.clientY);
+      const { gx, gy } = worldToGrid(wx, wy);
+      const targetToken = tokenAt(gx, gy) || (canvasStore.activeTokenId ? canvasStore.tokens.find(t => t.id === canvasStore.activeTokenId) : null);
+      if (targetToken) {
+        const fullToken = canvasStore.tokens.find(t => t.id === targetToken.id);
+        const res = handleTokenElevationWheel(e, fullToken);
+        if (res.intercepted) {
+          return;
+        }
+      }
+    }
+
     e.preventDefault();
     const { wx, wy } = screenToWorld(e.clientX, e.clientY);
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
@@ -954,7 +1007,11 @@
   let spaceDown = $state(false);
   function handleKeyDown(e: KeyboardEvent) {
     // If active in an input/textarea/contenteditable, ignore hotkeys
-    if (isTypingInInput(e.target)) {
+    const isInput =
+      e.target instanceof HTMLInputElement ||
+      e.target instanceof HTMLTextAreaElement ||
+      (e.target as HTMLElement)?.isContentEditable;
+    if (isInput) {
       return;
     }
 

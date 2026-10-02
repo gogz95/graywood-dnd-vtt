@@ -44,7 +44,7 @@ class HotkeyManager {
         e.target instanceof HTMLTextAreaElement ||
         (e.target as HTMLElement)?.isContentEditable;
 
-      if (e.key === 'F1' || (e.key === '?' && !isInput)) {
+      if (e.key === 'F1' || e.key === 'F9' || (e.key === '?' && !isInput)) {
         const match = Array.from(this.hotkeys.values()).find(
           (h) => h.key.toLowerCase() === e.key.toLowerCase() || (e.key === '?' && h.key === '?')
         );

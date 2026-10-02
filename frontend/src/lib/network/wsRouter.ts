@@ -88,7 +88,16 @@ export function routeInboundWsEvent(event: WsTokenEvent | any): void {
     case 'STAGING_CURTAIN':
     case 'staging_curtain': {
       const active = event.active ?? event.payload?.active ?? false;
-      curtainStore.set(Boolean(active));
+      const splashUrl = event.splash_image_url ?? event.splashImageUrl ?? event.payload?.splash_image_url;
+      curtainStore.set(Boolean(active), splashUrl);
+      break;
+    }
+
+    case 'PROJECTOR_CURTAIN_STATE':
+    case 'projector_curtain_state': {
+      const active = event.active ?? event.payload?.active ?? false;
+      const splashUrl = event.splash_image_url ?? event.splashImageUrl ?? event.payload?.splash_image_url;
+      curtainStore.set(Boolean(active), splashUrl);
       break;
     }
 

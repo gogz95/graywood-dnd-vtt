@@ -57,7 +57,80 @@ export class AudioStemMixer {
   private masterVolume: number = 0.8;
   private isMuted: boolean = false;
 
+  private audioCtx: AudioContext | null = null;
+  private duckingBus: GainNode | null = null;
+  private duckingRestoreTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor() {}
+
+  /**
+   * Initializes or returns the dedicated Web Audio duckingBus node
+   * between the ambient stem summing stage and master output.
+   */
+  public getDuckingBus(): GainNode | null {
+    if (this.duckingBus) return this.duckingBus;
+    if (typeof window === 'undefined') return null;
+
+    const AC = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AC) return null;
+
+    try {
+      this.audioCtx = new AC();
+      this.duckingBus = this.audioCtx.createGain();
+      this.duckingBus.gain.setValueAtTime(1.0, this.audioCtx.currentTime);
+      this.duckingBus.connect(this.audioCtx.destination);
+      return this.duckingBus;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Sidechain Ambient Stem Audio Ducking:
+   * When any high-impact sound (spell impact, melee critical hit, or weapon burst) fires:
+   * - Instantly ramp duckingBus.gain from 1.0 down to 0.63 (-4 dB) over 50ms (exponential ramp).
+   * - Hold the ducked gain floor for 400ms.
+   * - Smoothly restore gain back to 1.0 (0 dB) over 250ms.
+   */
+  public triggerCombatImpactDucking(): void {
+    const bus = this.getDuckingBus();
+    if (bus && this.audioCtx) {
+      try {
+        const now = this.audioCtx.currentTime;
+        bus.gain.cancelScheduledValues(now);
+        bus.gain.setValueAtTime(Math.max(0.001, bus.gain.value), now);
+        // Ramp down to 0.63 (-4 dB) over 50ms
+        bus.gain.exponentialRampToValueAtTime(0.63, now + 0.05);
+        // Hold floor for 400ms, then ramp back to 1.0 over 250ms
+        bus.gain.setValueAtTime(0.63, now + 0.45);
+        bus.gain.exponentialRampToValueAtTime(1.0, now + 0.70);
+      } catch (err) {
+        console.warn('[AudioStemMixer] Web Audio ducking ramp error:', err);
+      }
+    }
+
+    // Apply HTMLAudioElement stem fallback for direct stem volume attenuation
+    if (this.duckingRestoreTimer) {
+      clearTimeout(this.duckingRestoreTimer);
+      this.duckingRestoreTimer = null;
+    }
+
+    this.applyDirectStemDucking(0.63);
+
+    this.duckingRestoreTimer = setTimeout(() => {
+      this.applyDirectStemDucking(1.0);
+      this.duckingRestoreTimer = null;
+    }, 700);
+  }
+
+  private applyDirectStemDucking(multiplier: number): void {
+    for (const ch of this.activeChannels.values()) {
+      if (!ch.stem.isMuted && !this.isMuted) {
+        ch.audio.volume = Math.max(0, Math.min(1, ch.stem.volume * this.masterVolume * multiplier));
+      }
+    }
+  }
+
 
   public async loadSoundscapeScene(
     scene: SoundscapeScene,

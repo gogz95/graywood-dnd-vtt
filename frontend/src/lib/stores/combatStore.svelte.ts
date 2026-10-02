@@ -50,6 +50,20 @@ class CombatStore {
     this.combatants.length > 0 ? this.combatants[this.turnIndex] ?? null : null
   );
 
+  onDeckCombatant = $derived.by(() => {
+    if (this.combatants.length <= 1) return null;
+    let nextIdx = (this.turnIndex + 1) % this.combatants.length;
+    // Look ahead to find next non-defeated combatant
+    for (let i = 0; i < this.combatants.length; i++) {
+      const candidate = this.combatants[nextIdx];
+      if (candidate && !candidate.isDefeated) {
+        return candidate;
+      }
+      nextIdx = (nextIdx + 1) % this.combatants.length;
+    }
+    return null;
+  });
+
 
   startCombat() {
     const participants: Combatant[] = tokenStore.tokens

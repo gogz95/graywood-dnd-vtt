@@ -891,3 +891,185 @@ pub fn transpile_foundry_scene_cmd(json_content: String) -> Result<TranspiledFou
 pub fn transpile_roll20_page_cmd(json_content: String) -> Result<TranspiledRoll20Page, String> {
     transpile_roll20_page(&json_content)
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CAMPAIGN WORKSPACE HUB ARCHITECTURE
+// ═════════════════════════════════════════════════════════════════════════════
+
+use crate::server::AppState;
+use crate::services::workspace_manager::{
+    self, get_persisted_workspace_path, get_workspace_metadata, initialize_workspace as init_ws,
+    persist_last_workspace_path, set_active_workspace_path, validate_workspace as val_ws,
+};
+pub use crate::services::workspace_manager::{WorkspaceConfig, WorkspaceMetadata};
+
+#[tauri::command]
+pub async fn set_active_workspace(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<WorkspaceConfig, String> {
+    let root = PathBuf::from(&path);
+    let config = init_ws(&root)?;
+    set_active_workspace_path(Some(root.clone()));
+    *state.campaign_dir.write().await = Some(root.clone());
+    persist_last_workspace_path(&app, &root)?;
+    Ok(config)
+}
+
+#[tauri::command]
+pub fn validate_workspace(path: String) -> Result<bool, String> {
+    let root = PathBuf::from(&path);
+    val_ws(&root)
+}
+
+#[tauri::command]
+pub async fn get_active_workspace(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<WorkspaceMetadata>, String> {
+    if let Some(active_root) = workspace_manager::get_active_workspace_path() {
+        if let Ok(meta) = get_workspace_metadata(&active_root) {
+            return Ok(Some(meta));
+        }
+    }
+
+    if let Some(persisted_root) = get_persisted_workspace_path(&app) {
+        if val_ws(&persisted_root).unwrap_or(false) {
+            set_active_workspace_path(Some(persisted_root.clone()));
+            *state.campaign_dir.write().await = Some(persisted_root.clone());
+            if let Ok(meta) = get_workspace_metadata(&persisted_root) {
+                return Ok(Some(meta));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+#[tauri::command]
+pub async fn initialize_workspace(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<WorkspaceConfig, String> {
+    set_active_workspace(app, state, path).await
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// STREAMING PDF COMPILER & BLUEPRINT ACTIVATION
+// ═════════════════════════════════════════════════════════════════════════════
+
+pub use crate::services::pdf_compiler::{
+    compile_sourcebook_streaming, ActivatedEntityRecord, CompilePdfResult, CompilerProgressEvent,
+};
+
+#[tauri::command]
+pub async fn compile_sourcebook_pdf(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    file_rel_path: String,
+) -> Result<CompilePdfResult, String> {
+    let workspace_root = match workspace_manager::get_active_workspace_path() {
+        Some(p) => p,
+        None => {
+            let guard = state.campaign_dir.read().await;
+            match guard.as_ref() {
+                Some(p) => p.clone(),
+                None => return Err("No active campaign workspace mounted".to_string()),
+            }
+        }
+    };
+
+    compile_sourcebook_streaming(app, &workspace_root, &file_rel_path).await
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ROLLABLE TABLE EXTRACTION & WORKSPACE SYNC
+// ═════════════════════════════════════════════════════════════════════════════
+
+pub use crate::services::table_extractor::{
+    extract_tables_from_text, parse_csv_table, parse_markdown_table, read_all_tables_from_db,
+    scan_and_sync_workspace_tables, RollableTableRecord, TableEntry, TableProvenance,
+};
+
+#[tauri::command]
+pub async fn sync_workspace_tables_cmd(
+    _app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<RollableTableRecord>, String> {
+    let workspace_root = match workspace_manager::get_active_workspace_path() {
+        Some(p) => p,
+        None => {
+            let guard = state.campaign_dir.read().await;
+            match guard.as_ref() {
+                Some(p) => p.clone(),
+                None => return Err("No active campaign workspace mounted".to_string()),
+            }
+        }
+    };
+
+    scan_and_sync_workspace_tables(&workspace_root)
+}
+
+#[tauri::command]
+pub async fn get_rollable_tables_cmd(
+    _app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<RollableTableRecord>, String> {
+    let workspace_root = match workspace_manager::get_active_workspace_path() {
+        Some(p) => p,
+        None => {
+            let guard = state.campaign_dir.read().await;
+            match guard.as_ref() {
+                Some(p) => p.clone(),
+                None => return Err("No active campaign workspace mounted".to_string()),
+            }
+        }
+    };
+
+    // First ensure workspace Tables/ folder is scanned
+    let _ = scan_and_sync_workspace_tables(&workspace_root);
+    read_all_tables_from_db(&workspace_root)
+}
+
+#[tauri::command]
+pub async fn extract_tables_from_sourcebook_cmd(
+    _app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    file_rel_path: String,
+    page_number: usize,
+    text_content: String,
+) -> Result<Vec<RollableTableRecord>, String> {
+    let workspace_root = match workspace_manager::get_active_workspace_path() {
+        Some(p) => p,
+        None => {
+            let guard = state.campaign_dir.read().await;
+            match guard.as_ref() {
+                Some(p) => p.clone(),
+                None => return Err("No active campaign workspace mounted".to_string()),
+            }
+        }
+    };
+
+    let tables = extract_tables_from_text(&text_content, &file_rel_path, page_number);
+
+    // Save to SQLite
+    let db_path = workspace_root.join(".graywood/index.sqlite");
+    if db_path.exists() {
+        if let Ok(conn) = Connection::open(&db_path) {
+            for t in &tables {
+                let prov_json = serde_json::to_string(&t.provenance).unwrap_or_default();
+                let entries_json = serde_json::to_string(&t.entries).unwrap_or_default();
+
+                let _ = conn.execute(
+                    "INSERT OR REPLACE INTO rollable_tables (id, name, formula, provenance, entries)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![t.id, t.name, t.formula, prov_json, entries_json],
+                );
+            }
+        }
+    }
+
+    Ok(tables)
+}

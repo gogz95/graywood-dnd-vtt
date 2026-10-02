@@ -24,6 +24,7 @@
   import { uiStore } from '../lib/stores/uiStore.svelte';
   import FullBestiaryView from '../lib/components/bestiary/FullBestiaryView.svelte';
   import MapManagerModal from '../lib/components/map/MapManagerModal.svelte';
+  import ScenePickerModal from '../lib/components/navigation/ScenePickerModal.svelte';
   import ImportExportModal from '../lib/components/navigation/ImportExportModal.svelte';
   import UnifiedHoldingsView from '../lib/components/downtime/UnifiedHoldingsView.svelte';
   import UniversalIngestModal from '../lib/components/ingest/UniversalIngestModal.svelte';
@@ -39,7 +40,7 @@
 
   import CommandPalette from '../lib/components/navigation/CommandPalette.svelte';
   import ActionHotbar from '../lib/components/navigation/ActionHotbar.svelte';
-  import CheatSheetModal from '../lib/components/modals/CheatSheetModal.svelte';
+  import HotkeysModal from '../lib/components/navigation/HotkeysModal.svelte';
   import NpcGeneratorModal from '../lib/components/modals/NpcGeneratorModal.svelte';
   import MerchantShopModal from '../lib/components/modals/MerchantShopModal.svelte';
   import CalendarTimelineModal from '../lib/components/modals/CalendarTimelineModal.svelte';
@@ -87,6 +88,7 @@
   let isPairingModalOpen = $state(false);
   let isBestiaryOpen = $state(false);
   let isMapManagerOpen = $state(false);
+  let isScenePickerOpen = $state(false);
   let isIngestModalOpen = $state(false);
   let isCompendiumTrayOpen = $state(false);
   let isQuickIngestOpen = $state(false);
@@ -162,7 +164,17 @@
       description: 'Toggle DM Staging Curtain ("Blackout Veil")',
       category: 'screen' as any,
       action: () => {
-        curtainStore.toggle();
+        curtainStore.toggle(canvasStore.mapImageUrl || undefined);
+      }
+    });
+
+    hotkeyManager.register({
+      id: 'toggle-staging-curtain-f9',
+      key: 'F9',
+      description: 'Toggle Projector Privacy Curtain / Blackout Mode (F9)',
+      category: 'screen' as any,
+      action: () => {
+        curtainStore.toggle(canvasStore.mapImageUrl || undefined);
       }
     });
 
@@ -470,7 +482,7 @@
   <CommandPalette bind:isOpen={isCommandPaletteOpen} />
 
   <!-- Tactical DM Cheat Sheet & Shortcuts Modal (F1 / ?) -->
-  <CheatSheetModal bind:isOpen={isCheatSheetOpen} />
+  <HotkeysModal bind:isOpen={isCheatSheetOpen} />
 
   <!-- Procedural 5e NPC Generator & Markov Name Engine Modal (Ctrl+Shift+N) -->
   <NpcGeneratorModal bind:isOpen={isNpcGeneratorOpen} />
@@ -489,6 +501,9 @@
 
   <!-- Universal Map Manager Modal -->
   <MapManagerModal bind:isOpen={isMapManagerOpen} />
+
+  <!-- Tactical Scene Picker Modal -->
+  <ScenePickerModal bind:isOpen={isScenePickerOpen} />
 
   <!-- Campaign Vault & Ecosystem Migrations Modal -->
   <ImportExportModal bind:isOpen={isImportExportOpen} />

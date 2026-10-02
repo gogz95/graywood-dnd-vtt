@@ -270,6 +270,13 @@ pub enum CompanionServerMsg {
     #[serde(rename = "STAGING_CURTAIN")]
     StagingCurtain { active: bool },
 
+    #[serde(rename = "PROJECTOR_CURTAIN_STATE")]
+    ProjectorCurtainState {
+        active: bool,
+        #[serde(default)]
+        splash_image_url: Option<String>,
+    },
+
     /// Broadcast token lease release to allow instant client interaction.
     #[serde(rename = "LEASE_RELEASED")]
     LeaseReleased { token_id: String },

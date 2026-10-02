@@ -10,12 +10,15 @@ pub mod state;
 pub mod systems;
 
 pub use commands::{
-    export_campaign_archive_cmd, export_vttbundle_cmd, import_vttbundle_cmd, open_directory_dialog,
-    open_file_dialog, open_projector_window, pick_and_read_campaign_folder,
-    save_map_vector_geometry, scan_ingest_directory, search_campaign_fts,
-    spawn_combatant_token_cmd, transpile_foundry_scene_cmd, transpile_roll20_page_cmd,
-    FtsSearchResult, IngestScanEntry, IngestScanResult, IngestedFileEntry, SaveMapVectorRequest,
-    WallColliderPayload,
+    compile_sourcebook_pdf, export_campaign_archive_cmd, export_vttbundle_cmd,
+    extract_tables_from_sourcebook_cmd, get_active_workspace, get_rollable_tables_cmd,
+    import_vttbundle_cmd, initialize_workspace, open_directory_dialog, open_file_dialog,
+    open_projector_window, pick_and_read_campaign_folder, save_map_vector_geometry,
+    scan_ingest_directory, search_campaign_fts, set_active_workspace, spawn_combatant_token_cmd,
+    sync_workspace_tables_cmd, transpile_foundry_scene_cmd, transpile_roll20_page_cmd,
+    validate_workspace, FtsSearchResult, IngestScanEntry, IngestScanResult, IngestedFileEntry,
+    RollableTableRecord, SaveMapVectorRequest, TableEntry, TableProvenance, WallColliderPayload,
+    WorkspaceConfig, WorkspaceMetadata,
 };
 pub use db::{configure_and_migrate, init_database, init_in_memory_db};
 pub use migrations::{export_campaign_archive, run_versioned_migrations};
@@ -44,11 +47,14 @@ pub fn init_single_instance<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R
     })
 }
 
-/// Applies required plugins (single-instance, native dialogs) to a Tauri builder.
+/// Applies required plugins (single-instance, native dialogs) and custom asset protocol to a Tauri builder.
 pub fn configure_single_instance<R: tauri::Runtime>(
     builder: tauri::Builder<R>,
 ) -> tauri::Builder<R> {
     builder
         .plugin(init_single_instance())
         .plugin(tauri_plugin_dialog::init())
+        .register_uri_scheme_protocol("graywood-asset", |_app, req| {
+            crate::services::workspace_manager::handle_asset_protocol_request(req)
+        })
 }

@@ -24,7 +24,9 @@ export interface CanvasToken {
   isOrbSealed: boolean; // Aleamos Black Orb temporal amnesia state
   sizeInCells: number; // default 1
   sightRadiusFeet: number; // default 30 (6 cells)
+  elevation?: number; // altitude in feet (default 0)
 }
+
 
 export type SpellAoeType = 'circle' | 'cone' | 'cube' | 'line';
 

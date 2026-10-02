@@ -6,6 +6,7 @@
   import { canvasStore } from '../../../stores/canvasStore.svelte';
   import { audioEngine } from '../../audio/AudioEngine';
   import DiceResultFeed from './DiceResultFeed.svelte';
+  import ConditionBadgeTooltip from './ConditionBadgeTooltip.svelte';
 
 
   interface Props {
@@ -625,16 +626,11 @@
             <!-- Active Conditions & Quick Adder -->
             <div class="mt-2 flex flex-wrap items-center gap-1">
               {#each conditions as cond}
-                <button
-                  type="button"
-                  class="px-1.5 py-0.5 bg-slate-900 border border-cyan-800/60 rounded text-[9px] font-mono text-cyan-300 flex items-center gap-1 hover:border-rose-500"
+                <ConditionBadgeTooltip
+                  condition={cond.name}
+                  compact
                   onclick={() => toggleCondition(combatant.tokenId, cond.name)}
-                  title="Click to remove condition"
-                >
-                  <span>{cond.icon}</span>
-                  <span>{cond.name}</span>
-                  <span class="text-cyan-400 font-bold">({cond.roundsRemaining}r)</span>
-                </button>
+                />
               {/each}
 
               <!-- Condition Selector Menu -->

@@ -9,17 +9,40 @@ export interface CampaignIdentity {
   masterPin: string;
 }
 
+export interface WorkspaceConfig {
+  version: string;
+  name: string;
+  created_at: number;
+  active_scene_id: string | null;
+}
+
+export interface WorkspaceMetadata {
+  root_path: string;
+  config: WorkspaceConfig;
+  db_path: string;
+  is_valid: boolean;
+}
+
 export class CampaignStore {
   campaignName = $state<string>('Default Campaign');
   dmAlias = $state<string>('Dungeon Master');
   masterPin = $state<string>('1337');
   hasCompletedWizard = $state<boolean>(false);
   isLoaded = $state<boolean>(false);
+  workspacePath = $state<string | null>(null);
+  workspaceReady = $state<boolean>(false);
+  workspaceConfig = $state<WorkspaceConfig | null>(null);
+  activeSceneId = $state<string | null>(null);
   initPromise: Promise<void>;
 
   constructor() {
     this.hydrateFromLocalStorage();
-    this.initPromise = this.initFromDexie();
+    this.initPromise = Promise.all([
+      this.initFromDexie(),
+      this.initWorkspace(),
+    ]).then(() => {
+      this.isLoaded = true;
+    });
   }
 
   private hydrateFromLocalStorage(): void {
@@ -34,6 +57,9 @@ export class CampaignStore {
       const storedPin = localStorage.getItem('vtt_active_pin');
       if (storedPin) this.masterPin = storedPin;
 
+      const storedWs = localStorage.getItem('vtt_workspace_path');
+      if (storedWs) this.workspacePath = storedWs;
+
       const completed =
         localStorage.getItem('graywood_wizard_completed') === 'true' ||
         localStorage.getItem('vtt_setup_completed') === 'true' ||
@@ -43,6 +69,69 @@ export class CampaignStore {
     } catch {
       // ignore
     }
+  }
+
+  async initWorkspace(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    try {
+      const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: <T>(cmd: string, args?: unknown) => Promise<T> } } }).__TAURI__;
+      if (tauri?.core?.invoke) {
+        const activeWs = await tauri.core.invoke<WorkspaceMetadata | null>('get_active_workspace');
+        if (activeWs && activeWs.is_valid) {
+          this.workspacePath = activeWs.root_path;
+          this.workspaceReady = true;
+          this.workspaceConfig = activeWs.config;
+          if (activeWs.config?.name) {
+            this.campaignName = activeWs.config.name;
+          }
+          if (activeWs.config?.active_scene_id) {
+            this.activeSceneId = activeWs.config.active_scene_id;
+          }
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to auto-mount active workspace on startup:', err);
+    }
+  }
+
+  async setWorkspace(path: string): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    try {
+      const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: <T>(cmd: string, args?: unknown) => Promise<T> } } }).__TAURI__;
+      if (tauri?.core?.invoke) {
+        const config = await tauri.core.invoke<WorkspaceConfig>('set_active_workspace', { path });
+        if (config) {
+          this.workspacePath = path;
+          this.workspaceReady = true;
+          this.workspaceConfig = config;
+          if (config.name) {
+            this.campaignName = config.name;
+          }
+          if (config.active_scene_id) {
+            this.activeSceneId = config.active_scene_id;
+          }
+          await this.persistFlags();
+          return true;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to set active workspace:', err);
+    }
+    return false;
+  }
+
+  async validateWorkspace(path: string): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    try {
+      const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: <T>(cmd: string, args?: unknown) => Promise<T> } } }).__TAURI__;
+      if (tauri?.core?.invoke) {
+        return await tauri.core.invoke<boolean>('validate_workspace', { path });
+      }
+    } catch {
+      return false;
+    }
+    return false;
   }
 
   private async initFromDexie(): Promise<void> {
@@ -101,6 +190,9 @@ export class CampaignStore {
         localStorage.setItem('vtt_campaign_name', this.campaignName);
         localStorage.setItem('vtt_dm_name', this.dmAlias);
         localStorage.setItem('vtt_active_pin', this.masterPin);
+        if (this.workspacePath) {
+          localStorage.setItem('vtt_workspace_path', this.workspacePath);
+        }
         if (this.hasCompletedWizard) {
           localStorage.setItem('graywood_wizard_completed', 'true');
           localStorage.setItem('vtt_setup_completed', 'true');

@@ -51,7 +51,27 @@ export interface ParsedRollResult {
   breakdown: string;
   steps: RollStepBreakdown[];
   isCritical?: boolean;
+  isFumble?: boolean;
 }
+
+export type DiceRollEventListener = (result: ParsedRollResult) => void;
+const rollEventListeners = new Set<DiceRollEventListener>();
+
+export function onDiceRollEvaluated(listener: DiceRollEventListener): () => void {
+  rollEventListeners.add(listener);
+  return () => rollEventListeners.delete(listener);
+}
+
+export function notifyDiceRollEvaluated(result: ParsedRollResult): void {
+  rollEventListeners.forEach((listener) => {
+    try {
+      listener(result);
+    } catch (err) {
+      console.error('[DiceParser] Event listener error:', err);
+    }
+  });
+}
+
 
 /**
  * Tokenizes a complex dice formula string.
@@ -445,6 +465,13 @@ export function parseAndEvaluateDice(
     steps[0].rolls[0].sides === 20 &&
     steps[0].rolls[0].value === 20;
 
+  // Check fumble (natural 1 on single d20)
+  const isFumble =
+    steps.length === 1 &&
+    steps[0].rolls.length === 1 &&
+    steps[0].rolls[0].sides === 20 &&
+    steps[0].rolls[0].value === 1;
+
   // Assemble human-readable breakdown
   const breakdownParts = steps.map((s) => {
     const rollVals = s.rolls
@@ -453,11 +480,16 @@ export function parseAndEvaluateDice(
     return `[${s.expression}: ${rollVals}]`;
   });
 
-  return {
+  const parsedResult: ParsedRollResult = {
     total,
     expression: formula,
     breakdown: breakdownParts.join(' ') || `${total}`,
     steps,
     isCritical,
+    isFumble,
   };
+
+  notifyDiceRollEvaluated(parsedResult);
+
+  return parsedResult;
 }

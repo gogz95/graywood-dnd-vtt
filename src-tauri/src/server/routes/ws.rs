@@ -149,6 +149,13 @@ pub enum WsEvent {
     #[serde(rename = "STAGING_CURTAIN")]
     StagingCurtain { active: bool },
 
+    #[serde(rename = "PROJECTOR_CURTAIN_STATE")]
+    ProjectorCurtainState {
+        active: bool,
+        #[serde(default)]
+        splash_image_url: Option<String>,
+    },
+
     #[serde(rename = "LEASE_RELEASED")]
     LeaseReleased { token_id: String },
 
@@ -607,5 +614,37 @@ async fn handle_socket(socket: WebSocket, state: AppState, query: WsQuery) {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_projector_curtain_state_roundtrip() {
+        let event = WsEvent::ProjectorCurtainState {
+            active: true,
+            splash_image_url: Some("/maps/underdark_cover.webp".to_string()),
+        };
+
+        let json = serde_json::to_string(&event).expect("Serialize PROJECTOR_CURTAIN_STATE");
+        assert!(json.contains("PROJECTOR_CURTAIN_STATE"));
+        assert!(json.contains("underdark_cover.webp"));
+
+        let deserialized: WsEvent =
+            serde_json::from_str(&json).expect("Deserialize PROJECTOR_CURTAIN_STATE");
+        assert_eq!(event, deserialized);
+
+        // Verify without optional splash image
+        let event_no_splash = WsEvent::ProjectorCurtainState {
+            active: false,
+            splash_image_url: None,
+        };
+        let json_no_splash =
+            serde_json::to_string(&event_no_splash).expect("Serialize without splash");
+        let des_no_splash: WsEvent =
+            serde_json::from_str(&json_no_splash).expect("Deserialize without splash");
+        assert_eq!(event_no_splash, des_no_splash);
     }
 }

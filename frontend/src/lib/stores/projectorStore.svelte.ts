@@ -38,6 +38,11 @@ class ProjectorStore {
     showHealthBars: false,
     showNames: true,
   });
+  physicalPpi = $state<number>(
+    typeof localStorage !== 'undefined'
+      ? Number(localStorage.getItem('vtt_projector_physical_ppi')) || 96
+      : 96
+  );
 
   private channel: BroadcastChannel | null = null;
 
@@ -163,6 +168,15 @@ class ProjectorStore {
       this.castSource = 'blackout';
     }
     this.broadcast();
+  }
+
+  setPhysicalPpi(ppi: number): void {
+    this.physicalPpi = ppi;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('vtt_projector_physical_ppi', String(ppi));
+      } catch {}
+    }
   }
 
   updateSettings(partial: Partial<ProjectorPlayerSettings>): void {

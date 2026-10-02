@@ -3,6 +3,7 @@
 
 <script lang="ts">
   import { tacticalViewport } from '../../services/canvas/tacticalViewportService.svelte';
+  import ConditionBadgeTooltip from '../combat/ConditionBadgeTooltip.svelte';
 
   let {
     worldX = 0,
@@ -94,19 +95,16 @@
       </button>
     </div>
 
-    <!-- 5e Condition Toggles -->
-    <div class="flex flex-wrap justify-center gap-1 max-w-[150px]">
+    <!-- 5e Condition Toggles with Mechanical Rules Hover Tooltip -->
+    <div class="flex flex-wrap justify-center gap-1 max-w-[170px]">
       {#each standardConditions as cond}
         {@const isActive = activeConditions.includes(cond)}
-        <button
-          type="button"
+        <ConditionBadgeTooltip
+          condition={cond}
+          compact
+          active={isActive}
           onclick={() => onToggleCondition(cond)}
-          class="px-1.5 py-0.5 rounded text-[8px] font-semibold border transition-all active:scale-95 {isActive
-            ? 'bg-rose-600 border-rose-400 text-white font-bold shadow-xs'
-            : 'bg-slate-800 hover:bg-slate-750 text-slate-300 border-slate-700'}"
-        >
-          {cond}
-        </button>
+        />
       {/each}
     </div>
 

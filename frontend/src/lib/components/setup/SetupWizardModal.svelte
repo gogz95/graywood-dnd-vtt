@@ -22,6 +22,7 @@
     STARTER_JOURNAL_NOTE,
     STARTER_CANVAS_TOKENS,
   } from '../../data/starterCampaignSeed';
+  import { seedDemoEncounter } from '../../services/demoEncounterSeeder';
 
   let {
     isOpen = $bindable(false),
@@ -228,6 +229,23 @@
     }
   }
 
+  async function handleExploreDemo(): Promise<void> {
+    isSeedingDemo = true;
+    try {
+      await seedDemoEncounter(true);
+      await campaignStore.completeWizard();
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('wizardCompleted', 'true');
+      }
+      isOpen = false;
+      onComplete?.();
+    } catch (err) {
+      console.error('Failed to seed demo encounter:', err);
+    } finally {
+      isSeedingDemo = false;
+    }
+  }
+
   async function handleNextStep(): Promise<void> {
     await syncInputsToStore();
     if (step < maxSteps) {
@@ -369,26 +387,44 @@
               <span class="text-[10px] text-slate-500 block">Default companion login code for local Wi-Fi devices.</span>
             </div>
 
-            <!-- Alternative Action: Bundled Starter One-Shot -->
-            <div class="pt-2 border-t border-slate-800/80">
-              <div class="bg-gradient-to-r from-indigo-950/70 to-slate-950 border border-indigo-700/60 rounded-xl p-3.5 flex items-center justify-between gap-3">
+            <!-- Zero-Prep First-Run Onboarding: Ambush at Triboar Trail -->
+            <div class="pt-2 border-t border-slate-800/80 space-y-2">
+              <div class="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-indigo-950/80 border border-emerald-500/50 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-xl">
                 <div>
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-sm">⚔️</span>
-                    <span class="font-black text-xs text-indigo-300">New to Graywood?</span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-base">🌲</span>
+                    <span class="font-black text-sm text-emerald-300">Ambush at Triboar Trail</span>
+                    <span class="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Zero-Prep Starter
+                    </span>
                   </div>
-                  <p class="text-[11px] text-slate-400 mt-0.5">
-                    Launch immediately with "The Sunken Crypt" battlemap, 4 pre-gen heroes, 3 monsters, and notes.
+                  <p class="text-[11px] text-slate-300 mt-1 max-w-md">
+                    Instant play: 25×20 forest crossroads battlemap with campfire dynamic lighting, tree LoS colliders, 4 Level 1 heroes, and 3 goblin ambushers in stealth.
                   </p>
+                </div>
+                <button
+                  type="button"
+                  onclick={handleExploreDemo}
+                  disabled={isSeedingDemo}
+                  class="w-full md:w-auto px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 disabled:opacity-50 text-slate-950 rounded-xl font-black text-xs shadow-lg shadow-emerald-500/30 transition-all shrink-0 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>{isSeedingDemo ? '⏳' : '⚡'}</span>
+                  <span>{isSeedingDemo ? 'Mounting Encounter…' : 'Explore Demo Encounter (Instant Play)'}</span>
+                </button>
+              </div>
+
+              <!-- Secondary Option: Sunken Crypt -->
+              <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-3">
+                <div class="text-[11px] text-slate-400">
+                  <span class="font-bold text-slate-300">Alternate Starter:</span> The Sunken Crypt dungeon one-shot.
                 </div>
                 <button
                   type="button"
                   onclick={loadSampleOneShot}
                   disabled={isSeedingDemo}
-                  class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg font-bold text-xs shadow-md shadow-indigo-600/30 transition-all shrink-0 flex items-center gap-1.5"
+                  class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg font-bold text-[11px] transition-colors shrink-0"
                 >
-                  <span>{isSeedingDemo ? '⏳' : '🚀'}</span>
-                  <span>{isSeedingDemo ? 'Loading…' : 'Load Sample One-Shot'}</span>
+                  Load Sunken Crypt
                 </button>
               </div>
             </div>

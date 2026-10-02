@@ -133,6 +133,16 @@ export const tokenStore = {
     }
   },
 
+  updateTokenLocally: (id: string, patch: Partial<TokenInstance>): void => {
+    const t = tokens.get(id);
+    if (t) {
+      Object.assign(t, patch);
+      if (patch.id && patch.id !== id) {
+        t.instance_id = patch.id;
+      }
+    }
+  },
+
   handleTokenRemoved: (id: string): void => {
     tokens.delete(id);
     if (selectedTokenId === id) {

@@ -9,6 +9,7 @@
   import { curtainStore } from '$lib/stores/curtainStore.svelte';
   import { loreGraphStore, type LoreEntity } from '$lib/stores/loreGraphStore.svelte';
   import WikilinkRenderer from '$lib/components/lore/WikilinkRenderer.svelte';
+  import ConditionBadgeTooltip from '$lib/components/combat/ConditionBadgeTooltip.svelte';
 
   interface PortalToken {
     id: string;
@@ -701,9 +702,7 @@
               {#if char.conditions && char.conditions.length > 0}
                 <div class="flex flex-wrap gap-1 mt-1">
                   {#each char.conditions as cond}
-                    <span class="px-1.5 py-0.2 rounded-full bg-rose-950/90 border border-rose-600/70 text-rose-300 text-[9px] font-bold">
-                      {cond}
-                    </span>
+                    <ConditionBadgeTooltip condition={cond} compact />
                   {/each}
                 </div>
               {/if}
