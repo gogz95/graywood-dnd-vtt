@@ -42,8 +42,13 @@ export function syncPixiTokenTurnFocus(
   // Active combatant turn focus
   if (!existingRing) {
     const ring = new PIXI.Graphics();
-    ring.circle(0, 0, (container.width || 64) * 0.65);
-    ring.stroke({ width: 3, color: 0xf59e0b, alpha: 0.95 });
+    const radius = (container.width || 64) * 0.65;
+    // Outer soft glow halo
+    ring.circle(0, 0, radius + 2);
+    ring.stroke({ width: 5, color: 0xf59e0b, alpha: 0.35 });
+    // Core luminous ring
+    ring.circle(0, 0, radius);
+    ring.stroke({ width: 3, color: 0xfbbf24, alpha: 0.95 });
     container.addChildAt(ring, 0);
     (container as any).__turnRingGraphics = ring;
   }
