@@ -18,7 +18,29 @@
   let isDraggingOver = $state(false);
   let showHardResetConfirm = $state(false);
   let isResetting = $state(false);
+  let isSeeding = $state(false);
   let resetSuccessMessage = $state<string | null>(null);
+  let seedSuccessMessage = $state<string | null>(null);
+
+  async function handleSeedFullSrd() {
+    isSeeding = true;
+    try {
+      const { seedFullSrdCompendium } = await import('../../services/srdSeedService');
+      const res = await seedFullSrdCompendium();
+      if (res.seeded) {
+        seedSuccessMessage = `Seeded ${res.monstersCount} monsters, ${res.spellsCount} spells, ${res.itemsCount} items!`;
+      } else {
+        seedSuccessMessage = res.reason;
+      }
+      setTimeout(() => {
+        seedSuccessMessage = null;
+      }, 3500);
+    } catch (err: any) {
+      alert(`SRD Seeding failed: ${err?.message}`);
+    } finally {
+      isSeeding = false;
+    }
+  }
 
   // File accept string for input element
   const acceptAttribute = ALL_SUPPORTED_EXTENSIONS.map((e) => `.${e}`).join(',');
@@ -179,15 +201,32 @@
             />
           </div>
 
-          <!-- Hard Reset Compendium Cache Button -->
-          <button
-            type="button"
-            onclick={() => (showHardResetConfirm = true)}
-            class="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border border-rose-900/60 bg-rose-950/30 hover:bg-rose-900/50 text-rose-300 flex items-center gap-1.5"
-            title="Purge parsed compendium cache in Dexie while preserving campaign disk files"
-          >
-            <span>🗑️</span> Hard Reset Cache
-          </button>
+          <div class="flex items-center gap-2">
+            <!-- Seed Full 5e SRD Compendium CTA Button -->
+            <button
+              type="button"
+              onclick={handleSeedFullSrd}
+              disabled={isSeeding}
+              class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all border border-amber-600/60 bg-amber-950/40 hover:bg-amber-900/60 text-amber-200 flex items-center gap-1.5 shadow-sm shadow-amber-900/30 disabled:opacity-50"
+              title="Populate compendium with complete 5e SRD baseline monsters, spells, and equipment"
+            >
+              {#if isSeeding}
+                <span class="animate-spin">⏳</span> Seeding SRD...
+              {:else}
+                <span>⚡</span> Seed Full 5e SRD Compendium
+              {/if}
+            </button>
+
+            <!-- Hard Reset Compendium Cache Button -->
+            <button
+              type="button"
+              onclick={() => (showHardResetConfirm = true)}
+              class="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border border-rose-900/60 bg-rose-950/30 hover:bg-rose-900/50 text-rose-300 flex items-center gap-1.5"
+              title="Purge parsed compendium cache in Dexie while preserving campaign disk files"
+            >
+              <span>🗑️</span> Hard Reset Cache
+            </button>
+          </div>
         </div>
 
         <!-- Drag & Drop Zone -->
@@ -210,6 +249,13 @@
             Supported: .md, .txt, .json, .csv, .zip, .ds, .pdf, .png, .jpg, .webp, .dd2vtt, .uvtt, .geojson, .ogg, .mp3, .wav, .flac, .mp4, .webm
           </span>
         </button>
+
+        {#if seedSuccessMessage}
+          <div class="p-2.5 rounded-xl bg-amber-950/70 border border-amber-700/80 text-amber-200 text-xs flex items-center gap-2 shadow-md">
+            <span>✨</span>
+            <span>{seedSuccessMessage}</span>
+          </div>
+        {/if}
 
         {#if ingestPipelineStore.errorMessage}
           <div class="p-2.5 rounded-xl bg-rose-950/60 border border-rose-800/80 text-rose-300 text-xs flex items-center gap-2">

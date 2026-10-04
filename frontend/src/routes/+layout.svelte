@@ -383,11 +383,11 @@
       </div>
 
     {:else if currentView === 'DM_DASHBOARD'}
-      <!-- Unified Collapsible Sidebar Navigation (Fixed Collapsible Overlay - Zero Reflow) -->
-      <SidebarNav bind:activeTab asOverlay={true} />
+      <!-- Unified Collapsible Sidebar Navigation (Standard Flex Flow) -->
+      <SidebarNav bind:activeTab asOverlay={false} />
 
-      <!-- Tab panel with fixed 64px rail margin to prevent canvas reflow on toggle -->
-      <main class="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col pl-16">
+      <!-- Tab panel expanding cleanly to fill remaining space without offset clipping -->
+      <main class="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col">
         <!-- Tab title bar -->
         <div class="flex items-center gap-2 px-4 h-9 border-b border-slate-800 bg-slate-900/60 shrink-0">
           <span class="text-[11px] font-bold uppercase tracking-widest text-slate-400">

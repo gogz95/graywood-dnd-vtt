@@ -7,6 +7,7 @@ import { ViewportController, type ViewportState } from './controllers/ViewportCo
 import { GridController } from './controllers/GridController';
 import { TokenController } from './controllers/TokenController';
 import { FogController } from './controllers/FogController';
+import { DrawingEngine } from './DrawingEngine';
 
 export interface ViewportChangeEvent {
   targetX: number;
@@ -30,6 +31,7 @@ export interface EngineReadyEvent {
   grid: GridController;
   tokens: TokenController;
   fog: FogController;
+  drawingEngine?: DrawingEngine;
 }
 
 export interface EngineResizeEvent {
@@ -59,6 +61,7 @@ export class VttCanvasEngine {
   private gridController: GridController | null = null;
   private tokenController: TokenController | null = null;
   private fogController: FogController | null = null;
+  private drawingEngine: DrawingEngine | null = null;
   private isInitialized: boolean = false;
 
   private listeners: Map<keyof VttEngineEventMap, Set<(data: any) => void>> = new Map();
@@ -209,6 +212,16 @@ export class VttCanvasEngine {
     this.fogContainer = this.fogController.fogLayer;
     this.fogContainer.label = 'VTT_FogContainer';
 
+    // Initialize DrawingEngine attached to worldContainer between grid and tokens
+    this.drawingEngine = new DrawingEngine({
+      app,
+      worldContainer: this.worldContainer,
+      viewportController: this.viewportController,
+      canvasElement,
+      gridContainer: this.gridContainer,
+      tokensContainer: this.tokensContainer,
+    });
+
     // Dynamic grid line rendering and AABB viewport frustum culling when camera bounds change
     this.on('viewport:change', () => {
       this.gridController?.redraw();
@@ -246,6 +259,7 @@ export class VttCanvasEngine {
       grid: this.gridController,
       tokens: this.tokenController,
       fog: this.fogController,
+      drawingEngine: this.drawingEngine,
     });
   }
 
@@ -324,6 +338,10 @@ export class VttCanvasEngine {
     return this.viewportController;
   }
 
+  public getDrawingEngine(): DrawingEngine | null {
+    return this.drawingEngine;
+  }
+
   public getCanvas(): HTMLCanvasElement | null {
     return this.canvasElement;
   }
@@ -357,6 +375,11 @@ export class VttCanvasEngine {
     }
 
     // Teardown GridController
+    if (this.drawingEngine) {
+      this.drawingEngine.destroy();
+      this.drawingEngine = null;
+    }
+
     if (this.gridController) {
       this.gridController.destroy();
       this.gridController = null;

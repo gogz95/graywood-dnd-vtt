@@ -99,6 +99,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             graywood_vtt_lib::commands::get_rollable_tables_cmd,
             graywood_vtt_lib::commands::extract_tables_from_sourcebook_cmd,
             graywood_vtt_lib::commands::get_hydrated_entities,
+            graywood_vtt_lib::commands::seed_compendium_baseline,
+            graywood_vtt_lib::commands::sync_party_rest_recovery,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

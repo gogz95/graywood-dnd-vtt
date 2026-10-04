@@ -30,7 +30,7 @@
     activeTab = $bindable<DmTab>('party'),
     dmMapMode = $bindable<'tactical' | 'atlas'>('tactical'),
     onSelectTab,
-    asOverlay = true,
+    asOverlay = false,
   }: {
     activeTab?: DmTab;
     dmMapMode?: 'tactical' | 'atlas';
@@ -345,7 +345,7 @@
 </script>
 
 <aside
-  class="{asOverlay ? 'fixed top-11 bottom-12 left-0 z-40 shadow-2xl shadow-black/80' : 'h-full z-20'} bg-slate-900 border-r border-slate-800 flex flex-col transition-all duration-200 ease-in-out shrink-0 select-none overflow-hidden pointer-events-auto {isCollapsed ? 'w-16' : 'w-64'}"
+  class="{asOverlay ? 'fixed top-11 bottom-12 left-0 z-40 shadow-2xl shadow-black/80' : 'h-full z-40'} bg-slate-900 border-r border-slate-800 flex flex-col transition-all duration-200 ease-in-out shrink-0 select-none overflow-hidden pointer-events-auto {isCollapsed ? 'w-16' : 'w-64'}"
   aria-label="Workspace Navigation Sidebar"
 >
   <!-- ═════════════════════════════════════════════════════════════════════════

@@ -44,6 +44,7 @@ export class ViewportController {
 
   // Panning interaction flags
   public isPanMode: boolean = false;
+  public isPanSuspended: boolean = false;
 
   private canvasElement: HTMLCanvasElement;
   private app: Application | null = null;
@@ -274,6 +275,14 @@ export class ViewportController {
   }
 
   /**
+   * Suspends or resumes left-drag camera panning (used when drawing or wall placement tools are active).
+   * Space + Drag and Middle-Click panning remain active.
+   */
+  public setPanSuspended(suspended: boolean): void {
+    this.isPanSuspended = suspended;
+  }
+
+  /**
    * Applies the current camera transformation directly to the Pixi Container.
    */
   private applyTransform(): void {
@@ -327,9 +336,10 @@ export class ViewportController {
       (e: PointerEvent) => {
         const isMiddle = e.button === 1;
         const isRight = e.button === 2;
-        const isLeftPan = e.button === 0 && (this.spacePressed || this.isPanMode);
+        const isSpacePan = e.button === 0 && this.spacePressed;
+        const isLeftPan = e.button === 0 && !this.isPanSuspended && (this.spacePressed || this.isPanMode);
 
-        if (!isMiddle && !isRight && !isLeftPan) return;
+        if (!isMiddle && !isRight && !isSpacePan && !isLeftPan) return;
 
         this.isDragging = true;
         this.activePointerId = e.pointerId;

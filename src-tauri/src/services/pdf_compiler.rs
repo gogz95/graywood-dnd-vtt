@@ -560,8 +560,22 @@ pub async fn compile_sourcebook_streaming(
     file.read_to_end(&mut bytes)
         .map_err(|e| format!("Failed to read PDF bytes: {}", e))?;
 
-    let toc = inspect_pdf_toc_fast(&bytes)?;
-    let total_pages = toc.total_pages.max(1);
+    let total_pages = match inspect_pdf_toc_fast(&bytes) {
+        Ok(toc) if toc.total_pages > 0 => toc.total_pages,
+        _ => {
+            // Resilient fallback: estimate pages by counting /Page markers
+            let mut count = 0;
+            let len = bytes.len();
+            let mut i = 0;
+            while i + 10 <= len {
+                if &bytes[i..i + 10] == b"/Type/Page" || (i + 11 <= len && &bytes[i..i + 11] == b"/Type /Page") {
+                    count += 1;
+                }
+                i += 1;
+            }
+            count.max(1)
+        }
+    };
 
     let cache_tokens_dir = workspace_root.join(".graywood/cache/tokens");
     let db_path = workspace_root.join(".graywood/index.sqlite");
@@ -626,6 +640,75 @@ pub async fn compile_sourcebook_streaming(
                     current_page,
                     total_pages,
                     entity_name: Some(bp.name.to_string()),
+                    is_activated: true,
+                    token_generated: true,
+                },
+            );
+        }
+
+        // Resilient regex / anchor extraction for monsters, spells, and items
+        let extracted_entities = crate::services::statblock_extractor::extract_entities_from_text(
+            &reconstructed_text,
+            file_rel_path,
+            current_page,
+        );
+
+        for ext in extracted_entities {
+            // Avoid duplicate insertion if already matched by blueprint
+            if activated_entities.iter().any(|e| e.name.eq_ignore_ascii_case(&ext.name)) {
+                continue;
+            }
+
+            let _ = generate_circular_token_webp(&ext.id, &cache_tokens_dir);
+            let token_asset_url = format!(
+                "graywood-asset://localhost/.graywood/cache/tokens/{}.webp",
+                ext.id
+            );
+
+            let provenance_json = serde_json::to_string(&ext.provenance)
+                .map_err(|e| format!("Failed to serialize provenance: {}", e))?;
+            let data_json = serde_json::to_string(&ext.mechanics)
+                .map_err(|e| format!("Failed to serialize mechanics: {}", e))?;
+
+            conn.execute(
+                "INSERT OR REPLACE INTO entities (id, type, name, is_activated, provenance, data)
+                 VALUES (?1, ?2, ?3, 1, ?4, ?5)",
+                params![ext.id, ext.entity_type, ext.name, provenance_json, data_json],
+            )
+            .map_err(|e| format!("Failed to persist extracted entity into SQLite: {}", e))?;
+
+            let ac_val = ext.mechanics.get("ac").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let hp_val = ext.mechanics.get("hp").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let speed_val = ext.mechanics.get("speed").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let cr_val = ext.mechanics.get("cr").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+            let record = ActivatedEntityRecord {
+                id: ext.id.clone(),
+                name: ext.name.clone(),
+                entity_type: ext.entity_type.clone(),
+                is_activated: 1,
+                provenance: ext.provenance,
+                mechanics: ExtractedMechanics {
+                    ac: ac_val,
+                    hp: hp_val,
+                    speed: speed_val,
+                    stats: None,
+                    attack_bonus: None,
+                    damage_formula: None,
+                    cr: cr_val,
+                },
+                token_asset: Some(token_asset_url),
+            };
+
+            activated_entities.push(record);
+
+            let _ = app.emit(
+                "compiler-progress",
+                CompilerProgressEvent {
+                    filename: file_rel_path.to_string(),
+                    current_page,
+                    total_pages,
+                    entity_name: Some(ext.name),
                     is_activated: true,
                     token_generated: true,
                 },

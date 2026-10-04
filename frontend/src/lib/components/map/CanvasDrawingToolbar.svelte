@@ -29,9 +29,18 @@
   // Active vector polygon points accumulator
   let polyPoints = $state<{ x: number; y: number }[]>([]);
 
+  import { canvasToolStore } from '../../stores/canvasToolStore';
+
   function selectTool(tool: DrawTool) {
     activeTool = tool;
     polyPoints = [];
+    if (tool === 'wall_line') canvasToolStore.setTool('wall');
+    else if (tool === 'wall_polygon') canvasToolStore.setTool('polygon');
+    else if (tool === 'fog_carve') canvasToolStore.setTool('fog_reveal');
+    else if (tool === 'fog_conceal') canvasToolStore.setTool('fog_shroud');
+    else if (tool === 'brush') canvasToolStore.setTool('brush');
+    else if (tool === 'select') canvasToolStore.setTool('select');
+
     if (onToolChange) {
       onToolChange(tool);
     }

@@ -42,6 +42,7 @@
   import GridCalibrationModal from '../map/GridCalibrationModal.svelte';
   import { mapLayers } from '../../stores/mapLayerStore.svelte';
   import CanvasDrawingToolbar, { type DrawTool } from '../map/CanvasDrawingToolbar.svelte';
+  import { canvasToolStore } from '../../stores/canvasToolStore';
   import { chatStore } from '../../stores/chatStore.svelte';
   import { importDungeonScrawlFile } from '../../importers/dungeonScrawlImporter';
   import { initDmSyncListener, cleanupDmSyncListener, broadcastBattlematUpdate } from '../../services/battlematSyncBridge';
@@ -157,6 +158,24 @@
   // ── Tactical Operational Tools ─────────────────────────────────────────────
   let activeTool = $state<'select' | 'ruler' | 'circle' | 'cone' | 'cube' | 'line'>('select');
   let activeDrawingTool = $state<DrawTool>('select');
+
+  $effect(() => {
+    const unsub = canvasToolStore.subscribe((t) => {
+      if (t === 'wall' && activeDrawingTool !== 'wall_line') activeDrawingTool = 'wall_line';
+      else if (t === 'polygon' && activeDrawingTool !== 'wall_polygon') activeDrawingTool = 'wall_polygon';
+      else if (t === 'brush' && activeDrawingTool !== 'brush') activeDrawingTool = 'brush';
+      else if (t === 'fog_reveal' && activeDrawingTool !== 'fog_carve') activeDrawingTool = 'fog_carve';
+      else if (t === 'fog_shroud' && activeDrawingTool !== 'fog_conceal') activeDrawingTool = 'fog_conceal';
+      else if (t === 'select' && activeDrawingTool !== 'select') activeDrawingTool = 'select';
+    });
+    return unsub;
+  });
+  let wallDrawStart = $state<{ wx: number; wy: number } | null>(null);
+  let wallDrawCurrent = $state<{ wx: number; wy: number } | null>(null);
+  let isFogCarving = $state(false);
+  let isFogConcealing = $state(false);
+  let isFreehandDrawing = $state(false);
+  let brushPoints = $state<{ x: number; y: number }[]>([]);
   let showGridCalibration = $state(false);
   let showFloorLayersDrawer = $state(false);
   let showFogVisionPanel = $state(false);
@@ -298,6 +317,35 @@
       // Dungeon Scrawl Walls
       if (wallVisibilityEnabled && walls.length > 0) {
         renderWallSegments(renderCtx, walls, vpZoom);
+      }
+
+      // In-progress wall drawing preview
+      if (wallDrawStart && wallDrawCurrent) {
+        renderCtx.save();
+        renderCtx.strokeStyle = '#f59e0b';
+        renderCtx.lineWidth = 3 / vpZoom;
+        renderCtx.setLineDash([6 / vpZoom, 4 / vpZoom]);
+        renderCtx.beginPath();
+        renderCtx.moveTo(wallDrawStart.wx, wallDrawStart.wy);
+        renderCtx.lineTo(wallDrawCurrent.wx, wallDrawCurrent.wy);
+        renderCtx.stroke();
+        renderCtx.restore();
+      }
+
+      // In-progress freehand brush preview
+      if (isFreehandDrawing && brushPoints.length > 1) {
+        renderCtx.save();
+        renderCtx.strokeStyle = '#ef4444';
+        renderCtx.lineWidth = 4 / vpZoom;
+        renderCtx.lineCap = 'round';
+        renderCtx.lineJoin = 'round';
+        renderCtx.beginPath();
+        renderCtx.moveTo(brushPoints[0].x, brushPoints[0].y);
+        for (let i = 1; i < brushPoints.length; i++) {
+          renderCtx.lineTo(brushPoints[i].x, brushPoints[i].y);
+        }
+        renderCtx.stroke();
+        renderCtx.restore();
       }
 
       // Dungeon Scrawl Doors
@@ -809,6 +857,28 @@
         }
       }
 
+      // Vector Drawing & Fog Tools
+      if (activeDrawingTool === 'wall_line') {
+        wallDrawStart = { wx, wy };
+        wallDrawCurrent = { wx, wy };
+        return;
+      }
+      if (activeDrawingTool === 'fog_carve') {
+        canvasStore.revealFogAt(gx, gy);
+        isFogCarving = true;
+        return;
+      }
+      if (activeDrawingTool === 'fog_conceal') {
+        canvasStore.concealFog([`${gx},${gy}`]);
+        isFogConcealing = true;
+        return;
+      }
+      if (activeDrawingTool === 'brush') {
+        isFreehandDrawing = true;
+        brushPoints = [{ x: wx, y: wy }];
+        return;
+      }
+
       // Strict Interaction Layer Masking (Roll20 / Foundry pattern):
       // When active tool is wall, ruler, fog, or template: disable token click/drag listeners
       // so clicks and drags never accidentally select or move tokens while drawing or measuring.
@@ -858,6 +928,23 @@
         isPublic: aoePublic,
         color: '#38bdf8',
       });
+      return;
+    }
+
+    if (activeDrawingTool === 'wall_line' && wallDrawStart) {
+      wallDrawCurrent = { wx, wy };
+      return;
+    }
+    if (activeDrawingTool === 'fog_carve' && isFogCarving) {
+      canvasStore.revealFogAt(gx, gy);
+      return;
+    }
+    if (activeDrawingTool === 'fog_conceal' && isFogConcealing) {
+      canvasStore.concealFog([`${gx},${gy}`]);
+      return;
+    }
+    if (activeDrawingTool === 'brush' && isFreehandDrawing) {
+      brushPoints.push({ x: wx, y: wy });
       return;
     }
 
@@ -940,6 +1027,47 @@
 
     if (activeTool === 'ruler') {
       rulerStart = null;
+    }
+
+    if (activeDrawingTool === 'wall_line' && wallDrawStart && wallDrawCurrent) {
+      const p1 = { x: Math.round(wallDrawStart.wx), y: Math.round(wallDrawStart.wy) };
+      const p2 = { x: Math.round(wallDrawCurrent.wx), y: Math.round(wallDrawCurrent.wy) };
+      if (Math.hypot(p2.x - p1.x, p2.y - p1.y) > 5) {
+        const newWall: WallSegment = {
+          id: `wall-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          x1: p1.x,
+          y1: p1.y,
+          x2: p2.x,
+          y2: p2.y,
+        };
+        walls = [...walls, newWall];
+        canvasStore.addWallSegment(newWall);
+        globalSpatialIndex.updateCollider(newWall.id, {
+          minX: Math.min(newWall.x1, newWall.x2),
+          minY: Math.min(newWall.y1, newWall.y2),
+          maxX: Math.max(newWall.x1, newWall.x2),
+          maxY: Math.max(newWall.y1, newWall.y2),
+        }, 'wall', true, newWall);
+      }
+      wallDrawStart = null;
+      wallDrawCurrent = null;
+      return;
+    }
+
+    if (isFogCarving) {
+      isFogCarving = false;
+      return;
+    }
+
+    if (isFogConcealing) {
+      isFogConcealing = false;
+      return;
+    }
+
+    if (activeDrawingTool === 'brush' && isFreehandDrawing) {
+      isFreehandDrawing = false;
+      brushPoints = [];
+      return;
     }
 
     if (draggingToken && dragCurrentGrid) {
@@ -1773,8 +1901,13 @@
             bind:activeTool={activeDrawingTool}
             onToolChange={(tool) => {
               activeDrawingTool = tool;
-              if (tool === 'select') activeTool = 'select';
-              if (tool === 'ruler') activeTool = 'ruler';
+              if (tool === 'select') { activeTool = 'select'; canvasToolStore.setTool('select'); }
+              else if (tool === 'ruler') { activeTool = 'ruler'; }
+              else if (tool === 'wall_line') { canvasToolStore.setTool('wall'); }
+              else if (tool === 'wall_polygon') { canvasToolStore.setTool('polygon'); }
+              else if (tool === 'brush') { canvasToolStore.setTool('brush'); }
+              else if (tool === 'fog_carve') { canvasToolStore.setTool('fog_reveal'); }
+              else if (tool === 'fog_conceal') { canvasToolStore.setTool('fog_shroud'); }
             }}
           />
         </div>

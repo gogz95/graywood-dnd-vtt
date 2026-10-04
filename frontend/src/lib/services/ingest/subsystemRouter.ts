@@ -196,9 +196,10 @@ async function routeSourceMaterial(
     onProgress?.(30, 'Extracting text and 5e entities from PDF...');
     if (typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)) {
       try {
-        const { ingestPdf } = await import('../ingestService');
+        const { ingestPdf, syncHydratedToDexie } = await import('../ingestService');
         const res = await ingestPdf(item.relativePath || item.name);
         if (res) {
+          await syncHydratedToDexie();
           const totalFound = res.monsters_count + res.spells_count + res.tables_count + res.items_count;
           const summary = totalFound > 0
             ? `Extracted ${res.monsters_count} monsters, ${res.spells_count} spells, ${res.tables_count} tables, ${res.items_count} items`

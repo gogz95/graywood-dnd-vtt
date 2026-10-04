@@ -1208,6 +1208,7 @@ pub async fn get_hydrated_entities(
         })
         .map_err(|e| format!("Query map failed: {}", e))?;
 
+
     let mut entities = Vec::new();
     for e in entity_rows.flatten() {
         entities.push(e);
@@ -1217,4 +1218,182 @@ pub async fn get_hydrated_entities(
         .unwrap_or_default();
 
     Ok(HydratedWorkspaceData { entities, tables })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeedCompendiumResult {
+    pub monsters_count: usize,
+    pub spells_count: usize,
+    pub items_count: usize,
+    pub total_seeded: usize,
+}
+
+#[tauri::command]
+pub async fn seed_compendium_baseline(
+    state: tauri::State<'_, AppState>,
+) -> Result<SeedCompendiumResult, String> {
+    let workspace_root = match workspace_manager::get_active_workspace_path() {
+        Some(p) => p,
+        None => {
+            let guard = state.campaign_dir.read().await;
+            match guard.as_ref() {
+                Some(p) => p.clone(),
+                None => return Err("No active campaign workspace mounted".to_string()),
+            }
+        }
+    };
+
+    let db_path = workspace_root.join(".graywood/index.sqlite");
+    if !db_path.exists() {
+        let _ = workspace_manager::initialize_workspace(&workspace_root);
+    }
+
+    let conn = Connection::open(&db_path).map_err(|e| format!("Failed to open index.sqlite: {}", e))?;
+    let cache_tokens_dir = workspace_root.join(".graywood/cache/tokens");
+
+    let blueprints = crate::services::blueprint_catalog::get_blueprint_catalog();
+    let mut monsters_count = 0;
+    let mut spells_count = 0;
+    let mut items_count = 0;
+
+    for bp in blueprints {
+        let _ = crate::services::pdf_compiler::generate_circular_token_webp(bp.id, &cache_tokens_dir);
+
+        let provenance = serde_json::json!({
+            "source": "5e SRD 5.1",
+            "file_rel": "Compendium Baseline",
+            "page": 1,
+            "origin": "SRD-5.1"
+        });
+
+        let data = serde_json::json!({
+            "name": bp.name,
+            "category": bp.category,
+            "ac": bp.ac,
+            "hp": bp.hp,
+            "speed": bp.speed,
+            "stats": bp.stats,
+            "attack_bonus": bp.attack_bonus,
+            "damage_formula": bp.damage_formula,
+            "cr": bp.default_cr,
+        });
+
+        let prov_str = serde_json::to_string(&provenance).unwrap_or_default();
+        let data_str = serde_json::to_string(&data).unwrap_or_default();
+
+        let _ = conn.execute(
+            "INSERT OR REPLACE INTO entities (id, type, name, is_activated, provenance, data)
+             VALUES (?1, ?2, ?3, 1, ?4, ?5)",
+            params![bp.id, bp.category, bp.name, prov_str, data_str],
+        );
+
+        match bp.category {
+            "monster" => monsters_count += 1,
+            "spell" => spells_count += 1,
+            _ => items_count += 1,
+        }
+    }
+
+    Ok(SeedCompendiumResult {
+        monsters_count,
+        spells_count,
+        items_count,
+        total_seeded: blueprints.len(),
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncPartyRestPayload {
+    pub rest_type: String, // "short" | "long"
+    pub updated_actors: Vec<serde_json::Value>,
+}
+
+#[tauri::command]
+pub async fn sync_party_rest_recovery(
+    state: tauri::State<'_, AppState>,
+    payload: SyncPartyRestPayload,
+) -> Result<usize, String> {
+    let workspace_root = match workspace_manager::get_active_workspace_path() {
+        Some(p) => p,
+        None => {
+            let guard = state.campaign_dir.read().await;
+            match guard.as_ref() {
+                Some(p) => p.clone(),
+                None => return Err("No active campaign workspace mounted".to_string()),
+            }
+        }
+    };
+
+    let db_path = workspace_root.join(".graywood/index.sqlite");
+    if db_path.exists() {
+        if let Ok(conn) = Connection::open(&db_path) {
+            for actor in &payload.updated_actors {
+                if let (Some(id), Some(name)) = (
+                    actor.get("id").and_then(|v| v.as_str()),
+                    actor.get("name").and_then(|v| v.as_str()),
+                ) {
+                    let actor_type = actor.get("type").and_then(|v| v.as_str()).unwrap_or("actor");
+                    let data = actor.get("mechanics").cloned().unwrap_or_else(|| actor.clone());
+                    let prov = actor.get("provenance").cloned().unwrap_or(serde_json::json!({ "source": "party_recovery" }));
+                    let data_str = serde_json::to_string(&data).unwrap_or_default();
+                    let prov_str = serde_json::to_string(&prov).unwrap_or_default();
+
+                    let _ = conn.execute(
+                        "INSERT INTO entities (id, type, name, is_activated, provenance, data)
+                         VALUES (?1, ?2, ?3, 1, ?4, ?5)
+                         ON CONFLICT(id) DO UPDATE SET data = ?5",
+                        params![id, actor_type, name, prov_str, data_str],
+                    );
+                }
+            }
+        }
+    }
+
+    // Update campaign SQLite characters table if matching character ids exist
+    {
+        let conn = state.db.lock().await;
+        for actor in &payload.updated_actors {
+            if let Some(id) = actor.get("id").and_then(|v| v.as_str()) {
+                let current_hp = actor.get("current_hp")
+                    .or_else(|| actor.get("hpCurrent"))
+                    .or_else(|| actor.get("mechanics").and_then(|m| m.get("hp")))
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v as i32);
+
+                let hd_current = actor.get("hit_dice_current")
+                    .or_else(|| actor.get("hitDiceCurrent"))
+                    .or_else(|| actor.get("mechanics").and_then(|m| m.get("hit_dice_current")))
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v as i32);
+
+                if let Some(hp) = current_hp {
+                    if let Some(hd) = hd_current {
+                        let _ = conn.execute(
+                            "UPDATE characters SET current_hp = ?1, hit_dice_current = ?2 WHERE id = ?3",
+                            params![hp, hd, id],
+                        );
+                    } else {
+                        let _ = conn.execute(
+                            "UPDATE characters SET current_hp = ?1 WHERE id = ?2",
+                            params![hp, id],
+                        );
+                    }
+
+                    let _ = state.ws_sender.send(crate::server::routes::ws::WsEvent::HpUpdate {
+                        character_id: id.to_string(),
+                        current_hp: hp,
+                        temp_hp: 0,
+                    });
+                }
+            }
+        }
+    }
+
+    // Broadcast PARTY_STATE_UPDATED event over WebSocket
+    let count = payload.updated_actors.len();
+    let _ = state.ws_sender.send(crate::server::routes::ws::WsEvent::PartyStateUpdated {
+        updated_actors: payload.updated_actors,
+    });
+
+    Ok(count)
 }

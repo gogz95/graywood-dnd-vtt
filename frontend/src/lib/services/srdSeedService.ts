@@ -94,6 +94,18 @@ export async function seedSrdCompendiumIfEmpty(force = false): Promise<SrdSeedRe
       }
     );
 
+    // If running in Tauri, also invoke native seed_compendium_baseline
+    if (typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)) {
+      try {
+        const tauri = (window as any).__TAURI__;
+        if (tauri?.core?.invoke) {
+          await tauri.core.invoke('seed_compendium_baseline');
+        }
+      } catch (nativeErr) {
+        console.warn('[srdSeedService] Native SQLite baseline seeding warning:', nativeErr);
+      }
+    }
+
     const finalMonsters = await compendiumDb.monsters.count();
     const finalSpells = await compendiumDb.spells.count();
     const finalItems = await compendiumDb.items.count();
@@ -118,6 +130,14 @@ export async function seedSrdCompendiumIfEmpty(force = false): Promise<SrdSeedRe
       reason: err instanceof Error ? err.message : 'Unknown database seeding error',
     };
   }
+}
+
+/**
+ * Explicit one-click seeder for Universal Ingest modal CTA.
+ * Force-populates Dexie compendium and SQLite index with full 5e SRD baseline.
+ */
+export async function seedFullSrdCompendium(): Promise<SrdSeedResult> {
+  return await seedSrdCompendiumIfEmpty(true);
 }
 
 /**

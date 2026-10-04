@@ -24,6 +24,11 @@ pub enum WsEvent {
         temp_hp: i32,
     },
 
+    #[serde(rename = "PARTY_STATE_UPDATED")]
+    PartyStateUpdated {
+        updated_actors: Vec<serde_json::Value>,
+    },
+
     #[serde(rename = "BLACK_ORB_TOGGLE")]
     BlackOrbToggle {
         character_id: String,

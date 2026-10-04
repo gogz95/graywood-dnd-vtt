@@ -193,8 +193,21 @@ pub fn extract_tables_from_pdf(
     file.read_to_end(&mut bytes)
         .map_err(|e| format!("Failed to read PDF bytes: {}", e))?;
 
-    let toc = crate::services::pdf_compiler::inspect_pdf_toc_fast(&bytes)?;
-    let total_pages = toc.total_pages.max(1);
+    let total_pages = match crate::services::pdf_compiler::inspect_pdf_toc_fast(&bytes) {
+        Ok(toc) if toc.total_pages > 0 => toc.total_pages,
+        _ => {
+            let mut count = 0;
+            let len = bytes.len();
+            let mut i = 0;
+            while i + 10 <= len {
+                if &bytes[i..i + 10] == b"/Type/Page" || (i + 11 <= len && &bytes[i..i + 11] == b"/Type /Page") {
+                    count += 1;
+                }
+                i += 1;
+            }
+            count.max(1)
+        }
+    };
 
     let mut all_tables = Vec::new();
 
