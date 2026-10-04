@@ -1,6 +1,7 @@
 <!-- src/lib/components/combat/InitiativeTracker.svelte -->
 <script lang="ts">
   import { combatStore } from '$lib/stores/combatStore.svelte';
+  import ConditionBadgeTooltip from './ConditionBadgeTooltip.svelte';
 
   let manualInputs = $state<Record<string, number>>({});
 
@@ -51,7 +52,15 @@
             <div class="truncate">
               <div class="font-bold text-slate-200 truncate">{combatant.name}</div>
               <div class="text-[9px] text-slate-400 font-mono">HP: {combatant.hp}/{combatant.maxHp}</div>
+              {#if combatant.conditions && combatant.conditions.length > 0}
+                <div class="flex flex-wrap gap-1 mt-1">
+                  {#each combatant.conditions as cond}
+                    <ConditionBadgeTooltip condition={cond} compact={true} />
+                  {/each}
+                </div>
+              {/if}
             </div>
+
           </div>
 
           <div class="flex items-center gap-1.5">

@@ -16,6 +16,8 @@
   import FogCanvasLayer from '../components/map/FogCanvasLayer.svelte';
   import MeasurementRulerLayer from '../components/map/MeasurementRulerLayer.svelte';
   import { pixiLifecycle } from '../services/pixiLifecycle';
+  import { tokenTurnRendererManager } from './tokenRenderer';
+  import { attachTokenDisplayObjectWheelListener, handleTokenElevationWheel } from './interaction/tokenPointerHandler';
 
   let {
     tokens = $bindable([] as Token[]),
@@ -312,6 +314,14 @@
         tokenContainer.cursor = 'grabbing';
       });
 
+      // Alt + ScrollWheel Elevation Stepping Handler
+      attachTokenDisplayObjectWheelListener(tokenContainer, () => token as any);
+
+      // Active Turn Token Breathing & Rotating Golden Ring hook
+      if (pixiApp?.ticker) {
+        tokenTurnRendererManager.registerToken(token.id, tokenContainer, pixiApp.ticker);
+      }
+
       layer1Tokens.addChild(tokenContainer);
       activeTokenGraphics.set(token.id, tokenContainer);
     }
@@ -571,6 +581,23 @@
   let lastPanPos = { x: 0, y: 0 };
 
   function handleWheel(e: WheelEvent) {
+    if (e.altKey) {
+      const rect = canvasContainer?.getBoundingClientRect();
+      const sx = e.clientX - (rect?.left || 0);
+      const sy = e.clientY - (rect?.top || 0);
+      const worldPos = tacticalViewport.screenToWorld(sx, sy);
+      const targetToken = tokens.find(t => {
+        const dx = t.x - worldPos.x;
+        const dy = t.y - worldPos.y;
+        return Math.sqrt(dx * dx + dy * dy) <= (t.radius || 30);
+      }) || (draggedToken ? draggedToken : null);
+
+      if (targetToken) {
+        const res = handleTokenElevationWheel(e, targetToken as any);
+        if (res.intercepted) return;
+      }
+    }
+
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.12 : 0.88;
     const rect = canvasContainer?.getBoundingClientRect();
@@ -578,6 +605,7 @@
     const sy = e.clientY - (rect?.top || 0);
     tacticalViewport.zoomAt(factor, sx, sy);
   }
+
 
   function handlePointerDownMat(e: PointerEvent) {
     // Pan with middle click, right click, or when holding space/alt

@@ -52,6 +52,7 @@ export interface ParsedRollResult {
   steps: RollStepBreakdown[];
   isCritical?: boolean;
   isFumble?: boolean;
+  tokenCoordinates?: { x: number; y: number } | [number, number];
 }
 
 export type DiceRollEventListener = (result: ParsedRollResult) => void;
@@ -356,7 +357,8 @@ export function evaluateDiceGroup(
  */
 export function parseAndEvaluateDice(
   formula: string,
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  tokenCoordinates?: { x: number; y: number } | [number, number]
 ): ParsedRollResult {
   const tokens = tokenizeDiceFormula(formula);
   let tokenIdx = 0;
@@ -458,19 +460,30 @@ export function parseAndEvaluateDice(
 
   const total = Math.floor(parseAddSub());
 
-  // Check critical (natural 20 on single d20)
-  const isCritical =
-    steps.length === 1 &&
-    steps[0].rolls.length === 1 &&
-    steps[0].rolls[0].sides === 20 &&
-    steps[0].rolls[0].value === 20;
+  // Check critical: natural 20 on single d20 or any d20 rolled that hit 20
+  const hasNat20 = steps.some((s) =>
+    s.rolls.some((r) => r.sides === 20 && r.value === 20 && r.isKept !== false)
+  );
 
-  // Check fumble (natural 1 on single d20)
+  // Check fumble: natural 1 on single d20 or any d20 rolled that hit 1
+  const hasNat1 = steps.some((s) =>
+    s.rolls.some((r) => r.sides === 20 && r.value === 1 && r.isKept !== false)
+  );
+
+  const isCritical =
+    (steps.length === 1 &&
+      steps[0].rolls.length === 1 &&
+      steps[0].rolls[0].sides === 20 &&
+      steps[0].rolls[0].value === 20) ||
+    hasNat20;
+
   const isFumble =
-    steps.length === 1 &&
-    steps[0].rolls.length === 1 &&
-    steps[0].rolls[0].sides === 20 &&
-    steps[0].rolls[0].value === 1;
+    !isCritical &&
+    ((steps.length === 1 &&
+      steps[0].rolls.length === 1 &&
+      steps[0].rolls[0].sides === 20 &&
+      steps[0].rolls[0].value === 1) ||
+      hasNat1);
 
   // Assemble human-readable breakdown
   const breakdownParts = steps.map((s) => {
@@ -487,9 +500,34 @@ export function parseAndEvaluateDice(
     steps,
     isCritical,
     isFumble,
+    tokenCoordinates,
   };
+
+  if (isCritical) {
+    if (typeof window !== 'undefined') {
+      import('../canvas/vfx/ImpactVfxEngine').then(({ ImpactVfxEngine }) => {
+        ImpactVfxEngine.triggerNat20Shockwave(tokenCoordinates);
+      });
+      import('./audioStemMixer').then(({ audioStemMixer }) => {
+        audioStemMixer.triggerSidechainDucking();
+      });
+    }
+  } else if (isFumble) {
+    if (typeof window !== 'undefined') {
+      import('../canvas/vfx/ImpactVfxEngine').then(({ ImpactVfxEngine }) => {
+        ImpactVfxEngine.triggerNat1Glitch();
+      });
+      import('./audioStemMixer').then(({ audioStemMixer }) => {
+        audioStemMixer.triggerSubBassThud();
+      });
+    }
+  }
+
 
   notifyDiceRollEvaluated(parsedResult);
 
   return parsedResult;
 }
+
+export const evaluateDiceFormula = parseAndEvaluateDice;
+

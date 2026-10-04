@@ -272,3 +272,5 @@ export async function clearCustomItems(): Promise<void> {
 if (typeof window !== 'undefined') {
   getCustomItems().catch(() => {});
 }
+
+export { compendiumStore } from './compendiumStore.svelte';

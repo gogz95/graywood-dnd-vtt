@@ -1,5 +1,6 @@
 // src-tauri/src/services/pdf_importer.rs
-// Headless Adventure PDF Text & Compendium Ingestion Engine (pdf-to-markdown pattern)
+// Legacy Adventure PDF Text & Compendium Ingestion Engine (retired stub)
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::fs::File;

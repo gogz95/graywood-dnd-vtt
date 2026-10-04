@@ -3,6 +3,8 @@
 
 <script lang="ts">
   import { combatStore } from '$lib/stores/combatStore.svelte';
+  import { combatTrackerStore } from '$lib/stores/combatTrackerStore';
+  import { combatTurnStore } from '../../../stores/websocketStore';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
   import { CONDITION_REGISTRY } from '$lib/components/map/TokenOverlay';
 
@@ -16,14 +18,48 @@
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
   let lastAnnouncedKey = '';
 
-  // Track active combatant changes
-  $effect(() => {
-    const active = combatStore.activeCombatant;
-    const onDeck = combatStore.onDeckCombatant;
-    const round = combatStore.round;
-    const turn = combatStore.turnIndex;
+  let currentRound = $state(1);
 
-    if (!combatStore.isActive || !active) {
+  // Track active combatant changes across both local combatStore and remote WebSocket combatTurnStore
+  $effect(() => {
+    // 1. Check local combatStore / combatTrackerStore
+    let activeName: string | null = null;
+    let nextName: string | null = null;
+    let tokenId: string | null = null;
+    let conditions: string[] = [];
+    let roundNum = 1;
+    let turnIdx = 0;
+    let combatActive = false;
+
+    if (combatStore.isActive && combatStore.activeCombatant) {
+      combatActive = true;
+      const active = combatStore.activeCombatant;
+      const onDeck = combatStore.onDeckCombatant;
+      activeName = active.name;
+      nextName = onDeck ? onDeck.name : null;
+      tokenId = active.tokenId;
+      conditions = active.conditions || [];
+      roundNum = combatStore.round;
+      turnIdx = combatStore.turnIndex;
+    } else if ($combatTurnStore && $combatTurnStore.combatants?.length > 0) {
+      const turnData = $combatTurnStore;
+      combatActive = true;
+      roundNum = turnData.round;
+      turnIdx = turnData.current_turn_index;
+      const activeEntry = turnData.combatants.find((c) => c.is_active) ?? turnData.combatants[turnIdx] ?? turnData.combatants[0];
+      const onDeckEntry = turnData.combatants.find((c) => c.is_on_deck) ?? turnData.combatants[(turnIdx + 1) % turnData.combatants.length];
+      if (activeEntry) {
+        activeName = activeEntry.name;
+        tokenId = activeEntry.id;
+      }
+      if (onDeckEntry && onDeckEntry !== activeEntry) {
+        nextName = onDeckEntry.name;
+      }
+    }
+
+    currentRound = roundNum;
+
+    if (!combatActive || !activeName) {
       isVisible = false;
       if (hideTimer) {
         clearTimeout(hideTimer);
@@ -32,15 +68,15 @@
       return;
     }
 
-    const key = `${round}-${turn}-${active.tokenId}`;
+    const key = `${roundNum}-${turnIdx}-${activeName}-${tokenId || ''}`;
     if (key !== lastAnnouncedKey) {
       lastAnnouncedKey = key;
-      currentActorName = active.name;
-      onDeckName = onDeck ? onDeck.name : null;
-      actorConditions = active.conditions || [];
+      currentActorName = activeName;
+      onDeckName = nextName;
+      actorConditions = conditions;
 
       // Look up token portrait or appearance from canvasStore
-      const matchedToken = canvasStore.tokens.find((t) => t.id === active.tokenId);
+      const matchedToken = tokenId ? canvasStore.tokens.find((t) => t.id === tokenId) : null;
       tokenImageUrl = (matchedToken as any)?.textureUrl || (matchedToken as any)?.imageUrl || null;
       isPlayer = matchedToken?.isPlayer ?? true;
 
@@ -119,7 +155,7 @@
     <div class="flex-shrink-0 flex flex-col items-center justify-center pl-3 border-l border-slate-800">
       <span class="text-[9px] font-mono uppercase text-slate-500 font-bold">Round</span>
       <span class="text-lg font-mono font-black text-amber-400 leading-tight">
-        {combatStore.round}
+        {currentRound}
       </span>
     </div>
   </div>

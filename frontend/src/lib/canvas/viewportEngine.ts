@@ -58,3 +58,49 @@ export function lockViewportToPhysicalScale(
     zoom: targetZoom,
   };
 }
+
+/**
+ * Locks viewport to 1-inch physical scale given display pixels-per-inch (PPI).
+ * Automatically calculates zoom ratio from active grid size, centers focal point,
+ * and updates canvasStore.projectorViewport in real-time.
+ */
+export function lockToOneInchScale(
+  ppi: number,
+  currentVp?: { x: number; y: number; zoom: number },
+  gridSize?: number,
+  screenWidth?: number,
+  screenHeight?: number
+): { x: number; y: number; zoom: number } {
+  const effectivePpi = Math.max(20, Math.min(400, ppi));
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('vtt_projector_physical_ppi', String(effectivePpi));
+  }
+
+  // Fallback defaults for headless / test environments
+  let vp = currentVp;
+  let gSize = gridSize ?? 60;
+  if (!vp) {
+    try {
+      const { canvasStore } = require('../../stores/canvasStore.svelte');
+      vp = canvasStore.projectorViewport;
+      gSize = gridSize ?? canvasStore.gridSize ?? 60;
+    } catch {
+      vp = { x: 0, y: 0, zoom: 1.0 };
+    }
+  }
+
+  const w = screenWidth ?? (typeof window !== 'undefined' ? window.innerWidth : 1920);
+  const h = screenHeight ?? (typeof window !== 'undefined' ? window.innerHeight : 1080);
+
+  const locked = lockViewportToPhysicalScale(vp, w, h, effectivePpi, gSize);
+
+  try {
+    const { canvasStore } = require('../../stores/canvasStore.svelte');
+    canvasStore?.setProjectorViewport?.(locked);
+  } catch {
+    // headless or test fallback
+  }
+
+  return locked;
+}
+

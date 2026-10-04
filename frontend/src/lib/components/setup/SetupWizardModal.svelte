@@ -232,10 +232,11 @@
   async function handleExploreDemo(): Promise<void> {
     isSeedingDemo = true;
     try {
-      await seedDemoEncounter(true);
+      await seedDemoEncounter(false);
       await campaignStore.completeWizard();
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('wizardCompleted', 'true');
+        localStorage.setItem('vtt_setup_complete', 'true');
       }
       isOpen = false;
       onComplete?.();

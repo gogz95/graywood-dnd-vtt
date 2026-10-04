@@ -82,9 +82,19 @@ class IngestPipelineStore {
   errorCount = $derived(this.queue.filter((i) => i.status === 'error').length);
 
   filteredQueue = $derived(
-    this.activeFilter === 'all'
-      ? this.queue
-      : this.queue.filter((i) => i.category === this.activeFilter)
+    this.queue
+      .filter((i) => {
+        const ext = (i.extension || '').toLowerCase();
+        const rel = (i.relativePath || '').toLowerCase();
+        return (
+          ext !== 'js' &&
+          ext !== 'ts' &&
+          !rel.includes('plugins/') &&
+          !rel.startsWith('plugins\\') &&
+          !rel.includes('node_modules')
+        );
+      })
+      .filter((i) => (this.activeFilter === 'all' ? true : i.category === this.activeFilter))
   );
 
   overallProgressPercent = $derived.by(() => {
@@ -99,6 +109,28 @@ class IngestPipelineStore {
     audio: this.queue.filter((i) => i.category === 'audio').length,
     video: this.queue.filter((i) => i.category === 'video').length,
   }));
+
+  monitoredCounts = $derived.by(() => {
+    let monsters = 0;
+    let spells = 0;
+    let tables = 0;
+    let equipment = 0;
+
+    for (const item of this.queue) {
+      if (item.status === 'done' && item.resultSummary) {
+        const mMatch = item.resultSummary.match(/(\d+)\s+monsters?/i);
+        const sMatch = item.resultSummary.match(/(\d+)\s+spells?/i);
+        const tMatch = item.resultSummary.match(/(\d+)\s+tables?/i);
+        const eMatch = item.resultSummary.match(/(\d+)\s+(?:items?|equipment)/i);
+        if (mMatch) monsters += parseInt(mMatch[1], 10);
+        if (sMatch) spells += parseInt(sMatch[1], 10);
+        if (tMatch) tables += parseInt(tMatch[1], 10);
+        if (eMatch) equipment += parseInt(eMatch[1], 10);
+      }
+    }
+
+    return { monsters, spells, tables, equipment };
+  });
 
   /**
    * Scans campaign directory or user-selected folder via Rust crawler.
@@ -163,6 +195,20 @@ class IngestPipelineStore {
 
       for (const entry of slice) {
         if (existingPaths.has(entry.relative_path)) continue;
+
+        const ext = (entry.extension || '').toLowerCase();
+        const rel = (entry.relative_path || '').toLowerCase();
+        if (
+          ext === 'js' ||
+          ext === 'ts' ||
+          rel.includes('plugins/') ||
+          rel.startsWith('plugins\\') ||
+          rel.startsWith('.git') ||
+          rel.includes('node_modules')
+        ) {
+          continue;
+        }
+
         existingPaths.add(entry.relative_path);
 
         newItems.push({
@@ -291,6 +337,12 @@ class IngestPipelineStore {
       }
     } finally {
       this.isProcessing = false;
+      try {
+        const { syncHydratedToDexie } = await import('../ingestService');
+        await syncHydratedToDexie();
+      } catch (syncErr) {
+        console.warn('[IngestPipeline] Failed to sync hydrated SQLite records to Dexie:', syncErr);
+      }
       await notifyMonstersUpdated();
     }
   }

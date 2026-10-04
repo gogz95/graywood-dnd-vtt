@@ -265,8 +265,24 @@
           {/each}
         </div>
 
-        <div class="text-xs text-slate-400 font-mono">
-          <span>{ingestPipelineStore.doneCount} / {ingestPipelineStore.totalCount} Processed</span>
+        <div class="flex items-center gap-3">
+          <div class="hidden sm:flex items-center gap-1.5 text-[11px] font-mono">
+            <span class="px-2 py-0.5 rounded bg-slate-800/90 text-slate-300 border border-slate-700">
+              [{ingestPipelineStore.monitoredCounts.monsters}] Monsters
+            </span>
+            <span class="px-2 py-0.5 rounded bg-slate-800/90 text-slate-300 border border-slate-700">
+              [{ingestPipelineStore.monitoredCounts.spells}] Spells
+            </span>
+            <span class="px-2 py-0.5 rounded bg-slate-800/90 text-slate-300 border border-slate-700">
+              [{ingestPipelineStore.monitoredCounts.tables}] Tables
+            </span>
+            <span class="px-2 py-0.5 rounded bg-slate-800/90 text-slate-300 border border-slate-700">
+              [{ingestPipelineStore.monitoredCounts.equipment}] Equipment
+            </span>
+          </div>
+          <div class="text-xs text-slate-400 font-mono">
+            <span>{ingestPipelineStore.doneCount} / {ingestPipelineStore.totalCount} Processed</span>
+          </div>
         </div>
       </div>
 
@@ -318,8 +334,10 @@
                       <span class="text-[10px] text-indigo-400">{item.message || 'Processing...'}</span>
                     </div>
                   {:else if item.status === 'done'}
-                    <div class="text-[10px] text-emerald-400 flex items-center gap-1 mt-0.5">
-                      <span>✓</span> {item.resultSummary || 'Successfully ingested'}
+                    {@const isNarrative = item.resultSummary?.includes('No statblocks found') || item.resultSummary?.includes('Narrative/Reference Source')}
+                    <div class="text-[10px] flex items-center gap-1 mt-0.5 {isNarrative ? 'text-amber-300/90' : 'text-emerald-400'}">
+                      <span>{isNarrative ? 'ℹ' : '✓'}</span>
+                      <span>{item.resultSummary || 'Successfully ingested'}</span>
                     </div>
                   {:else if item.status === 'error'}
                     <div class="text-[10px] text-rose-400 flex items-center gap-1 mt-0.5">
@@ -340,8 +358,9 @@
                     Routing...
                   </span>
                 {:else if item.status === 'done'}
-                  <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/60 font-bold">
-                    Done
+                  {@const isNarrative = item.resultSummary?.includes('No statblocks found') || item.resultSummary?.includes('Narrative/Reference Source')}
+                  <span class="text-[10px] font-mono px-2 py-0.5 rounded border font-bold {isNarrative ? 'bg-amber-950 text-amber-300 border-amber-800/60' : 'bg-emerald-950 text-emerald-400 border-emerald-800/60'}">
+                    {isNarrative ? 'Reference' : 'Done'}
                   </span>
                 {:else if item.status === 'error'}
                   <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800/60 font-bold">

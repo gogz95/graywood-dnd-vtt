@@ -8,6 +8,7 @@
     CompendiumItem,
     CompendiumRule,
   } from '../../db/compendiumDb';
+  import { tableStore } from '../../stores/tableStore';
 
   export type SelectedCompendiumEntry =
     | { type: 'monster'; data: CompendiumMonster }
@@ -121,6 +122,27 @@
       showToast(`Pinned "${name}" to Quickbar`);
     }
   }
+
+  function getProvenance(entryData: any): { file_rel: string; page?: number } | null {
+    if (!entryData) return null;
+    const prov = entryData.provenance;
+    if (prov) {
+      const fileRel = prov.file_rel || prov.source_file_rel || prov.file || '';
+      const page = prov.page || prov.page_number;
+      if (page) return { file_rel: fileRel, page: Number(page) };
+    }
+    if (entryData.pageNumber || entryData.page_number) {
+      const fileRel = entryData.sourceFileRel || entryData.source_file_rel || entryData.sourceBook || '';
+      return { file_rel: fileRel, page: Number(entryData.pageNumber || entryData.page_number) };
+    }
+    return null;
+  }
+
+  function handleOpenInSource(fileRel: string, pageNum: number) {
+    tableStore.openSourceViewer(fileRel, pageNum);
+  }
+
+  const entryProvenance = $derived(entry?.data ? getProvenance(entry.data) : null);
 </script>
 
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape' && isOpen) onClose(); }} />
@@ -157,6 +179,17 @@
       </div>
 
       <div class="flex items-center gap-2">
+        {#if entryProvenance?.page}
+          <button
+            type="button"
+            onclick={() => handleOpenInSource(entryProvenance.file_rel, entryProvenance.page!)}
+            class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-colors flex items-center gap-1 shadow-sm"
+            title="Open in Sourcebook PDF (Page {entryProvenance.page})"
+          >
+            <span>📖</span> Open in Source (p. {entryProvenance.page})
+          </button>
+        {/if}
+
         <button
           type="button"
           onclick={handlePin}

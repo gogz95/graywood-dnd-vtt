@@ -3,6 +3,7 @@
 
 import { CONDITION_REGISTRY, getVitalityState, renderTargetingReticleOnCanvas } from '../components/map/TokenOverlay';
 import * as PIXI from 'pixi.js';
+import { combatTrackerStore } from '../stores/combatTrackerStore';
 
 /**
  * Calculates smooth sinusoidal scale oscillation for active turn combatant token:
@@ -84,6 +85,94 @@ export function syncPixiTokenTurnFocus(
 
   return null;
 }
+
+export interface TrackedPixiToken {
+  tokenId: string;
+  container: PIXI.Container;
+  ticker: PIXI.Ticker;
+}
+
+export class TokenTurnRendererManager {
+  private trackedTokens = new Map<string, TrackedPixiToken>();
+  public activeCombatantId: string | null = null;
+  private activeCleanup: (() => void) | null = null;
+  private unsubscribeStore: (() => void) | null = null;
+
+  constructor() {
+    this.unsubscribeStore = combatTrackerStore.subscribe((newActiveId) => {
+      this.handleActiveCombatantChanged(newActiveId);
+    });
+  }
+
+  public registerToken(tokenId: string, container: PIXI.Container, ticker: PIXI.Ticker): void {
+    this.trackedTokens.set(tokenId, { tokenId, container, ticker });
+    if (tokenId === this.activeCombatantId) {
+      this.attachFocus(tokenId);
+    }
+  }
+
+  public unregisterToken(tokenId: string): void {
+    if (this.activeCombatantId === tokenId && this.activeCleanup) {
+      this.activeCleanup();
+      this.activeCleanup = null;
+    }
+    this.trackedTokens.delete(tokenId);
+  }
+
+  public handleActiveCombatantChanged(newActiveId: string | null): void {
+    if (this.activeCombatantId === newActiveId) return;
+
+    if (this.activeCleanup) {
+      this.activeCleanup();
+      this.activeCleanup = null;
+    }
+
+    if (this.activeCombatantId) {
+      const prev = this.trackedTokens.get(this.activeCombatantId);
+      if (prev) {
+        syncPixiTokenTurnFocus(prev.container, this.activeCombatantId, null, prev.ticker);
+      }
+    }
+
+    this.activeCombatantId = newActiveId;
+
+    if (newActiveId) {
+      this.attachFocus(newActiveId);
+    }
+  }
+
+  private attachFocus(tokenId: string): void {
+    const entry = this.trackedTokens.get(tokenId);
+    if (!entry) return;
+
+    if (this.activeCleanup) {
+      this.activeCleanup();
+      this.activeCleanup = null;
+    }
+
+    this.activeCleanup = syncPixiTokenTurnFocus(
+      entry.container,
+      tokenId,
+      this.activeCombatantId,
+      entry.ticker
+    );
+  }
+
+  public destroy(): void {
+    if (this.unsubscribeStore) {
+      this.unsubscribeStore();
+      this.unsubscribeStore = null;
+    }
+    if (this.activeCleanup) {
+      this.activeCleanup();
+      this.activeCleanup = null;
+    }
+    this.trackedTokens.clear();
+  }
+}
+
+export const tokenTurnRendererManager = new TokenTurnRendererManager();
+
 
 
 export interface TokenAura {

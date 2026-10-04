@@ -42,6 +42,7 @@
   import { drawingStore } from '../../lib/stores/drawingStore.svelte';
   import { renderSharedDrawingsOnCanvas2D } from '../../lib/components/canvas/drawingRenderHelper';
   import { spatialAudioEngine } from '../../lib/services/spatialAudioEngine.svelte';
+  import { lockToOneInchScale } from '../../lib/canvas/viewportEngine';
 
   $effect(() => {
     // Projector tracks the active player token position for positional audio
@@ -139,11 +140,14 @@
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('vtt_projector_physical_ppi', String(ppi));
     }
-    const targetZoom = ppi / (canvasStore.gridSize || 60);
-    canvasStore.setProjectorViewport({
-      ...canvasStore.projectorViewport,
-      zoom: Math.max(0.1, Math.min(4.0, targetZoom)),
-    });
+    const updated = lockToOneInchScale(
+      ppi,
+      canvasStore.projectorViewport,
+      canvasStore.gridSize || 60,
+      window.innerWidth,
+      window.innerHeight
+    );
+    canvasStore.setProjectorViewport(updated);
   }
 
   // Filtered tokens: strictly hide DM-invisible creatures

@@ -17,10 +17,15 @@
   import SoundboardDrawer   from '../lib/components/audio/SoundboardDrawer.svelte';
   import QuickReferenceDrawer from '../lib/components/dm/QuickReferenceDrawer.svelte';
   import SettingsModal      from '../lib/components/settings/SettingsModal.svelte';
+  import HotkeysModal       from '../lib/components/navigation/HotkeysModal.svelte';
+  import SourceViewerModal  from '../lib/components/source/SourceViewerModal.svelte';
   import FloatingPanel      from '../lib/components/ui/FloatingPanel.svelte';
   import SourceExplorerDrawer from '../lib/components/sources/SourceExplorerDrawer.svelte';
   import TacticalHotbar from '../lib/components/combat/TacticalHotbar.svelte';
   import { floatingWindowsStore } from '../lib/stores/floatingWindowsStore.svelte';
+  import { curtainStore } from '../lib/stores/curtainStore.svelte';
+  import { sendWsEvent } from '../stores/websocketStore';
+  import { seedDemoEncounter } from '../lib/services/demoEncounterSeeder';
   import { initAutoSaver, type CampaignBundle } from '../lib/utils/campaignPersistence';
   import { registerGlobalDropZone, type DroppedAsset } from '../lib/utils/assetDrop';
 
@@ -45,10 +50,11 @@
   let playerPinError = $state('');
   let loggedInPin = $state('');
 
-  // ── Drawers ────────────────────────────────────────────────────────────────
+  // ── Drawers & Modals ──────────────────────────────────────────────────────
   let audioOpen    = $state(false);
   let quickRefOpen = $state(false);
   let settingsOpen = $state(false);
+  let hotkeysOpen  = $state(false);
 
   // ── Drop zone feedback ─────────────────────────────────────────────────────
   let lastDrop = $state<string | null>(null);
@@ -76,6 +82,7 @@
     window.addEventListener('vtt:campaign-loaded', handleCampaignLoaded);
     window.addEventListener('vtt:toggle-audio', handleToggleAudio);
     window.addEventListener('vtt:toggle-quick-ref', handleToggleQuickRef);
+    window.addEventListener('keydown', handleGlobalKeyDown);
 
     stopAutoSaver = initAutoSaver();
 
@@ -108,10 +115,42 @@
     window.removeEventListener('vtt:campaign-loaded', handleCampaignLoaded);
     window.removeEventListener('vtt:toggle-audio', handleToggleAudio);
     window.removeEventListener('vtt:toggle-quick-ref', handleToggleQuickRef);
+    window.removeEventListener('keydown', handleGlobalKeyDown);
     // VisualViewport cleanup — handler reference captured in onMount closure;
     // removing by name is safe because the fn is re-created each mount.
     document.documentElement.style.removeProperty('--vv-height');
   });
+
+  function toggleProjectorCurtain() {
+    const nextActive = !curtainStore.active;
+    curtainStore.set(nextActive);
+    sendWsEvent({
+      type: 'PROJECTOR_CURTAIN_STATE',
+      payload: { active: nextActive }
+    });
+  }
+
+  function handleGlobalKeyDown(e: KeyboardEvent) {
+    // F9 toggles projector curtain universally across the DM interface
+    if (e.key === 'F9') {
+      e.preventDefault();
+      toggleProjectorCurtain();
+      return;
+    }
+
+    // Ignore text input fields for HotkeysModal cheat sheet (? / F1)
+    const activeEl = document.activeElement;
+    const isTextInput = activeEl && (
+      activeEl.tagName === 'INPUT' ||
+      activeEl.tagName === 'TEXTAREA' ||
+      (activeEl as HTMLElement).isContentEditable
+    );
+
+    if (e.key === 'F1' || (e.key === '?' && !isTextInput)) {
+      e.preventDefault();
+      hotkeysOpen = !hotkeysOpen;
+    }
+  }
 
   function handleToggleAudio() {
     floatingWindowsStore.open('audio');
@@ -149,6 +188,18 @@
     systemStatus.dbConnected = true;
     systemStatus.wsStatus = 'CONNECTED';
     currentView = 'DM_DASHBOARD';
+  }
+
+  async function handleLaunchDemoEncounter() {
+    await seedDemoEncounter(false);
+    localStorage.setItem('vtt_setup_complete', 'true');
+    localStorage.setItem('wizardCompleted', 'true');
+    localStorage.setItem('vtt_campaign_name', 'Ambush at Triboar Trail');
+    campaignName = 'Ambush at Triboar Trail';
+    systemStatus.dbConnected = true;
+    systemStatus.wsStatus = 'CONNECTED';
+    currentView = 'DM_DASHBOARD';
+    activeTab = 'battlemat';
   }
 
   function resetSetup() {
@@ -245,6 +296,23 @@
         title="Soundboard & Atmospheric Audio">
         🎵 Audio
       </button>
+
+      <!-- Projector Privacy Curtain Toggle (F9) -->
+      <button id="toggle-curtain"
+        onclick={toggleProjectorCurtain}
+        class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {curtainStore.active ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50 shadow-sm' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
+        title="Projector Curtain (F9) - Toggle Blackout Veil / Privacy Mode on /projector">
+        🎭 {curtainStore.active ? 'Curtain Active' : 'Curtain (F9)'}
+      </button>
+
+      <!-- Global Hotkeys Cheat Sheet Modal Toggle (? / F1) -->
+      <button id="open-hotkeys"
+        onclick={() => hotkeysOpen = !hotkeysOpen}
+        class="flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors {hotkeysOpen ? 'bg-indigo-700 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
+        title="Keyboard Shortcuts & Ergonomic Hotkeys (? / F1)">
+        ⌨️ ?
+      </button>
+
       <button id="open-settings"
         onclick={() => { settingsOpen = !settingsOpen; if (settingsOpen) audioOpen = false; }}
         class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {settingsOpen ? 'bg-indigo-700 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
@@ -294,13 +362,22 @@
             {/each}
           </div>
 
-          <div class="pt-2 flex gap-3">
-            <button onclick={completeSetup} class="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-indigo-600/20">
-              Initialize &amp; Launch Workstation
+          <div class="pt-2 flex flex-col gap-2.5">
+            <button
+              onclick={handleLaunchDemoEncounter}
+              class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2"
+            >
+              <span>🌲</span>
+              <span>Explore Demo Encounter (Instant Play)</span>
             </button>
-            <button onclick={() => currentView = 'PLAYER_LOGIN'} class="px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition-colors">
-              Join as Player
-            </button>
+            <div class="flex gap-3">
+              <button onclick={completeSetup} class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-600/20">
+                Initialize Empty Campaign
+              </button>
+              <button onclick={() => currentView = 'PLAYER_LOGIN'} class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition-colors">
+                Join as Player
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -417,7 +494,9 @@
   <SoundboardDrawer bind:isOpen={audioOpen} />
   <QuickReferenceDrawer bind:isOpen={quickRefOpen} />
   <SettingsModal bind:isOpen={settingsOpen} />
+  <HotkeysModal bind:isOpen={hotkeysOpen} />
   <PlayerHandoutModal />
+  <SourceViewerModal />
 
   <!-- Global Non-Blurring Floating Window Shells -->
   <FloatingPanel id="sources" title="Local Source Engine & Rulebook Explorer" icon="📚">

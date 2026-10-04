@@ -1,6 +1,7 @@
 import { evaluateLoreCheck, type LoreResolution } from '$lib/systems/loreCheckSystem';
 import { audioEngine } from '$lib/services/audioEngine';
 import { evaluateDice, parseDiceFormula, type DiceEvaluationResult } from '$lib/services/diceEngine';
+import { parseAndEvaluateDice } from '$lib/services/diceParser';
 
 export { evaluateDice, parseDiceFormula };
 
@@ -58,10 +59,11 @@ export async function processChatInput(input: string, sender = 'DM'): Promise<Ch
     audioEngine.playDiceClatter();
     const formula = trimmed.replace(/^\/(?:r|roll)\s+/i, '');
     const roll = parseDiceFormula(formula);
+    const parsed = parseAndEvaluateDice(formula);
     const msg: ChatMessage = {
       id: `roll_${Date.now()}`,
       sender,
-      text: roll ? `Rolled ${formula}: ${roll.total}` : `Invalid dice notation: "${formula}"`,
+      text: roll ? `Rolled ${formula}: ${roll.total}` : (parsed ? `Rolled ${formula}: ${parsed.total}` : `Invalid dice notation: "${formula}"`),
       timestamp: Date.now(),
       type: 'roll',
       rollDetails: roll ? { formula, ...roll } : undefined

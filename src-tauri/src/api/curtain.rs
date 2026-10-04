@@ -21,6 +21,7 @@ pub async fn set_curtain(
     let ws_event = WsEvent::ProjectorCurtainState {
         active: body.active,
         splash_image_url: body.splash_image_url.clone(),
+        payload: None,
     };
     let staging_event = WsEvent::StagingCurtain {
         active: body.active,

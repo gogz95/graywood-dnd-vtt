@@ -4,6 +4,7 @@ use crate::systems::encounter::{
     ActiveCombatant, MonsterStatBlock, SpawnCombatantRequest, SpawnCombatantResponse,
 };
 use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -255,10 +256,7 @@ fn read_campaign_folder_entries(folder_path: &Path) -> std::io::Result<Vec<Inges
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
-            !(name.starts_with('.')
-                || name.eq_ignore_ascii_case("node_modules")
-                || name.eq_ignore_ascii_case("target")
-                || name.eq_ignore_ascii_case("appdata"))
+            !workspace_manager::should_skip_crawler_dir(&name)
         });
 
     for entry in walker.filter_map(|e| e.ok()) {
@@ -266,10 +264,7 @@ fn read_campaign_folder_entries(folder_path: &Path) -> std::io::Result<Vec<Inges
             let path = entry.path();
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 let ext_lower = ext.to_lowercase();
-                if matches!(
-                    ext_lower.as_str(),
-                    "md" | "txt" | "json" | "jsonl" | "csv" | "tsv" | "ds" | "dd2vtt"
-                ) {
+                if workspace_manager::is_allowed_crawler_file(path, &ext_lower) {
                     if let Ok(content) = std::fs::read_to_string(path) {
                         let metadata = entry.metadata().ok();
                         let size_bytes = metadata.map(|m| m.len()).unwrap_or(content.len() as u64);
@@ -594,26 +589,24 @@ pub async fn scan_ingest_directory(
             .into_iter()
             .filter_entry(|e| {
                 let name = e.file_name().to_string_lossy();
-                !(name.starts_with('.')
-                    || name.eq_ignore_ascii_case("node_modules")
-                    || name.eq_ignore_ascii_case("target")
-                    || name.eq_ignore_ascii_case("appdata")
-                    || name.eq_ignore_ascii_case(".svelte-kit")
-                    || name.eq_ignore_ascii_case(".vite")
-                    || name.eq_ignore_ascii_case(".git"))
+                !workspace_manager::should_skip_crawler_dir(&name)
             });
 
         for entry in walker.filter_map(|e| e.ok()) {
             if entry.file_type().is_file() {
-                crawled_count += 1;
                 let path = entry.path();
-                let file_name = entry.file_name().to_string_lossy().to_string();
-
                 let ext = path
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
                     .to_lowercase();
+
+                if !workspace_manager::is_allowed_crawler_file(path, &ext) {
+                    continue;
+                }
+
+                crawled_count += 1;
+                let file_name = entry.file_name().to_string_lossy().to_string();
 
                 let metadata = entry.metadata().ok();
                 let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
@@ -984,13 +977,83 @@ pub async fn compile_sourcebook_pdf(
     compile_sourcebook_streaming(app, &workspace_root, &file_rel_path).await
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestPdfResult {
+    pub monsters_count: usize,
+    pub spells_count: usize,
+    pub items_count: usize,
+    pub tables_count: usize,
+}
+
+#[tauri::command]
+pub async fn ingest_pdf(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    file_path: String,
+) -> Result<IngestPdfResult, String> {
+    let workspace_root = match workspace_manager::get_active_workspace_path() {
+        Some(p) => p,
+        None => {
+            let guard = state.campaign_dir.read().await;
+            match guard.as_ref() {
+                Some(p) => p.clone(),
+                None => return Err("No active campaign workspace mounted".to_string()),
+            }
+        }
+    };
+
+    let file_rel_path = {
+        let p = Path::new(&file_path);
+        if p.is_absolute() {
+            p.strip_prefix(&workspace_root)
+                .map(|stripped| stripped.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| file_path.clone())
+        } else {
+            file_path.clone()
+        }
+    };
+
+    let compile_result = compile_sourcebook_streaming(app, &workspace_root, &file_rel_path).await?;
+    let tables = crate::services::table_extractor::extract_tables_from_pdf(&workspace_root, &file_rel_path)?;
+
+    let mut monsters_count = 0;
+    let mut spells_count = 0;
+    let mut items_count = 0;
+
+    for entity in &compile_result.entities {
+        match entity.entity_type.to_lowercase().as_str() {
+            "monster" => monsters_count += 1,
+            "spell" => spells_count += 1,
+            "item" | "equipment" | "magic_item" => items_count += 1,
+            _ => monsters_count += 1,
+        }
+    }
+
+    Ok(IngestPdfResult {
+        monsters_count,
+        spells_count,
+        items_count,
+        tables_count: tables.len(),
+    })
+}
+
+#[tauri::command]
+pub async fn import_pdf(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    file_path: String,
+) -> Result<IngestPdfResult, String> {
+    ingest_pdf(app, state, file_path).await
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // ROLLABLE TABLE EXTRACTION & WORKSPACE SYNC
 // ═════════════════════════════════════════════════════════════════════════════
 
 pub use crate::services::table_extractor::{
-    extract_tables_from_text, parse_csv_table, parse_markdown_table, read_all_tables_from_db,
-    scan_and_sync_workspace_tables, RollableTableRecord, TableEntry, TableProvenance,
+    extract_tables_from_pdf, extract_tables_from_text, parse_csv_table, parse_markdown_table,
+    read_all_tables_from_db, scan_and_sync_workspace_tables, RollableTableRecord, TableEntry,
+    TableProvenance,
 };
 
 #[tauri::command]
@@ -1072,4 +1135,86 @@ pub async fn extract_tables_from_sourcebook_cmd(
     }
 
     Ok(tables)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HydratedEntityRecord {
+    pub id: String,
+    pub entity_type: String,
+    pub name: String,
+    pub is_activated: i32,
+    pub provenance: serde_json::Value,
+    pub data: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HydratedWorkspaceData {
+    pub entities: Vec<HydratedEntityRecord>,
+    pub tables: Vec<RollableTableRecord>,
+}
+
+#[tauri::command]
+pub async fn get_hydrated_entities(
+    _app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<HydratedWorkspaceData, String> {
+    let workspace_root = match workspace_manager::get_active_workspace_path() {
+        Some(p) => p,
+        None => {
+            let guard = state.campaign_dir.read().await;
+            match guard.as_ref() {
+                Some(p) => p.clone(),
+                None => return Err("No active campaign workspace mounted".to_string()),
+            }
+        }
+    };
+
+    let db_path = workspace_root.join(".graywood/index.sqlite");
+    if !db_path.exists() {
+        return Ok(HydratedWorkspaceData {
+            entities: Vec::new(),
+            tables: Vec::new(),
+        });
+    }
+
+    let conn = Connection::open(&db_path).map_err(|e| format!("Failed to open index.sqlite: {}", e))?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, type, name, is_activated, provenance, data FROM entities")
+        .map_err(|e| format!("Failed to prepare query on entities: {}", e))?;
+
+    let entity_rows = stmt
+        .query_map([], |row| {
+            let id: String = row.get(0)?;
+            let entity_type: String = row.get(1)?;
+            let name: String = row.get(2)?;
+            let is_activated: i32 = row.get(3)?;
+            let prov_str: String = row.get(4)?;
+            let data_str: String = row.get(5)?;
+
+            let provenance: serde_json::Value =
+                serde_json::from_str(&prov_str).unwrap_or(serde_json::Value::Null);
+            let data: serde_json::Value =
+                serde_json::from_str(&data_str).unwrap_or(serde_json::Value::Null);
+
+            Ok(HydratedEntityRecord {
+                id,
+                entity_type,
+                name,
+                is_activated,
+                provenance,
+                data,
+            })
+        })
+        .map_err(|e| format!("Query map failed: {}", e))?;
+
+    let mut entities = Vec::new();
+    for e in entity_rows.flatten() {
+        entities.push(e);
+    }
+
+    let tables = crate::services::table_extractor::read_all_tables_from_db(&workspace_root)
+        .unwrap_or_default();
+
+    Ok(HydratedWorkspaceData { entities, tables })
 }

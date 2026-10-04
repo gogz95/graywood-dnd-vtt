@@ -1,6 +1,7 @@
 [package]
 name = "graywood-vtt"
 version = "1.0.0"
+default-run = "graywood-vtt"
 description = "Graywood VTT DM Desktop backend"
 edition = "2021"
 

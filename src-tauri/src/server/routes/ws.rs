@@ -151,10 +151,14 @@ pub enum WsEvent {
 
     #[serde(rename = "PROJECTOR_CURTAIN_STATE")]
     ProjectorCurtainState {
+        #[serde(default)]
         active: bool,
         #[serde(default)]
         splash_image_url: Option<String>,
+        #[serde(default)]
+        payload: Option<serde_json::Value>,
     },
+
 
     #[serde(rename = "LEASE_RELEASED")]
     LeaseReleased { token_id: String },
@@ -431,6 +435,15 @@ async fn handle_socket(socket: WebSocket, state: AppState, query: WsQuery) {
         if let Ok(json_str) = serde_json::to_string(&initial_event) {
             let _ = sender.send(Message::Text(json_str)).await;
         }
+        let initial_proj_event = WsEvent::ProjectorCurtainState {
+            active: initial_curtain,
+            splash_image_url: None,
+            payload: None,
+        };
+        if let Ok(json_str) = serde_json::to_string(&initial_proj_event) {
+            let _ = sender.send(Message::Text(json_str)).await;
+        }
+
 
         loop {
             match rx.recv().await {
@@ -482,10 +495,44 @@ async fn handle_socket(socket: WebSocket, state: AppState, query: WsQuery) {
                         }
                     }
 
-                    if let Ok(event) = serde_json::from_str::<WsEvent>(&text) {
+                    let mut parsed_event = serde_json::from_str::<WsEvent>(&text).ok();
+                    if parsed_event.is_none() {
+                        if let Ok(raw_val) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if raw_val.get("type").and_then(|t| t.as_str()) == Some("PROJECTOR_CURTAIN_STATE") {
+                                let active = raw_val.get("payload")
+                                    .and_then(|p| p.get("active"))
+                                    .and_then(|a| a.as_bool())
+                                    .or_else(|| raw_val.get("active").and_then(|a| a.as_bool()))
+                                    .unwrap_or(false);
+                                let splash = raw_val.get("payload")
+                                    .and_then(|p| p.get("splash_image_url"))
+                                    .and_then(|s| s.as_str().map(|s| s.to_string()))
+                                    .or_else(|| raw_val.get("splash_image_url").and_then(|s| s.as_str().map(|s| s.to_string())));
+                                parsed_event = Some(WsEvent::ProjectorCurtainState {
+                                    active,
+                                    splash_image_url: splash,
+                                    payload: None,
+                                });
+                            }
+                        }
+                    }
+
+                    if let Some(event) = parsed_event {
                         // If the event affects persisted state, update SQLite asynchronously
                         match &event {
+                            WsEvent::ProjectorCurtainState { active, payload, .. } => {
+                                let is_active = if let Some(p) = payload {
+                                    p.get("active").and_then(|a| a.as_bool()).unwrap_or(*active)
+                                } else {
+                                    *active
+                                };
+                                state.curtain_active.store(is_active, Ordering::Relaxed);
+                            }
+                            WsEvent::StagingCurtain { active } => {
+                                state.curtain_active.store(*active, Ordering::Relaxed);
+                            }
                             WsEvent::LeaseAcquire { token_id, user_id } => {
+
                                 {
                                     let mut uid_guard = client_user_id_recv.write().await;
                                     *uid_guard = Some(user_id.clone());
@@ -626,6 +673,7 @@ mod tests {
         let event = WsEvent::ProjectorCurtainState {
             active: true,
             splash_image_url: Some("/maps/underdark_cover.webp".to_string()),
+            payload: None,
         };
 
         let json = serde_json::to_string(&event).expect("Serialize PROJECTOR_CURTAIN_STATE");
@@ -640,6 +688,7 @@ mod tests {
         let event_no_splash = WsEvent::ProjectorCurtainState {
             active: false,
             splash_image_url: None,
+            payload: None,
         };
         let json_no_splash =
             serde_json::to_string(&event_no_splash).expect("Serialize without splash");

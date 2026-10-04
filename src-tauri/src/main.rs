@@ -88,8 +88,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             graywood_vtt_lib::commands::import_vttbundle_cmd,
             graywood_vtt_lib::commands::transpile_foundry_scene_cmd,
             graywood_vtt_lib::commands::transpile_roll20_page_cmd,
-            graywood_vtt_lib::services::pdf_importer::parse_adventure_pdf,
-            graywood_vtt_lib::services::pdf_importer::parse_adventure_pdfs_batch,
+            graywood_vtt_lib::commands::ingest_pdf,
+            graywood_vtt_lib::commands::import_pdf,
             graywood_vtt_lib::commands::set_active_workspace,
             graywood_vtt_lib::commands::validate_workspace,
             graywood_vtt_lib::commands::get_active_workspace,
@@ -98,6 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             graywood_vtt_lib::commands::sync_workspace_tables_cmd,
             graywood_vtt_lib::commands::get_rollable_tables_cmd,
             graywood_vtt_lib::commands::extract_tables_from_sourcebook_cmd,
+            graywood_vtt_lib::commands::get_hydrated_entities,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

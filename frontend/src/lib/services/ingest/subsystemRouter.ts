@@ -194,12 +194,32 @@ async function routeSourceMaterial(
 
   if (ext === 'pdf') {
     onProgress?.(30, 'Extracting text and 5e entities from PDF...');
+    if (typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)) {
+      try {
+        const { ingestPdf } = await import('../ingestService');
+        const res = await ingestPdf(item.relativePath || item.name);
+        if (res) {
+          const totalFound = res.monsters_count + res.spells_count + res.tables_count + res.items_count;
+          const summary = totalFound > 0
+            ? `Extracted ${res.monsters_count} monsters, ${res.spells_count} spells, ${res.tables_count} tables, ${res.items_count} items`
+            : 'No statblocks found (Narrative/Reference Source)';
+          return { success: true, summary };
+        }
+      } catch (ipcErr) {
+        console.warn('[IngestRouter] Native PDF compiler failed, falling back to browser parser:', ipcErr);
+      }
+    }
+
     const blob = await getItemBlob(item);
     const result = await extractAndStoreCompendiumSource(blob, item.name);
     await notifyMonstersUpdated();
+    const totalFound = result.monstersExtracted.length + result.spellsExtracted.length + result.facilitiesExtracted.length + result.tablesExtracted.length;
+    const summary = totalFound > 0
+      ? `Extracted ${result.monstersExtracted.length} monsters, ${result.spellsExtracted.length} spells, ${result.tablesExtracted.length} tables`
+      : 'No statblocks found (Narrative/Reference Source)';
     return {
       success: true,
-      summary: `Parsed PDF: extracted ${result.monstersExtracted.length} monsters, ${result.spellsExtracted.length} spells, ${result.facilitiesExtracted.length} facilities, ${result.tablesExtracted.length} tables`,
+      summary,
     };
   }
 

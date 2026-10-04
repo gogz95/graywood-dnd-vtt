@@ -2,7 +2,7 @@
 <!-- Physical 1-Inch Grid Calibration Tool: Direct Diagonal or Drag-to-Resize Miniature Match -->
 
 <script lang="ts">
-  import { calculatePhysicalPpi, calculateOneInchScaleZoom } from '$lib/canvas/viewportEngine';
+  import { calculatePhysicalPpi, calculateOneInchScaleZoom, lockToOneInchScale } from '$lib/canvas/viewportEngine';
   import { projectorStore } from '$lib/stores/projectorStore.svelte';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
 
@@ -71,13 +71,11 @@
   function applyAndSaveCalibration() {
     projectorStore.setPhysicalPpi(effectivePpi);
     // Lock canvas zoom to 1-inch physical scale
-    canvasStore.setProjectorViewport({
-      ...canvasStore.projectorViewport,
-      zoom: effectiveZoom,
-    });
+    lockToOneInchScale(effectivePpi);
     isOpen = false;
     onClose?.();
   }
+
 
   function applyPreset(diag: number, w: number, h: number) {
     diagonalInches = diag;

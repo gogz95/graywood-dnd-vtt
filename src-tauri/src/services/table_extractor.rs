@@ -5,7 +5,8 @@ use crate::services::blueprint_catalog::BLUEPRINT_CATALOG;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TableEntry {
@@ -169,6 +170,65 @@ pub fn extract_tables_from_text(
     }
 
     tables
+}
+
+/// Extracts rollable tables from a PDF document and commits them into `.graywood/index.sqlite`.
+pub fn extract_tables_from_pdf(
+    workspace_root: &Path,
+    file_rel_path: &str,
+) -> Result<Vec<RollableTableRecord>, String> {
+    let full_path = if Path::new(file_rel_path).is_absolute() {
+        PathBuf::from(file_rel_path)
+    } else {
+        workspace_root.join(file_rel_path)
+    };
+
+    if !full_path.exists() {
+        return Err(format!("PDF file not found at: {:?}", full_path));
+    }
+
+    let mut file = fs::File::open(&full_path)
+        .map_err(|e| format!("Failed to open PDF {:?}: {}", full_path, e))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|e| format!("Failed to read PDF bytes: {}", e))?;
+
+    let toc = crate::services::pdf_compiler::inspect_pdf_toc_fast(&bytes)?;
+    let total_pages = toc.total_pages.max(1);
+
+    let mut all_tables = Vec::new();
+
+    for page_num in 1..=total_pages {
+        let layout = crate::services::pdf_compiler::parse_page_text_layout(&bytes, page_num);
+        let text = layout.reconstruct_two_column_text();
+        let page_tables = extract_tables_from_text(&text, file_rel_path, page_num);
+        all_tables.extend(page_tables);
+    }
+
+    // Persist extracted tables into SQLite index database
+    let db_path = workspace_root.join(".graywood/index.sqlite");
+    if !db_path.exists() {
+        if let Some(parent) = db_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = crate::services::workspace_manager::init_workspace_sqlite(&db_path);
+    }
+    if db_path.exists() {
+        if let Ok(conn) = Connection::open(&db_path) {
+            for tbl in &all_tables {
+                let prov_json = serde_json::to_string(&tbl.provenance).unwrap_or_default();
+                let entries_json = serde_json::to_string(&tbl.entries).unwrap_or_default();
+
+                let _ = conn.execute(
+                    "INSERT OR REPLACE INTO rollable_tables (id, name, formula, provenance, entries)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![tbl.id, tbl.name, tbl.formula, prov_json, entries_json],
+                );
+            }
+        }
+    }
+
+    Ok(all_tables)
 }
 
 fn parse_table_header(line: &str) -> Option<(String, String)> {

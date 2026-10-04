@@ -500,6 +500,9 @@ function handleIncomingWsEvent(event: WsEvent): void {
     case 'STAGING_CURTAIN':
     case 'staging_curtain':
     case 'StagingCurtain':
+    case 'PROJECTOR_CURTAIN_STATE':
+    case 'projector_curtain_state':
+    case 'ProjectorCurtainState':
       routeInboundWsEvent(event);
       break;
 

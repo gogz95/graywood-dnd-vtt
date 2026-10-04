@@ -65,3 +65,57 @@ export function handleTokenElevationWheel(
     shadow,
   };
 }
+
+/**
+ * Attaches a wheel listener on a token display object (Pixi Container, Interactive object, or HTML Element).
+ * When Alt + Scroll is triggered, suppresses camera zoom, steps elevation by +/- 5ft (clamped between -100 and +500),
+ * and updates the token's elevation badge and drop-shadow in real time.
+ */
+export function attachTokenDisplayObjectWheelListener(
+  displayObject: any,
+  getToken: () => CanvasToken | null | undefined
+): () => void {
+  if (!displayObject) return () => {};
+
+  const listener = (event: any) => {
+    const raw = event.nativeEvent || event;
+    if (raw.altKey || event.altKey) {
+      if (typeof event.preventDefault === 'function') event.preventDefault();
+      if (typeof event.stopPropagation === 'function') event.stopPropagation();
+      if (typeof raw.preventDefault === 'function') raw.preventDefault();
+      if (typeof raw.stopPropagation === 'function') raw.stopPropagation();
+
+      const tok = typeof getToken === 'function' ? getToken() : getToken;
+      if (tok) {
+        const result = handleTokenElevationWheel(raw as WheelEvent, tok);
+        if (result.intercepted) {
+          if (displayObject.__elevationBadge && result.badge) {
+            displayObject.__elevationBadge.text = result.badge.label;
+            if (displayObject.__elevationBadge.style) {
+              displayObject.__elevationBadge.style.fill = result.badge.cssColor;
+            }
+          }
+          if (displayObject.__dropShadowFilter && result.shadow) {
+            displayObject.__dropShadowFilter.blur = result.shadow.blur;
+            displayObject.__dropShadowFilter.alpha = result.shadow.alpha;
+          }
+        }
+      }
+    }
+  };
+
+  if (typeof displayObject.on === 'function') {
+    displayObject.on('wheel', listener);
+    return () => {
+      displayObject.off?.('wheel', listener);
+    };
+  } else if (typeof displayObject.addEventListener === 'function') {
+    displayObject.addEventListener('wheel', listener, { passive: false });
+    return () => {
+      displayObject.removeEventListener?.('wheel', listener);
+    };
+  }
+
+  return () => {};
+}
+

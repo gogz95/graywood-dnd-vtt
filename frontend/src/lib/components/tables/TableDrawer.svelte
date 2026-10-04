@@ -135,15 +135,12 @@
                   {#if table.provenance?.source_file_rel}
                     <span>•</span>
                     <button
-                      class="text-amber-400/90 hover:text-amber-300 hover:underline flex items-center gap-1"
+                      class="px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-semibold flex items-center gap-1 transition-colors"
                       onclick={() => openSource(table.provenance.source_file_rel, table.provenance.page_number)}
                       title="Open in Sourcebook PDF"
                     >
                       <span>📖</span>
-                      <span class="truncate max-w-[140px]">{table.provenance.source_file_rel}</span>
-                      {#if table.provenance.page_number}
-                        <span>(p. {table.provenance.page_number})</span>
-                      {/if}
+                      <span>Open in Source{table.provenance.page_number ? ` (p. ${table.provenance.page_number})` : ''}</span>
                     </button>
                   {/if}
                 </div>

@@ -37,7 +37,7 @@ fn test_clean_slate_migration_and_wal_teardown() {
         assert!(applied_count > 0, "Must apply all pending migrations");
 
         // Also run versioned migrations runner to ensure compatibility across both migration pathways
-        let _ = configure_and_migrate(&mut conn)
+        configure_and_migrate(&mut conn)
             .expect("configure_and_migrate should succeed on initialized db");
 
         // Verify final user_version matches latest migration

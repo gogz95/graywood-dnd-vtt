@@ -131,6 +131,43 @@ export class AudioStemMixer {
     }
   }
 
+  public triggerSidechainDucking(): void {
+    this.triggerCombatImpactDucking();
+  }
+
+  public triggerSubBassThud(): void {
+    this.triggerCombatImpactDucking();
+    if (typeof window === 'undefined') return;
+    const AC = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AC) return;
+
+    try {
+      if (!this.audioCtx) {
+        this.audioCtx = new AC();
+      }
+      const ctx = this.audioCtx;
+      const now = ctx.currentTime;
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(60, now);
+      osc.frequency.exponentialRampToValueAtTime(30, now + 0.35);
+
+      gain.gain.setValueAtTime(0.5, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.45);
+    } catch (err) {
+      console.warn('[AudioStemMixer] Sub-bass thud synthesis failed:', err);
+    }
+  }
+
 
   public async loadSoundscapeScene(
     scene: SoundscapeScene,

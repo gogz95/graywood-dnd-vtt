@@ -13,6 +13,48 @@ pub const CONFIG_FILE: &str = ".graywood/config.json";
 pub const DB_FILE: &str = ".graywood/index.sqlite";
 pub const USER_CONFIG_FILENAME: &str = "graywood_workspace_config.json";
 
+pub const IGNORED_CRAWLER_DIRECTORIES: &[&str] = &[
+    ".git",
+    "node_modules",
+    "plugins",
+    ".graywood",
+    "target",
+    "dist",
+    ".svelte-kit",
+    "build",
+    "appdata",
+    ".vite",
+];
+
+pub fn should_skip_crawler_dir(name: &str) -> bool {
+    name.starts_with('.')
+        || IGNORED_CRAWLER_DIRECTORIES
+            .iter()
+            .any(|&d| name.eq_ignore_ascii_case(d))
+}
+
+pub fn is_allowed_crawler_file(path: &Path, ext: &str) -> bool {
+    match ext {
+        "pdf" | "md" | "txt" => true,
+        "csv" => true,
+        "png" | "jpg" | "jpeg" | "webp" | "uvtt" | "dd2vtt" => true,
+        "mp3" | "ogg" | "wav" | "flac" => true,
+        "json" => {
+            let filename = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let path_str = path.to_string_lossy().to_lowercase();
+            filename.contains("manifest")
+                || filename.contains("config")
+                || filename.contains("table")
+                || path_str.contains("tables")
+        }
+        _ => false,
+    }
+}
+
 static ACTIVE_WORKSPACE_ROOT: RwLock<Option<PathBuf>> = RwLock::new(None);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -129,10 +129,12 @@ export class ImpactVfxEngine {
 
   private initRollListener(): void {
     this.unsubscribeRollListener = onDiceRollEvaluated((result: ParsedRollResult) => {
-      if (result.isCritical) {
-        this.triggerNatural20();
-      } else if (result.isFumble) {
-        this.triggerNatural1();
+      if (result.isCritical && !this.nat20Wave.active) {
+        this.triggerNat20Shockwave(result.tokenCoordinates);
+        audioStemMixer.triggerSidechainDucking();
+      } else if (result.isFumble && !this.nat1Flash.active) {
+        this.triggerNat1Glitch();
+        audioStemMixer.triggerSubBassThud();
       }
     });
   }
@@ -168,6 +170,21 @@ export class ImpactVfxEngine {
     audioStemMixer.triggerCombatImpactDucking();
   }
 
+  public triggerNat20Shockwave(tokenCoordinates?: { x: number; y: number } | [number, number]): void {
+    let ox = 0.5;
+    let oy = 0.5;
+    if (tokenCoordinates) {
+      if (Array.isArray(tokenCoordinates)) {
+        ox = tokenCoordinates[0];
+        oy = tokenCoordinates[1];
+      } else if (typeof tokenCoordinates.x === 'number' && typeof tokenCoordinates.y === 'number') {
+        ox = tokenCoordinates.x;
+        oy = tokenCoordinates.y;
+      }
+    }
+    this.triggerNatural20(ox, oy);
+  }
+
   /**
    * Natural 1 Trigger:
    * - 250ms momentary screen desaturation flash (0.0 saturation) + red chromatic aberration
@@ -184,6 +201,18 @@ export class ImpactVfxEngine {
     // Sub-bass thud
     this.synthesizeNat1SubBassThud();
     audioStemMixer.triggerCombatImpactDucking();
+  }
+
+  public triggerNat1Glitch(): void {
+    this.triggerNatural1();
+  }
+
+  public static triggerNat20Shockwave(tokenCoordinates?: { x: number; y: number } | [number, number]): void {
+    impactVfxEngine.triggerNat20Shockwave(tokenCoordinates);
+  }
+
+  public static triggerNat1Glitch(): void {
+    impactVfxEngine.triggerNat1Glitch();
   }
 
   public update(dtSeconds: number): {
