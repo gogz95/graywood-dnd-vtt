@@ -121,7 +121,7 @@ export function getElevationBadge(elevationFeet: number = 0): {
 
   if (elevationFeet > 0) {
     return {
-      label: `+${elevationFeet} ft`,
+      label: `↑ ${elevationFeet}ft`,
       isElevated: true,
       isSubterranean: false,
       cssColor: '#38bdf8', // Cyan sky
@@ -129,7 +129,7 @@ export function getElevationBadge(elevationFeet: number = 0): {
   }
 
   return {
-    label: `${elevationFeet} ft`,
+    label: `↓ ${Math.abs(elevationFeet)}ft`,
     isElevated: false,
     isSubterranean: true,
     cssColor: '#f97316', // Orange subterranean
@@ -138,13 +138,15 @@ export function getElevationBadge(elevationFeet: number = 0): {
 
 /**
  * Steps elevation by deltaFeet (e.g. +/- 5ft per wheel detent),
- * clamped between -100 ft and +500 ft.
+ * clamped to minimum 0ft unless allowSubterranean is true.
  */
 export function stepElevationFeet(
   currentElevationFeet: number = 0,
-  deltaFeet: number = 5
+  deltaFeet: number = 5,
+  allowSubterranean: boolean = false
 ): number {
   const next = currentElevationFeet + deltaFeet;
-  return Math.max(-100, Math.min(500, Math.round(next / 5) * 5));
+  const minVal = allowSubterranean ? -100 : 0;
+  return Math.max(minVal, Math.min(500, Math.round(next / 5) * 5));
 }
 

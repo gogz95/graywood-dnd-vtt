@@ -4,7 +4,7 @@
 <script lang="ts">
   import { combatStore, type Combatant } from '$lib/stores/combatStore.svelte';
   import { combatTrackerStore } from '$lib/stores/combatTrackerStore';
-  import ConditionBadgeTooltip from './ConditionBadgeTooltip.svelte';
+  import ConditionTooltip from './ConditionTooltip.svelte';
 
   interface Props {
     compact?: boolean;
@@ -145,7 +145,7 @@
           {#if combatant.conditions && combatant.conditions.length > 0}
             <div class="flex flex-wrap items-center gap-1 mt-2 pt-1.5 border-t border-slate-800/50">
               {#each combatant.conditions as cond}
-                <ConditionBadgeTooltip
+                <ConditionTooltip
                   condition={cond}
                   compact={true}
                   active={true}
@@ -164,7 +164,7 @@
               <div class="flex flex-wrap gap-1">
                 {#each standardConditions as stdCond}
                   {@const hasCondition = combatant.conditions.includes(stdCond)}
-                  <ConditionBadgeTooltip
+                  <ConditionTooltip
                     condition={stdCond}
                     compact={true}
                     active={hasCondition}

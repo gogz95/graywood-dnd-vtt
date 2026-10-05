@@ -5,7 +5,7 @@
 import { audioEngine } from '../audio/AudioEngine';
 import { soundboardEngine } from '../audio/soundboardEngine';
 import { sendWsEvent, latestDiceRollStore } from '../../stores/websocketStore';
-import { evaluateDice, type DiceEvaluationResult, type DiceRollTerm, type ExplicitTerm } from '../services/diceEngine';
+import { evaluateDice, dispatchDiceImpact, type DiceEvaluationResult, type DiceRollTerm, type ExplicitTerm } from '../services/diceEngine';
 
 export interface RollTerm {
   label: string;
@@ -27,6 +27,9 @@ export interface RollBreakdown {
   formattedBreakdown: string; // e.g. "[1d20 (14) + 3 (DEX) + 2 (Prof)] = 19"
   isCritical: boolean; // Natural 20 on d20
   isFumble: boolean;   // Natural 1 on d20
+  critical_success?: boolean; // Natural 20 tag consumed by critical AV feedback
+  critical_fumble?: boolean;  // Natural 1 tag consumed by critical AV feedback
+  rawD20?: number | null;      // Raw pre-modifier d20 face driving the critical state
   isCrit?: boolean;
 }
 
@@ -74,6 +77,8 @@ export interface RollOptions {
   attackResolution?: AttackResolutionData;
   damageAmount?: number;
   targetId?: string;
+  /** Token id of the acting character, forwarded to DICE_IMPACT for VFX anchoring. */
+  actorTokenId?: string;
 }
 
 const STORAGE_KEY = 'vtt_session_chat_log';
@@ -149,6 +154,9 @@ class ChatStore {
             formattedBreakdown: wsRoll.breakdown || `[${wsRoll.result}] = ${wsRoll.result}`,
             isCritical: Boolean(wsRoll.isCritical),
             isFumble: wsRoll.result === 1,
+            critical_success: Boolean(wsRoll.isCritical),
+            critical_fumble: wsRoll.result === 1,
+            rawD20: wsRoll.result,
           },
           actionType: 'custom',
         };
@@ -237,6 +245,9 @@ class ChatStore {
       isCritical: result.isCrit,
       isFumble: result.isFumble,
       isCrit: result.isCrit,
+      critical_success: result.critical_success,
+      critical_fumble: result.critical_fumble,
+      rawD20: result.rawD20,
     };
   }
 
@@ -276,6 +287,20 @@ class ChatStore {
       audioEngine.triggerSfx('sfx-sword');
     } else {
       audioEngine.triggerSfx('sfx-dice');
+    }
+
+    // Natural 20 / Natural 1 audiovisual feedback: camera trauma, particle burst,
+    // and ambient sidechain ducking. Routed here (rather than in evaluateDice) so the
+    // event carries actor/target context and only fires for surfaced rolls.
+    if (typeof window !== 'undefined' && (breakdown.critical_success || breakdown.critical_fumble)) {
+      dispatchDiceImpact({
+        type: breakdown.critical_success ? 'crit' : 'fumble',
+        actorId: opts.actorTokenId ?? null,
+        targetTokenId: opts.targetId ?? null,
+        formula,
+        rawD20: breakdown.rawD20 ?? null,
+        total: breakdown.total,
+      });
     }
 
     // Append to local store

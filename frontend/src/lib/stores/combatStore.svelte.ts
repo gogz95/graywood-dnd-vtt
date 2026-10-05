@@ -87,6 +87,33 @@ class CombatStore {
     this.broadcastCombat();
   }
 
+  igniteCombat(encounterTitle: string, combatantRoster: Combatant[]) {
+    const sorted = [...combatantRoster];
+    this.sortCombatants(sorted);
+    this.combatants = sorted;
+    this.round = 1;
+    this.turnIndex = 0;
+    this.isActive = true;
+
+    // Broadcast standard combat update
+    this.broadcastCombat();
+
+    // Broadcast explicitly structured COMBAT_STARTED packet over WebSocket
+    try {
+      invoke('broadcast_vtt_event', {
+        event: 'COMBAT_STARTED',
+        payload: {
+          encounterTitle,
+          round: 1,
+          turnIndex: 0,
+          combatants: sorted,
+        },
+      });
+    } catch (e) {
+      console.warn('COMBAT_STARTED broadcast failed:', e);
+    }
+  }
+
   nextTurn() {
     if (this.combatants.length === 0) return;
 

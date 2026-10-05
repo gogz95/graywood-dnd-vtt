@@ -16,7 +16,7 @@
   import FogCanvasLayer from '../components/map/FogCanvasLayer.svelte';
   import MeasurementRulerLayer from '../components/map/MeasurementRulerLayer.svelte';
   import { pixiLifecycle } from '../services/pixiLifecycle';
-  import { tokenTurnRendererManager } from './tokenRenderer';
+  import { tokenTurnRendererManager, updateTokenElevationVisuals } from './tokenRenderer';
   import { attachTokenDisplayObjectWheelListener, handleTokenElevationWheel } from './interaction/tokenPointerHandler';
 
   let {
@@ -316,6 +316,11 @@
 
       // Alt + ScrollWheel Elevation Stepping Handler
       attachTokenDisplayObjectWheelListener(tokenContainer, () => token as any);
+
+      // Render initial elevation visual cues (drop shadow and altitude badge)
+      if ((token.elevation ?? 0) > 0) {
+        updateTokenElevationVisuals(tokenContainer, token.elevation ?? 0, token.radius);
+      }
 
       // Active Turn Token Breathing & Rotating Golden Ring hook
       if (pixiApp?.ticker) {

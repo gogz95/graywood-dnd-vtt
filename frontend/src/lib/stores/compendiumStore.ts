@@ -274,3 +274,12 @@ if (typeof window !== 'undefined') {
 }
 
 export { compendiumStore } from './compendiumStore.svelte';
+
+export function openProvenanceModal(source: string, page: number, exactMatch?: string) {
+  compendiumStore.openProvenanceModal(source, page, exactMatch);
+}
+
+export function closeProvenanceModal() {
+  compendiumStore.closeProvenanceModal();
+}
+

@@ -28,7 +28,70 @@ export interface DiceEvaluationResult {
   isCrit: boolean;
   isFumble: boolean;
   isCritical: boolean;
+  /** Natural 20 detected on a kept d20 face — alias of {@link isCrit} for AV consumers. */
+  critical_success: boolean;
+  /** Natural 1 detected on a kept d20 face — alias of {@link isFumble} for AV consumers. */
+  critical_fumble: boolean;
+  /**
+   * Raw (pre-modifier) face value of the deciding d20: 20 on a critical,
+   * 1 on a fumble, otherwise `null`. This is the value AV feedback reads.
+   */
+  rawD20: number | null;
   formattedBreakdown: string;
+}
+
+// ── DICE_IMPACT Critical Event Bus ─────────────────────────────────────────
+export type DiceImpactType = 'crit' | 'fumble';
+
+export interface DiceImpactLocation {
+  x: number;
+  y: number;
+}
+
+export interface DiceImpactPayload {
+  type: DiceImpactType;
+  actorId: string | null;
+  targetTokenId?: string | null;
+  location?: DiceImpactLocation;
+  formula: string;
+  rawD20: number | null;
+  total: number;
+}
+
+export interface DiceImpactEvent {
+  type: 'DICE_IMPACT';
+  payload: DiceImpactPayload;
+}
+
+type DiceImpactListener = (event: DiceImpactEvent) => void;
+
+const diceImpactListeners = new Set<DiceImpactListener>();
+
+/** Subscribes to Natural 20 / Natural 1 audiovisual impact events. */
+export function onDiceImpact(listener: DiceImpactListener): () => void {
+  diceImpactListeners.add(listener);
+  return () => {
+    diceImpactListeners.delete(listener);
+  };
+}
+
+/**
+ * Fans a `DICE_IMPACT` event out to the Pixi VFX engine, the camera trauma
+ * controller, and the local audio engine. Listener faults are isolated so one
+ * broken subscriber cannot break the roll that produced the event.
+ */
+export function dispatchDiceImpact(payload: DiceImpactPayload): DiceImpactEvent {
+  const event: DiceImpactEvent = { type: 'DICE_IMPACT', payload };
+
+  diceImpactListeners.forEach((listener) => {
+    try {
+      listener(event);
+    } catch (err) {
+      console.warn('[DiceEngine] DICE_IMPACT listener error:', err);
+    }
+  });
+
+  return event;
 }
 
 type TokenType = 'DICE' | 'NUMBER' | 'PLUS' | 'MINUS' | 'STAR' | 'SLASH' | 'LPAREN' | 'RPAREN' | 'EOF';
@@ -150,6 +213,8 @@ class DiceParser {
   public terms: DiceRollTerm[] = [];
   public hasCrit = false;
   public hasFumble = false;
+  /** Raw pre-modifier d20 face driving the critical state (20 or 1), else null. */
+  public rawD20: number | null = null;
 
   constructor(tokens: Token[], explicitTerms: ExplicitTerm[] = []) {
     this.tokens = tokens;
@@ -403,13 +468,17 @@ class DiceParser {
 
     const subtotal = keptRolls.reduce((sum, r) => sum + r, 0);
 
-    // 5e SRD Critical hit & fumble evaluation for d20
+    // 5e SRD Critical hit & fumble evaluation for d20.
+    // Evaluated on KEPT faces only, so a dropped nat-20 on advantage/disadvantage
+    // does not trigger a critical, and modifiers never influence the outcome.
     if (sides === 20 && keptRolls.length > 0) {
       if (keptRolls.some(r => r === 20)) {
         this.hasCrit = true;
+        this.rawD20 = 20;
       }
       if (keptRolls.every(r => r === 1)) {
         this.hasFumble = true;
+        this.rawD20 = 1;
       }
     }
 
@@ -468,13 +537,13 @@ export function evaluateDice(
     });
     parsed.value = r;
     parsed.formatted = `1d20 (${r})`;
-    if (r === 20) parser.hasCrit = true;
-    if (r === 1) parser.hasFumble = true;
+    if (r === 20) { parser.hasCrit = true; parser.rawD20 = 20; }
+    if (r === 1) { parser.hasFumble = true; parser.rawD20 = 1; }
   }
 
   const formattedBreakdown = `[${parsed.formatted}] = ${parsed.value}`;
 
-  return {
+  const result: DiceEvaluationResult = {
     formula: clean,
     rawFormula: clean,
     total: parsed.value,
@@ -482,8 +551,26 @@ export function evaluateDice(
     isCrit: parser.hasCrit,
     isFumble: parser.hasFumble,
     isCritical: parser.hasCrit,
+    critical_success: parser.hasCrit,
+    critical_fumble: parser.hasFumble,
+    rawD20: parser.rawD20,
     formattedBreakdown
   };
+
+  // Natural 20 / Natural 1 audiovisual feedback hook. Fires only in the browser
+  // so headless evaluation (tests, batch sims) stays side-effect free.
+  if (typeof window !== 'undefined' && (result.critical_success || result.critical_fumble)) {
+    dispatchDiceImpact({
+      type: result.critical_success ? 'crit' : 'fumble',
+      actorId: null,
+      targetTokenId: null,
+      formula: clean,
+      rawD20: result.rawD20,
+      total: result.total,
+    });
+  }
+
+  return result;
 }
 
 /**

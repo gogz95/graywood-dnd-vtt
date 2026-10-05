@@ -4,6 +4,7 @@
 import { stepElevationFeet, calculateDropShadowParams, getElevationBadge } from '../elevationEngine';
 import { canvasStore, type CanvasToken } from '../../../stores/canvasStore.svelte';
 import { tokenStore } from '../../stores/tokenStore.svelte';
+import { updateTokenElevationVisuals } from '../tokenRenderer';
 
 export interface TokenElevationWheelEventResult {
   intercepted: boolean;
@@ -27,7 +28,7 @@ export interface TokenElevationWheelEventResult {
 /**
  * Intercepts WheelEvent when Alt key is pressed and cursor is hovering over an active/selected token.
  * Steps token elevation by +/- 5ft per wheel detent (deltaY < 0 = increase; deltaY > 0 = decrease),
- * clamping between -100 ft and +500 ft.
+ * clamping minimum to 0ft unless flagged as subterranean/burrowing.
  * Prevents event propagation to the camera zoom engine while Alt is engaged.
  */
 export function handleTokenElevationWheel(
@@ -46,7 +47,8 @@ export function handleTokenElevationWheel(
   // Determine direction: deltaY < 0 is scroll up (increase altitude), deltaY > 0 is scroll down (decrease altitude)
   const stepDirection = event.deltaY < 0 ? 5 : -5;
   const currentElevation = hoveredToken.elevation ?? 0;
-  const newElevation = stepElevationFeet(currentElevation, stepDirection);
+  const isSubterranean = Boolean((hoveredToken as any).isSubterranean || (hoveredToken as any).subterranean || (hoveredToken as any).burrowing);
+  const newElevation = stepElevationFeet(currentElevation, stepDirection, isSubterranean);
 
   // Update token store and canvasStore in real-time without pointer release
   canvasStore.updateToken?.(hoveredToken.id, { elevation: newElevation });
@@ -68,7 +70,7 @@ export function handleTokenElevationWheel(
 
 /**
  * Attaches a wheel listener on a token display object (Pixi Container, Interactive object, or HTML Element).
- * When Alt + Scroll is triggered, suppresses camera zoom, steps elevation by +/- 5ft (clamped between -100 and +500),
+ * When Alt + Scroll is triggered, suppresses camera zoom, steps elevation by +/- 5ft (clamped to 0 unless subterranean),
  * and updates the token's elevation badge and drop-shadow in real time.
  */
 export function attachTokenDisplayObjectWheelListener(
@@ -89,6 +91,12 @@ export function attachTokenDisplayObjectWheelListener(
       if (tok) {
         const result = handleTokenElevationWheel(raw as WheelEvent, tok);
         if (result.intercepted) {
+          // Update Pixi container visual drop-shadow and floating badge
+          if (typeof displayObject.addChild === 'function') {
+            const rad = (tok as any).radius || ((tok as any).sizeInCells ? ((tok as any).sizeInCells * 25) : 25);
+            updateTokenElevationVisuals(displayObject, result.newElevation ?? 0, rad);
+          }
+
           if (displayObject.__elevationBadge && result.badge) {
             displayObject.__elevationBadge.text = result.badge.label;
             if (displayObject.__elevationBadge.style) {

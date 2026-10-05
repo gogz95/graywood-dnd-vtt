@@ -43,6 +43,12 @@
   import { renderSharedDrawingsOnCanvas2D } from '../../lib/components/canvas/drawingRenderHelper';
   import { spatialAudioEngine } from '../../lib/services/spatialAudioEngine.svelte';
   import { lockToOneInchScale } from '../../lib/canvas/viewportEngine';
+  import {
+    projectorSyncService,
+    filterPlayerVisibleTokens,
+    isTokenPlayerVisible,
+    isTokenInUnexploredFog,
+  } from '../../lib/canvas/ProjectorSyncService';
 
   $effect(() => {
     // Projector tracks the active player token position for positional audio
@@ -122,17 +128,12 @@
       : 96
   );
 
-  let followDm = $state(
-    typeof localStorage !== 'undefined'
-      ? localStorage.getItem('vtt_projector_follow_dm') !== 'false'
-      : true
-  );
+  // Camera mirror state is canonically owned by projectorStore.isCameraLocked
+  // ("Mirror TV Camera" toggle in the Header); persisted across reloads.
+  let followDm = $derived(projectorStore.isCameraLocked);
 
   function toggleFollowDm() {
-    followDm = !followDm;
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('vtt_projector_follow_dm', String(followDm));
-    }
+    projectorStore.toggleCameraLock();
   }
 
   function applyPhysicalScale(ppi: number) {
@@ -150,10 +151,9 @@
     canvasStore.setProjectorViewport(updated);
   }
 
-  // Filtered tokens: strictly hide DM-invisible creatures
-  let visibleTokens = $derived(
-    canvasStore.tokens.filter(t => t.isVisible !== false && !t.name.toLowerCase().includes('(hidden)'))
-  );
+  // Filtered tokens: strictly hide DM-invisible creatures — hidden/stealth/
+  // invisible/GM-only flags and "(hidden)" name markers are all player-unsafe.
+  let visibleTokens = $derived(filterPlayerVisibleTokens(canvasStore.tokens));
 
   // Active combat state from WebSocket or session
   let liveCombat = $derived($combatTurnStore);
@@ -292,10 +292,7 @@
           }
           // Overwrite projector canvas layers while automatically stripping DM-only markers
           if (snapshot.tokens) {
-            const publicTokens = snapshot.tokens.filter(
-              t => t.isVisible !== false && !t.name.toLowerCase().includes('(hidden)')
-            );
-            canvasStore.setTokens(publicTokens);
+            canvasStore.setTokens(filterPlayerVisibleTokens(snapshot.tokens));
           }
           if (snapshot.aoeTemplates) {
             canvasStore.clearAoeTemplates();
@@ -342,11 +339,11 @@
         }
         case 'VIEWPORT_UPDATE': {
           if (followDm) {
-            canvasStore.setProjectorViewport({
-              x: msg.x,
-              y: msg.y,
-              zoom: msg.zoom,
-            });
+            // Smooth camera mirror: register a lerp target instead of snapping.
+            projectorSyncService.setTarget(
+              { x: msg.x, y: msg.y, scale: msg.scale ?? msg.zoom },
+              'mirror'
+            );
           }
           break;
         }
@@ -362,18 +359,67 @@
     window.addEventListener('vtt:ping-point', onPingEvent);
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+      if (e.key === 'F9' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b')) {
         e.preventDefault();
-        curtainStore.toggle();
+        projectorStore.toggleCurtain();
       }
     };
     window.addEventListener('keydown', onKeyDown);
 
     window.addEventListener('resize', syncCanvasDimensions);
 
-    const startTime = performance.now();
+    // Route remote DM viewport pushes into the smooth-lerp target instead of
+    // snapping the local projector camera (see canvasStore.remoteViewportHandler).
+    canvasStore.remoteViewportHandler = (vp) => {
+      if (followDm) {
+        projectorSyncService.setTarget({ x: vp.x, y: vp.y, scale: vp.zoom }, 'mirror');
+      }
+    };
+
+    // Decoupled mode: when the camera mirror is OFF, gently center the
+    // projector on the combat tracker's active turn.
+    let lastCenteredCombatantId: string | null = null;
+
+    let lastFrame = performance.now();
+    const startTime = lastFrame;
     function loop(now: number) {
       animTime = (now - startTime) / 1000;
+      const dtMs = Math.min(now - lastFrame, 250);
+      lastFrame = now;
+
+      // Advance the camera lerp (mirror mode) toward the DM's focal area.
+      if (projectorSyncService.hasTarget()) {
+        const stepped = projectorSyncService.tick(dtMs, canvasStore.projectorViewport);
+        if (stepped) {
+          // Direct $state write — avoids a VIEWPORT_PROJECTOR echo per frame.
+          canvasStore.projectorViewport = stepped;
+        }
+      } else if (!followDm) {
+        // Decoupled: follow the active turn in the combat tracker.
+        const combat = liveCombat;
+        const active = combat?.combatants?.find((c) => c.is_active);
+        if (active && active.id !== lastCenteredCombatantId) {
+          const tok = canvasStore.tokens.find(
+            (t) => t.id === active.id || t.name.toLowerCase() === active.name.toLowerCase()
+          );
+          if (tok && isTokenPlayerVisible(tok)) {
+            lastCenteredCombatantId = active.id;
+            const g = canvasStore.gridSize || 60;
+            const w = canvasEl?.width ?? window.innerWidth;
+            const h = canvasEl?.height ?? window.innerHeight;
+            const scale = canvasStore.projectorViewport.zoom;
+            projectorSyncService.setTarget(
+              {
+                x: w / 2 - (tok.x + 0.5) * g * scale,
+                y: h / 2 - (tok.y + 0.5) * g * scale,
+                scale,
+              },
+              'focus'
+            );
+          }
+        }
+      }
+
       renderProjectorMat();
       rafId = requestAnimationFrame(loop);
     }
@@ -405,6 +451,8 @@
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('resize', syncCanvasDimensions);
       window.removeEventListener('vtt:ping-point', onPingEvent);
+      canvasStore.remoteViewportHandler = null;
+      projectorSyncService.clearTarget();
       cleanupSync?.();
       channel?.close();
       unsubBroadcaster();
@@ -625,9 +673,14 @@
       }
     }
 
-    // 11. Tokens (Players always rendered; monsters rendered ONLY if in player active LOS)
+    // 11. Tokens (Players always rendered; monsters rendered ONLY if in player
+    //     active LOS AND their cell has been explored in the fog of war)
     for (const tok of visibleTokens) {
       if (!tok.isPlayer) {
+        // Player-safe filtering belt-and-braces (flags may arrive via token sync)
+        if (!isTokenPlayerVisible(tok)) continue;
+        // Mask tokens hidden within unexplored fog-of-war areas
+        if (isTokenInUnexploredFog(tok, canvasStore.fogExplored)) continue;
         if (canvasStore.dynamicLightingEnabled && activeVisionPolygons.length > 0) {
           const centerPx = {
             x: (tok.x + 0.5) * gridSize,
@@ -1121,27 +1174,58 @@
 
 
 <!-- ── DM Staging Curtain ("Blackout Veil" / Privacy Mode) Overlay ────────────────────── -->
-{#if curtainStore.active || isPreloadingMap}
-  <!-- Retains all ambient audio loops and spatial stems without interruption -->
+{#if projectorStore.isCurtained || curtainStore.active || isPreloadingMap}
+  <!-- Fully opaque: blocks all sight of DM stage prep, hidden tokens & fog edits.
+       Retains all ambient audio loops and spatial stems without interruption. -->
   <div
     id="projector-curtain"
-    class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/95 select-none transition-all duration-400 ease-in-out overflow-hidden"
-    style="transition: opacity 400ms cubic-bezier(0.16, 1, 0.3, 1), backdrop-filter 400ms;"
+    class="fixed inset-0 z-50 flex flex-col items-center justify-center select-none overflow-hidden bg-black"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Session in Progress"
+    style="transition: opacity 400ms cubic-bezier(0.16, 1, 0.3, 1);"
   >
-    {#if curtainStore.splashImageUrl || canvasStore.mapImageUrl}
+    <!-- Dark atmospheric stone backdrop (always painted — guarantees opacity
+         even when no splash image has been configured) -->
+    <div
+      class="absolute inset-0 z-0 pointer-events-none"
+      style="background:
+        radial-gradient(ellipse at 50% 30%, rgba(51, 65, 85, 0.35), transparent 60%),
+        radial-gradient(ellipse at 20% 80%, rgba(30, 41, 59, 0.5), transparent 55%),
+        linear-gradient(160deg, #0c0e13 0%, #14171f 45%, #07080c 100%);"
+    ></div>
+    <!-- Subtle stone masonry texture -->
+    <div
+      class="absolute inset-0 z-0 pointer-events-none opacity-[0.14]"
+      style="background-image:
+        repeating-linear-gradient(0deg, transparent 0 54px, rgba(148, 163, 184, 0.35) 54px 55px),
+        repeating-linear-gradient(90deg, transparent 0 110px, rgba(148, 163, 184, 0.25) 110px 111px);"
+    ></div>
+
+    <!-- Optional custom / splash backdrop image -->
+    {#if projectorStore.customCurtainImage || curtainStore.splashImageUrl || canvasStore.mapImageUrl}
       <div
-        class="absolute inset-0 z-0 bg-cover bg-center opacity-30 filter blur-sm scale-105 transition-all duration-700 pointer-events-none"
-        style="background-image: url('{curtainStore.splashImageUrl || canvasStore.mapImageUrl}');"
+        class="absolute inset-0 z-0 bg-cover bg-center opacity-25 filter blur-sm scale-105 transition-all duration-700 pointer-events-none"
+        style="background-image: url('{projectorStore.customCurtainImage || curtainStore.splashImageUrl || canvasStore.mapImageUrl}');"
       ></div>
-      <div class="absolute inset-0 z-0 bg-gradient-to-t from-black via-black/80 to-black/60 pointer-events-none"></div>
+      <div class="absolute inset-0 z-0 bg-gradient-to-t from-black via-black/85 to-black/65 pointer-events-none"></div>
     {/if}
 
     <div class="relative z-10 flex flex-col items-center space-y-5 max-w-lg p-8 text-center animate-in fade-in zoom-in-95 duration-400">
-      <div class="relative">
-        <div class="w-20 h-20 rounded-full bg-slate-900/90 border border-amber-500/40 flex items-center justify-center text-4xl shadow-2xl shadow-amber-950/40">
+      <!-- Animated party sigil: rotating outer ring + pulsing emblem -->
+      <div class="relative w-28 h-28 flex items-center justify-center">
+        <span
+          class="absolute inset-0 rounded-full border-2 border-dashed border-amber-500/40"
+          style="animation: projector-sigil-spin 14s linear infinite;"
+        ></span>
+        <span
+          class="absolute inset-3 rounded-full border border-indigo-400/30"
+          style="animation: projector-sigil-spin 9s linear infinite reverse;"
+        ></span>
+        <div class="w-16 h-16 rounded-full bg-slate-900/90 border border-amber-500/40 flex items-center justify-center text-3xl shadow-2xl shadow-amber-950/50">
           🎭
         </div>
-        <span class="absolute -bottom-1 -right-1 flex h-4 w-4">
+        <span class="absolute -bottom-1 right-2 flex h-4 w-4">
           <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
           <span class="relative inline-flex rounded-full h-4 w-4 bg-amber-500"></span>
         </span>
@@ -1149,7 +1233,7 @@
 
       <div class="space-y-1">
         <h2 class="text-2xl font-black font-serif uppercase tracking-widest text-slate-100 drop-shadow-md">
-          The Stage is Being Set
+          {projectorStore.splashText || 'Session in Progress'}
         </h2>
         <p class="text-xs font-mono uppercase tracking-wider text-amber-400/90">
           Dungeon Master Privacy Curtain Engaged
@@ -1169,4 +1253,16 @@
     </div>
   </div>
 {/if}
+
+<style>
+  @keyframes projector-sigil-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+</style>
+
 

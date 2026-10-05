@@ -16,6 +16,8 @@ export interface Token {
   color?: string;
   isPlayer?: boolean;
   monsterCompendiumId?: string;
+  elevation?: number;
+  isSubterranean?: boolean;
 }
 
 export interface Wall {

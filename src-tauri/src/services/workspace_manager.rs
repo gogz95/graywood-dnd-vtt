@@ -202,6 +202,23 @@ pub fn init_workspace_sqlite(db_path: &Path) -> Result<(), String> {
              name TEXT,
              asset_rel_path TEXT,
              grid_config JSON
+         );
+
+         CREATE TABLE IF NOT EXISTS sourcebooks (
+             id TEXT PRIMARY KEY,
+             title TEXT NOT NULL,
+             author TEXT,
+             file_path TEXT NOT NULL,
+             total_pages INTEGER NOT NULL,
+             cover_url TEXT,
+             toc_json TEXT
+         );
+
+         CREATE TABLE IF NOT EXISTS sourcebook_pages (
+             sourcebook_id TEXT NOT NULL,
+             page_number INTEGER NOT NULL,
+             raw_text TEXT NOT NULL,
+             PRIMARY KEY(sourcebook_id, page_number)
          );",
     )
     .map_err(|e| format!("Failed to initialize workspace SQLite schema: {}", e))?;

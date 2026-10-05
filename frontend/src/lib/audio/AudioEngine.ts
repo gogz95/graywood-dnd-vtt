@@ -645,6 +645,33 @@ export class AudioEngine {
       return;
     }
 
+    // Forest Wind & Tension Drone: Low rumbling drone with sweeping bandpass white-noise filter
+    if (sfxId === 'sfx-wind' || sfxId.includes('wind') || sfxId.includes('drone')) {
+      const droneOsc = ctx.createOscillator();
+      const droneGain = ctx.createGain();
+      droneOsc.type = 'sawtooth';
+      droneOsc.frequency.setValueAtTime(55, now); // A1 bass drone
+      droneOsc.frequency.linearRampToValueAtTime(52, now + 3.0);
+
+      droneGain.gain.setValueAtTime(0.01, now);
+      droneGain.gain.linearRampToValueAtTime(0.25, now + 0.8);
+      droneGain.gain.exponentialRampToValueAtTime(0.001, now + 4.5);
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(160, now);
+      filter.frequency.linearRampToValueAtTime(240, now + 2.0);
+      filter.frequency.linearRampToValueAtTime(120, now + 4.5);
+
+      droneOsc.connect(filter);
+      filter.connect(droneGain);
+      droneGain.connect(this.sfxGain!);
+
+      droneOsc.start(now);
+      droneOsc.stop(now + 4.6);
+      return;
+    }
+
     // Metallic Weapon Clash: High frequency transient with ringing overtone
     if (sfxId === 'sfx-clash' || sfxId.includes('clash')) {
       const osc1 = ctx.createOscillator();

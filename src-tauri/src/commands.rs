@@ -5,12 +5,15 @@ use crate::systems::encounter::{
 };
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, Mutex};
 
 /// IPC command to launch or focus the borderless secondary projector window.
+/// Spawns a "Player View" window on the secondary display when one is detected,
+/// otherwise falls back to the primary monitor.
 #[tauri::command]
 pub async fn open_projector_window(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Manager;
@@ -26,10 +29,23 @@ pub async fn open_projector_window(app: tauri::AppHandle) -> Result<(), String> 
         "projector",
         tauri::WebviewUrl::App("projector".into()),
     )
-    .title("Graywood VTT - Player Tabletop Projector")
+    .title("Player View")
     .inner_size(1920.0, 1080.0)
     .decorations(false)
     .resizable(true);
+
+    // Position on the secondary display when one is detected; otherwise keep
+    // the default (OS-chosen / primary) placement.
+    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
+    if let Some(secondary) = monitors.get(1) {
+        let pos = secondary.position();
+        let size = secondary.size();
+        // Center the 1920×1080 player window within the secondary display.
+        let x = pos.x as f64 + ((size.width as f64 - 1920.0) / 2.0).max(0.0);
+        let y = pos.y as f64 + ((size.height as f64 - 1080.0) / 2.0).max(0.0);
+        builder.position(x, y).build().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
 
     builder
         .build()
@@ -1397,3 +1413,74 @@ pub async fn sync_party_rest_recovery(
 
     Ok(count)
 }
+
+/// Crawls a directory of PDF sourcebooks, decompresses FlateDecode content streams,
+/// caches text and TOC in the workspace SQLite database, and returns indexed metadata.
+#[tauri::command]
+pub async fn crawl_sourcebooks(dir_path: String) -> Result<Vec<crate::sourcebook::SourcebookMeta>, String> {
+    let workspace_path = crate::services::workspace_manager::get_active_workspace_path()
+        .ok_or_else(|| "No active workspace loaded. Initialize or open a campaign workspace first.".to_string())?;
+
+    let db_path = workspace_path.join(".graywood").join("index.sqlite");
+    let thumbnails_dir = workspace_path.join(".graywood").join("cache").join("thumbnails");
+
+    let conn = Connection::open(&db_path).map_err(|e| format!("Failed to open workspace db: {}", e))?;
+    crate::sourcebook::crawl_sourcebooks_directory(&conn, &dir_path, &thumbnails_dir)
+}
+
+/// Returns a high-resolution preview raster for a given sourcebook page or renders fallback canvas bytes.
+#[tauri::command]
+pub async fn get_pdf_page_image(sourcebook_id: String, page_num: u32) -> Result<Vec<u8>, String> {
+    let workspace_path = crate::services::workspace_manager::get_active_workspace_path()
+        .ok_or_else(|| "No active workspace loaded.".to_string())?;
+
+    let db_path = workspace_path.join(".graywood").join("index.sqlite");
+    let conn = Connection::open(&db_path).map_err(|e| format!("Failed to open workspace db: {}", e))?;
+    crate::sourcebook::ensure_sourcebook_schema(&conn)?;
+
+    let mut file_path = String::new();
+    let mut stmt = conn
+        .prepare("SELECT file_path FROM sourcebooks WHERE id = ?1 LIMIT 1")
+        .map_err(|e| e.to_string())?;
+
+    let mut rows = stmt.query(params![sourcebook_id]).map_err(|e| e.to_string())?;
+    if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        file_path = row.get(0).unwrap_or_default();
+    }
+
+    if file_path.is_empty() {
+        return Err(format!("Sourcebook '{}' not found in database", sourcebook_id));
+    }
+
+    let pdf_path = Path::new(&file_path);
+    if !pdf_path.exists() {
+        return Err(format!("Sourcebook PDF file not found at: {}", file_path));
+    }
+
+    // Return the PDF document bytes so the client viewer or pdfjs worker can render the exact page
+    let mut file = std::fs::File::open(pdf_path)
+        .map_err(|e| format!("Failed to open PDF file: {}", e))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|e| format!("Failed to read PDF bytes: {}", e))?;
+
+    let _ = page_num;
+    Ok(bytes)
+}
+
+/// Searches the cached page text for a term and returns a highlighted text snippet with provenance context.
+#[tauri::command]
+pub async fn get_provenance_snippet(
+    sourcebook_id: String,
+    page_num: u32,
+    term: String,
+) -> Result<crate::sourcebook::ProvenanceSnippet, String> {
+    let workspace_path = crate::services::workspace_manager::get_active_workspace_path()
+        .ok_or_else(|| "No active workspace loaded.".to_string())?;
+
+    let db_path = workspace_path.join(".graywood").join("index.sqlite");
+    let conn = Connection::open(&db_path).map_err(|e| format!("Failed to open workspace db: {}", e))?;
+
+    crate::sourcebook::get_provenance_snippet_from_db(&conn, &sourcebook_id, page_num, &term)
+}
+

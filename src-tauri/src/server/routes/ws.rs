@@ -164,6 +164,13 @@ pub enum WsEvent {
         payload: Option<serde_json::Value>,
     },
 
+    /// F9 / Ctrl+B global privacy curtain toggle emitted by the DM workstation.
+    #[serde(rename = "PROJECTOR_CURTAIN_TOGGLE")]
+    ProjectorCurtainToggle {
+        #[serde(default)]
+        payload: Option<serde_json::Value>,
+    },
+
 
     #[serde(rename = "LEASE_RELEASED")]
     LeaseReleased { token_id: String },
@@ -535,6 +542,47 @@ async fn handle_socket(socket: WebSocket, state: AppState, query: WsQuery) {
                             }
                             WsEvent::StagingCurtain { active } => {
                                 state.curtain_active.store(*active, Ordering::Relaxed);
+                            }
+                            WsEvent::ProjectorCurtainToggle { payload } => {
+                                let is_curtained = payload
+                                    .as_ref()
+                                    .and_then(|p| {
+                                        p.get("isCurtained")
+                                            .or_else(|| p.get("is_curtained"))
+                                            .and_then(|v| v.as_bool())
+                                    })
+                                    .unwrap_or(false);
+                                let splash = payload.as_ref().and_then(|p| {
+                                    p.get("splash_image_url")
+                                        .or_else(|| p.get("splashImageUrl"))
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string())
+                                });
+                                state.curtain_active.store(is_curtained, Ordering::Relaxed);
+                                // Normalize to the legacy curtain-state event so every
+                                // existing listener (projector, play, portal, companion)
+                                // converges on the same truth.
+                                let normalized = WsEvent::ProjectorCurtainState {
+                                    active: is_curtained,
+                                    splash_image_url: splash.clone(),
+                                    payload: payload.clone(),
+                                };
+                                {
+                                    let mut buf = epoch_buffer.write().await;
+                                    buf.push_event(normalized.clone());
+                                }
+                                let _ = broadcast_tx.send(normalized);
+                                companion_hub.broadcast(
+                                    crate::server::companion_hub::CompanionServerMsg::StagingCurtain {
+                                        active: is_curtained,
+                                    },
+                                );
+                                companion_hub.broadcast(
+                                    crate::server::companion_hub::CompanionServerMsg::ProjectorCurtainState {
+                                        active: is_curtained,
+                                        splash_image_url: splash,
+                                    },
+                                );
                             }
                             WsEvent::LeaseAcquire { token_id, user_id } => {
 

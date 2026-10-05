@@ -1,25 +1,27 @@
 pub mod api;
 pub mod commands;
 pub mod db;
+pub mod extractor;
 pub mod ingestion;
 pub mod migrations;
 pub mod models;
 pub mod server;
 pub mod services;
+pub mod sourcebook;
 pub mod state;
 pub mod systems;
 
 pub use commands::{
-    compile_sourcebook_pdf, export_campaign_archive_cmd, export_vttbundle_cmd,
+    compile_sourcebook_pdf, crawl_sourcebooks, export_campaign_archive_cmd, export_vttbundle_cmd,
     extract_tables_from_sourcebook_cmd, get_active_workspace, get_hydrated_entities,
-    get_rollable_tables_cmd, import_pdf, import_vttbundle_cmd, ingest_pdf, initialize_workspace,
-    open_directory_dialog, open_file_dialog, open_projector_window, pick_and_read_campaign_folder,
-    save_map_vector_geometry, scan_ingest_directory, search_campaign_fts, seed_compendium_baseline, set_active_workspace,
-    spawn_combatant_token_cmd, sync_party_rest_recovery, sync_workspace_tables_cmd, transpile_foundry_scene_cmd,
-    transpile_roll20_page_cmd, validate_workspace, FtsSearchResult, HydratedEntityRecord,
-    HydratedWorkspaceData, IngestPdfResult, IngestScanEntry, IngestScanResult, IngestedFileEntry,
-    RollableTableRecord, SaveMapVectorRequest, SeedCompendiumResult, SyncPartyRestPayload, TableEntry, TableProvenance, WallColliderPayload,
-    WorkspaceConfig, WorkspaceMetadata,
+    get_pdf_page_image, get_provenance_snippet, get_rollable_tables_cmd, import_pdf, import_vttbundle_cmd,
+    ingest_pdf, initialize_workspace, open_directory_dialog, open_file_dialog, open_projector_window,
+    pick_and_read_campaign_folder, save_map_vector_geometry, scan_ingest_directory, search_campaign_fts,
+    seed_compendium_baseline, set_active_workspace, spawn_combatant_token_cmd, sync_party_rest_recovery,
+    sync_workspace_tables_cmd, transpile_foundry_scene_cmd, transpile_roll20_page_cmd, validate_workspace,
+    FtsSearchResult, HydratedEntityRecord, HydratedWorkspaceData, IngestPdfResult, IngestScanEntry,
+    IngestScanResult, IngestedFileEntry, RollableTableRecord, SaveMapVectorRequest, SeedCompendiumResult,
+    SyncPartyRestPayload, TableEntry, TableProvenance, WallColliderPayload, WorkspaceConfig, WorkspaceMetadata,
 };
 pub use db::{configure_and_migrate, init_database, init_in_memory_db};
 pub use migrations::{export_campaign_archive, run_versioned_migrations};

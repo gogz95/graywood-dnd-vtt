@@ -86,8 +86,15 @@ function createTimeStore() {
     }
   }
 
-  /** Advance in-game time by the given seconds via POST to backend or local fallback. */
-  async function advanceSeconds(seconds: number): Promise<void> {
+  /**
+   * Canonical world-clock stepping entry point.
+   *
+   * Advances in-game time by `seconds` (via POST to the backend `/api/campaign/time/advance`
+   * endpoint, falling back to a local-only advance when offline). Recomputes the Harptos
+   * date/month/tenday/weekday and time-of-day phase through the reactive getters, and prunes
+   * any active spell effects whose duration has elapsed.
+   */
+  async function advanceTime(seconds: number): Promise<void> {
     const priorTotalSeconds = state.epochDays * 86400 + state.currentEpochSeconds;
     const newTotalSeconds = priorTotalSeconds + seconds;
 
@@ -111,6 +118,14 @@ function createTimeStore() {
 
     // Check active spell/effect duration expirations
     checkExpiredEffects(newTotalSeconds);
+  }
+
+  /**
+   * Backwards-compatible alias for {@link advanceTime}.
+   * @deprecated Prefer `advanceTime` — both step the world clock identically.
+   */
+  async function advanceSeconds(seconds: number): Promise<void> {
+    await advanceTime(seconds);
   }
 
   function applyLocalAdvance(seconds: number) {
@@ -244,6 +259,7 @@ function createTimeStore() {
     get calendarConfig() { return state.calendarConfig; },
     get activeEffects() { return state.activeEffects; },
     fetchTime,
+    advanceTime,
     advanceSeconds,
     applyWsUpdate,
     setWeather,
@@ -256,6 +272,21 @@ function createTimeStore() {
 }
 
 export const vttTimeStore = createTimeStore();
+
+/**
+ * Standard 5e table increments (in seconds) used by the World Clock pill and
+ * rest automation. Kept as a frozen map so callers use named steps rather than
+ * magic numbers: `vttTimeStore.advanceTime(TIME_INCREMENTS.eightHours)`.
+ */
+export const TIME_INCREMENTS = {
+  round: 6,          // 1 tactical round
+  minute: 60,        // 1 minute
+  tenMinutes: 600,   // 10 minutes (short search / ritual)
+  hour: 3600,        // 1 hour
+  eightHours: 28800, // 8 hours (long rest)
+  day: 86400,        // 1 full day
+} as const;
+
 
 // ── Formatting helpers ─────────────────────────────────────────────────────
 export function formatClock(epochSeconds: number): string {

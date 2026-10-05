@@ -3,6 +3,8 @@
 // Framework-agnostic: zero Svelte runes or Svelte store imports.
 
 import { Container, Graphics, Sprite, Text, Assets } from 'pixi.js';
+import { updateTokenElevationVisuals } from '../tokenRenderer';
+import { attachTokenDisplayObjectWheelListener } from '../interaction/tokenPointerHandler';
 
 export interface CanvasTokenData {
   id: string;
@@ -106,8 +108,15 @@ export class TokenController {
       container.addChild(text);
     }
 
+    // Alt + ScrollWheel Elevation Listener & Visuals
+    attachTokenDisplayObjectWheelListener(container, () => entry ? entry.data as any : tokenData as any);
+    if (elevation > 0) {
+      updateTokenElevationVisuals(container, elevation, radius);
+    }
+
     this.tokenLayer.addChild(container);
-    this.tokenMap.set(tokenData.id, { container, data: tokenData, sprite: tokenSprite });
+    const entry: TokenEntry = { container, data: tokenData, sprite: tokenSprite };
+    this.tokenMap.set(tokenData.id, entry);
 
     return container;
   }
@@ -126,6 +135,9 @@ export class TokenController {
     entry.container.position.set(x, y);
     // Z-sorting formula: container.zIndex = elevation * 1000 + y
     entry.container.zIndex = elevation * 1000 + y;
+
+    const r = (entry.data.size ?? 60) / 2;
+    updateTokenElevationVisuals(entry.container, elevation, r);
   }
 
   /**

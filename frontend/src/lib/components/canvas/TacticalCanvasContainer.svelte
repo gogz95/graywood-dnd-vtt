@@ -46,6 +46,8 @@
   import { chatStore } from '../../stores/chatStore.svelte';
   import { importDungeonScrawlFile } from '../../importers/dungeonScrawlImporter';
   import { initDmSyncListener, cleanupDmSyncListener, broadcastBattlematUpdate } from '../../services/battlematSyncBridge';
+  import { projectorSyncService } from '../../canvas/ProjectorSyncService';
+  import { projectorStore } from '../../stores/projectorStore.svelte';
   import { pushMapToBattlemat } from '../../services/mapDispatchService';
   import { mapsDb } from '../../db/mapsDb';
   import { WeatherCanvasRenderer } from '../../canvas/weatherCanvasRenderer';
@@ -747,12 +749,11 @@
     vpX = e.clientX - canvasEl!.getBoundingClientRect().left - wx * vpZoom;
     vpY = e.clientY - canvasEl!.getBoundingClientRect().top  - wy * vpZoom;
     canvasStore.setDmViewport({ x: vpX, y: vpY, zoom: vpZoom });
-    broadcastBattlematUpdate({
-      type: 'VIEWPORT_UPDATE',
-      x: vpX,
-      y: vpY,
-      zoom: vpZoom,
-    });
+    // Throttled ({x, y, scale}) broadcast to /projector + player portal
+    projectorSyncService.broadcastViewport(
+      { x: vpX, y: vpY, scale: vpZoom },
+      !canvasStore.lockProjectorPan
+    );
   }
 
   function handleMouseDown(e: MouseEvent) {
@@ -989,12 +990,11 @@
     vpX = panStart.ox + (e.clientX - panStart.x);
     vpY = panStart.oy + (e.clientY - panStart.y);
     canvasStore.setDmViewport({ x: vpX, y: vpY, zoom: vpZoom });
-    broadcastBattlematUpdate({
-      type: 'VIEWPORT_UPDATE',
-      x: vpX,
-      y: vpY,
-      zoom: vpZoom,
-    });
+    // Throttled ({x, y, scale}) broadcast to /projector + player portal
+    projectorSyncService.broadcastViewport(
+      { x: vpX, y: vpY, scale: vpZoom },
+      !canvasStore.lockProjectorPan
+    );
   }
 
   function handleWindowMouseUp(e: MouseEvent) {
@@ -1681,13 +1681,13 @@
     <!-- Viewport Decoupling & Projector Controls -->
     <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5">
       <button
-        onclick={() => canvasStore.toggleLockProjectorPan()}
-        class="px-2 py-1 text-xs font-semibold rounded transition-colors flex items-center gap-1 {canvasStore.lockProjectorPan
-          ? 'bg-amber-950/70 border border-amber-500/60 text-amber-300 shadow'
-          : 'text-slate-400 hover:text-slate-200'}"
-        title="When locked, panning the DM battle mat does NOT alter the public TV camera"
+        onclick={() => projectorStore.toggleCameraLock()}
+        class="px-2 py-1 text-xs font-semibold rounded transition-colors flex items-center gap-1 {projectorStore.isCameraLocked
+          ? 'text-slate-400 hover:text-slate-200'
+          : 'bg-amber-950/70 border border-amber-500/60 text-amber-300 shadow'}"
+        title="Mirror TV Camera: when OFF, panning the DM battle mat does NOT alter the public TV camera"
       >
-        <span>{canvasStore.lockProjectorPan ? '🔒 TV Decoupled' : '🎥 TV Mirrored'}</span>
+        <span>{projectorStore.isCameraLocked ? '🎥 TV Mirrored' : '🔒 TV Decoupled'}</span>
       </button>
 
       <button

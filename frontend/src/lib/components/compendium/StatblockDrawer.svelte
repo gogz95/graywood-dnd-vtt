@@ -9,6 +9,7 @@
     CompendiumRule,
   } from '../../db/compendiumDb';
   import { tableStore } from '../../stores/tableStore';
+  import { openProvenanceModal } from '../../stores/compendiumStore';
 
   export type SelectedCompendiumEntry =
     | { type: 'monster'; data: CompendiumMonster }
@@ -139,6 +140,8 @@
   }
 
   function handleOpenInSource(fileRel: string, pageNum: number) {
+    const title = entry?.type === 'rule' ? entry.data.title : entry?.data.name;
+    openProvenanceModal(fileRel || entry?.data?.sourceBook || '5e SRD', pageNum, title);
     tableStore.openSourceViewer(fileRel, pageNum);
   }
 
@@ -236,11 +239,23 @@
         {@const m = entry.data}
         <div class="space-y-3 font-sans">
           <!-- Title & Subtitle -->
-          <div class="border-b-2 border-rose-900/60 pb-2">
-            <h1 class="text-2xl font-black text-rose-400 font-serif tracking-wide">{m.name}</h1>
-            <p class="text-xs italic text-slate-400">
-              {m.size || 'Medium'} {m.type}, {m.alignment || 'unaligned'}
-            </p>
+          <div class="border-b-2 border-rose-900/60 pb-2 flex items-start justify-between gap-2">
+            <div>
+              <h1 class="text-2xl font-black text-rose-400 font-serif tracking-wide">{m.name}</h1>
+              <p class="text-xs italic text-slate-400">
+                {m.size || 'Medium'} {m.type}, {m.alignment || 'unaligned'}
+              </p>
+            </div>
+            {#if entryProvenance?.page}
+              <button
+                type="button"
+                onclick={() => handleOpenInSource(entryProvenance.file_rel, entryProvenance.page!)}
+                class="px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-colors shrink-0 shadow-sm"
+                title="View PDF Citation"
+              >
+                📖 {m.sourceBook || 'MM'} p. {entryProvenance.page}
+              </button>
+            {/if}
           </div>
 
           <!-- Basic Vitals (AC, HP with Hit Dice formula, Speed) -->
@@ -363,16 +378,28 @@
       {:else if entry.type === 'spell'}
         {@const s = entry.data}
         <div class="space-y-3">
-          <div class="border-b-2 border-cyan-900/60 pb-2">
-            <h1 class="text-2xl font-black text-cyan-300 font-serif tracking-wide">{s.name}</h1>
-            <p class="text-xs italic text-slate-400">
-              {formatSpellHeader(s.level, s.school)}
-              {#if s.ritual}
-                <span class="ml-1 px-1.5 py-0.2 rounded text-[9px] bg-cyan-950 text-cyan-300 border border-cyan-800 font-sans not-italic">
-                  Ritual
-                </span>
-              {/if}
-            </p>
+          <div class="border-b-2 border-cyan-900/60 pb-2 flex items-start justify-between gap-2">
+            <div>
+              <h1 class="text-2xl font-black text-cyan-300 font-serif tracking-wide">{s.name}</h1>
+              <p class="text-xs italic text-slate-400">
+                {formatSpellHeader(s.level, s.school)}
+                {#if s.ritual}
+                  <span class="ml-1 px-1.5 py-0.2 rounded text-[9px] bg-cyan-950 text-cyan-300 border border-cyan-800 font-sans not-italic">
+                    Ritual
+                  </span>
+                {/if}
+              </p>
+            </div>
+            {#if entryProvenance?.page}
+              <button
+                type="button"
+                onclick={() => handleOpenInSource(entryProvenance.file_rel, entryProvenance.page!)}
+                class="px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-colors shrink-0 shadow-sm"
+                title="View PDF Citation"
+              >
+                📖 {s.sourceBook || 'PHB'} p. {entryProvenance.page}
+              </button>
+            {/if}
           </div>
 
           <!-- Casting Parameters Grid -->
@@ -418,19 +445,31 @@
       {:else if entry.type === 'item'}
         {@const it = entry.data}
         <div class="space-y-3">
-          <div class="border-b-2 border-amber-900/60 pb-2">
-            <h1 class="text-2xl font-black text-amber-300 font-serif tracking-wide">{it.name}</h1>
-            <div class="flex items-center gap-2 mt-1 flex-wrap">
-              <span class="px-2 py-0.5 rounded text-[10px] font-semibold border {rarityClass(it.rarity)}">
-                {it.rarity || 'Common'}
-              </span>
-              <span class="text-xs text-slate-400 font-semibold">{it.type}</span>
-              {#if requiresAttunement(it)}
-                <span class="text-[10px] text-amber-400 font-mono italic bg-amber-950/60 border border-amber-800/50 px-1.5 py-0.5 rounded">
-                  Requires Attunement
+          <div class="border-b-2 border-amber-900/60 pb-2 flex items-start justify-between gap-2">
+            <div>
+              <h1 class="text-2xl font-black text-amber-300 font-serif tracking-wide">{it.name}</h1>
+              <div class="flex items-center gap-2 mt-1 flex-wrap">
+                <span class="px-2 py-0.5 rounded text-[10px] font-semibold border {rarityClass(it.rarity)}">
+                  {it.rarity || 'Common'}
                 </span>
-              {/if}
+                <span class="text-xs text-slate-400 font-semibold">{it.type}</span>
+                {#if requiresAttunement(it)}
+                  <span class="text-[10px] text-amber-400 font-mono italic bg-amber-950/60 border border-amber-800/50 px-1.5 py-0.5 rounded">
+                    Requires Attunement
+                  </span>
+                {/if}
+              </div>
             </div>
+            {#if entryProvenance?.page}
+              <button
+                type="button"
+                onclick={() => handleOpenInSource(entryProvenance.file_rel, entryProvenance.page!)}
+                class="px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-colors shrink-0 shadow-sm"
+                title="View PDF Citation"
+              >
+                📖 {it.sourceBook || 'DMG'} p. {entryProvenance.page}
+              </button>
+            {/if}
           </div>
 
           <!-- Stats / Cost / Weight / Properties -->

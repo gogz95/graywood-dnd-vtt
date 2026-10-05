@@ -314,10 +314,11 @@ export class ViewportController {
     const signal = this.abortController.signal;
     const el = this.canvasElement;
 
-    // Wheel zoom toward pointer position
+    // Wheel zoom toward pointer position (suppressed if Alt key is held for elevation adjustment)
     el.addEventListener(
       'wheel',
       (e: WheelEvent) => {
+        if (e.altKey || e.defaultPrevented) return;
         e.preventDefault();
         const rect = el.getBoundingClientRect();
         const screenX = e.clientX - rect.left;

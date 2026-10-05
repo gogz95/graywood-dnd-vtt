@@ -3,13 +3,18 @@
     vttTimeStore,
     epochDayToGameDay,
     formatDuration,
+    TIME_INCREMENTS,
     type WeatherMode,
     type ActiveSpellEffect,
   } from '../../stores/timeStore.svelte';
   import { onMount } from 'svelte';
+  import RestModal from '../modals/RestModal.svelte';
+  import { executeLongRest, loadPartyRestActors } from '../../services/restEngine';
 
   let isExpanded = $state(false);
   let showEffectModal = $state(false);
+  let showRestModal = $state(false);
+  let isResting = $state(false);
   let newEffectName = $state('');
   let newEffectDuration = $state(60); // seconds
 
@@ -21,13 +26,13 @@
     embers: '🔥',
   };
 
-  const TIME_INCREMENTS: Array<{ label: string; seconds: number; title: string }> = [
-    { label: '+6s',  seconds: 6,     title: '1 Tactical Round' },
-    { label: '+1m',  seconds: 60,    title: '1 Minute' },
-    { label: '+10m', seconds: 600,   title: '10 Minutes (Short Search)' },
-    { label: '+1h',  seconds: 3600,  title: '1 Hour (Short Rest)' },
-    { label: '+8h',  seconds: 28800, title: '8 Hours (Long Rest)' },
-    { label: '+1d',  seconds: 86400, title: '1 Full Day' },
+  const TIME_INCREMENTS_UI: Array<{ label: string; seconds: number; title: string }> = [
+    { label: '+6s',  seconds: TIME_INCREMENTS.round,      title: '1 Tactical Round' },
+    { label: '+1m',  seconds: TIME_INCREMENTS.minute,     title: '1 Minute' },
+    { label: '+10m', seconds: TIME_INCREMENTS.tenMinutes, title: '10 Minutes (Short Search)' },
+    { label: '+1h',  seconds: TIME_INCREMENTS.hour,       title: '1 Hour (Short Rest)' },
+    { label: '+8h',  seconds: TIME_INCREMENTS.eightHours, title: '8 Hours (Long Rest)' },
+    { label: '+1d',  seconds: TIME_INCREMENTS.day,        title: '1 Full Day' },
   ];
 
   const WEATHER_MODES: WeatherMode[] = ['none', 'rain', 'snow', 'fog', 'embers'];
@@ -65,7 +70,48 @@
     newEffectName = '';
     showEffectModal = false;
   }
+
+  /**
+   * Executes a full 8-hour Long Rest: advances the world clock by 8 hours, then
+   * restores HP, Hit Dice, spell slots, and class features for every party actor,
+   * persisting and broadcasting the new state via Dexie + the Rust backend.
+   */
+  async function handleLongRest() {
+    if (isResting) return;
+    isResting = true;
+    try {
+      await vttTimeStore.advanceTime(TIME_INCREMENTS.eightHours);
+      const party = await loadPartyRestActors();
+      if (party.length > 0) {
+        await executeLongRest(party);
+      }
+    } catch (err) {
+      console.error('[WorldClockPill] Long rest failed:', err);
+    } finally {
+      isResting = false;
+    }
+  }
+
+  /** Opens the party Short Rest modal so Hit Dice can be spent per character. */
+  function handleShortRest() {
+    isExpanded = false;
+    showRestModal = true;
+  }
+
+  /** Routes a clock-stepping click: +8h long rests, +1h opens the Short Rest modal. */
+  function handleIncrement(seconds: number) {
+    if (seconds === TIME_INCREMENTS.eightHours) {
+      void handleLongRest();
+      return;
+    }
+    if (seconds === TIME_INCREMENTS.hour) {
+      handleShortRest();
+      return;
+    }
+    void vttTimeStore.advanceTime(seconds);
+  }
 </script>
+
 
 <div class="relative">
   <!-- ── Compact Clock Pill ── -->
@@ -133,19 +179,38 @@
           <span class="text-[9px] text-slate-400 lowercase">round / rest shortcuts</span>
         </div>
         <div class="grid grid-cols-3 gap-1.5">
-          {#each TIME_INCREMENTS as inc}
+          {#each TIME_INCREMENTS_UI as inc}
             <button
               type="button"
               id="time-advance-{inc.label.replace('+','').replace(' ','')}"
-              onclick={() => vttTimeStore.advanceSeconds(inc.seconds)}
+              onclick={() => handleIncrement(inc.seconds)}
+              disabled={isResting && inc.seconds === TIME_INCREMENTS.eightHours}
               title={inc.title}
-              class="px-2 py-1.5 bg-slate-800 hover:bg-indigo-700 text-slate-200 hover:text-white rounded-lg text-xs font-mono font-bold transition-all border border-slate-700/60 hover:border-indigo-500/60 flex flex-col items-center"
+              class="px-2 py-1.5 bg-slate-800 hover:bg-indigo-700 text-slate-200 hover:text-white rounded-lg text-xs font-mono font-bold transition-all border border-slate-700/60 hover:border-indigo-500/60 flex flex-col items-center disabled:opacity-50"
             >
               <span class="text-xs">{inc.label}</span>
-              <span class="text-[8px] font-sans text-slate-400 font-normal truncate max-w-full">{inc.title.split(' ')[0]}</span>
+              <span class="text-[8px] font-sans text-slate-400 font-normal truncate max-w-full">
+                {inc.seconds === TIME_INCREMENTS.eightHours
+                  ? 'Rest'
+                  : inc.seconds === TIME_INCREMENTS.hour
+                    ? 'S.Rest'
+                    : inc.title.split(' ')[0]}
+              </span>
             </button>
           {/each}
         </div>
+        <button
+          type="button"
+          id="open-short-rest-modal"
+          onclick={handleShortRest}
+          class="mt-1.5 w-full px-2 py-1 bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-200 border border-emerald-800/60 rounded-lg text-[10px] font-bold tracking-wide"
+          title="Open the party Short Rest modal to spend Hit Dice"
+        >
+          🌿 Short Rest — Spend Hit Dice
+        </button>
+        {#if isResting}
+          <div class="mt-1.5 text-[10px] text-indigo-300 italic">✨ Completing long rest…</div>
+        {/if}
       </div>
 
       <!-- Active Spell / Effect Tracking -->
@@ -237,4 +302,7 @@
       </div>
     </div>
   {/if}
+
+  <!-- ── Party Short Rest Modal (Hit Dice expenditure) ── -->
+  <RestModal isOpen={showRestModal} onClose={() => (showRestModal = false)} />
 </div>

@@ -48,7 +48,6 @@
   import GeneratorHubModal from '../lib/components/generators/GeneratorHubModal.svelte';
   import { hotkeyManager } from '../lib/services/hotkeyManager';
   import { projectorStore } from '../lib/stores/projectorStore.svelte';
-  import { curtainStore } from '../lib/stores/curtainStore.svelte';
   import { canvasStore } from '../stores/canvasStore.svelte';
 
   // Aleamos Downtime, Logistics & Crafting
@@ -165,7 +164,7 @@
       description: 'Toggle DM Staging Curtain ("Blackout Veil")',
       category: 'screen' as any,
       action: () => {
-        curtainStore.toggle(canvasStore.mapImageUrl || undefined);
+        projectorStore.toggleCurtain(canvasStore.mapImageUrl || undefined);
       }
     });
 
@@ -175,7 +174,7 @@
       description: 'Toggle Projector Privacy Curtain / Blackout Mode (F9)',
       category: 'screen' as any,
       action: () => {
-        curtainStore.toggle(canvasStore.mapImageUrl || undefined);
+        projectorStore.toggleCurtain(canvasStore.mapImageUrl || undefined);
       }
     });
 

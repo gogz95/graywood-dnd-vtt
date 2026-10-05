@@ -203,6 +203,13 @@ class CanvasStoreClass {
   private channel: BroadcastChannel | null = null;
   private isBroadcasting = false;
 
+  /**
+   * Optional interceptor installed by /projector: when set, remote VIEWPORT_DM
+   * updates are routed here (e.g. to feed a smooth-lerp camera target) instead
+   * of snapping the local projector viewport immediately.
+   */
+  remoteViewportHandler: ((vp: ViewportTransform) => void) | null = null;
+
   constructor() {
     const initial = loadInitialState();
     this.tokens = initial.tokens;
@@ -306,6 +313,10 @@ class CanvasStoreClass {
         break;
       case 'VIEWPORT_DM':
         this.dmViewport = payload;
+        if (this.remoteViewportHandler) {
+          this.remoteViewportHandler(payload);
+          break;
+        }
         if (!this.lockProjectorPan) {
           this.projectorViewport = { ...payload };
         }

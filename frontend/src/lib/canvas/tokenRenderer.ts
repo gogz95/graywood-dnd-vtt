@@ -173,6 +173,95 @@ export class TokenTurnRendererManager {
 
 export const tokenTurnRendererManager = new TokenTurnRendererManager();
 
+/**
+ * Updates or renders PixiJS elevation visual cues on a token container:
+ * - Dynamic drop-shadow offset beneath the token: distance and blur proportional to elevation (offset_y = Math.min(elevation * 0.8, 40))
+ * - Floating pill badge at top-right corner (#0f172a with cyan border, text: `↑ {elevation}ft` in bold 10px monospace)
+ * - Destroys/removes shadow and badge when elevation <= 0.
+ */
+export function updateTokenElevationVisuals(
+  container: PIXI.Container,
+  elevation: number = 0,
+  radius: number = 25
+): void {
+  const existingShadow = (container as any).__elevationShadow as PIXI.Graphics | undefined;
+  const existingBadge = (container as any).__elevationBadgeContainer as PIXI.Container | undefined;
+
+  if (elevation <= 0) {
+    if (existingShadow) {
+      container.removeChild(existingShadow);
+      existingShadow.destroy();
+      (container as any).__elevationShadow = null;
+    }
+    if (existingBadge) {
+      container.removeChild(existingBadge);
+      existingBadge.destroy({ children: true });
+      (container as any).__elevationBadgeContainer = null;
+    }
+    return;
+  }
+
+  // 1. Dynamic Drop Shadow beneath token
+  const offsetY = Math.min(elevation * 0.8, 40);
+  const blurFactor = Math.min(16, 2 + elevation * 0.2);
+  const shadowAlpha = Math.max(0.2, 0.55 - elevation * 0.004);
+  const shadowRadius = radius * (1 + Math.min(0.25, elevation * 0.003));
+
+  let shadow = existingShadow;
+  if (!shadow) {
+    shadow = new PIXI.Graphics();
+    container.addChildAt(shadow, 0); // Beneath all token elements
+    (container as any).__elevationShadow = shadow;
+  }
+  shadow.clear();
+  // Outer soft halo
+  shadow.ellipse(0, offsetY, shadowRadius + blurFactor, (shadowRadius * 0.7) + blurFactor);
+  shadow.fill({ color: 0x000000, alpha: shadowAlpha * 0.5 });
+  // Core shadow
+  shadow.ellipse(0, offsetY, shadowRadius, shadowRadius * 0.65);
+  shadow.fill({ color: 0x000000, alpha: shadowAlpha });
+
+  // 2. Floating Elevation Badge at top-right corner
+  let badgeContainer = existingBadge;
+  if (!badgeContainer) {
+    badgeContainer = new PIXI.Container();
+    container.addChild(badgeContainer);
+    (container as any).__elevationBadgeContainer = badgeContainer;
+  } else {
+    badgeContainer.removeChildren();
+  }
+
+  const badgeText = new PIXI.Text({
+    text: `↑ ${elevation}ft`,
+    style: new PIXI.TextStyle({
+      fontFamily: 'monospace',
+      fontSize: 10,
+      fontWeight: 'bold',
+      fill: 0x38bdf8, // Cyan
+    }),
+  });
+  badgeText.anchor.set(0.5, 0.5);
+
+  const textWidth = badgeText.width || 38;
+  const textHeight = badgeText.height || 12;
+  const pillW = textWidth + 8;
+  const pillH = Math.max(16, textHeight + 4);
+
+  const badgeBg = new PIXI.Graphics();
+  // Pill background #0f172a with cyan border
+  badgeBg.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, 8);
+  badgeBg.fill({ color: 0x0f172a, alpha: 0.95 });
+  badgeBg.stroke({ color: 0x38bdf8, width: 1.5 });
+
+  badgeContainer.addChild(badgeBg);
+  badgeContainer.addChild(badgeText);
+
+  // Position at top-right perimeter of token
+  const badgeX = radius * 0.72;
+  const badgeY = -radius * 0.75;
+  badgeContainer.position.set(badgeX, badgeY);
+}
+
 
 
 export interface TokenAura {

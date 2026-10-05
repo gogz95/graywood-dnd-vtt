@@ -20,6 +20,7 @@
     onToggleCombat = () => {},
     onToggleCompendium = () => {},
     onOpenIngest = () => {},
+    onOpenEncounters = () => {},
     isCompendiumOpen = false,
   }: {
     campaignName?: string;
@@ -29,6 +30,7 @@
     onToggleCombat?: () => void;
     onToggleCompendium?: () => void;
     onOpenIngest?: () => void;
+    onOpenEncounters?: () => void;
     isCompendiumOpen?: boolean;
   } = $props();
 
@@ -56,9 +58,25 @@
 
   function openProjectorTab() {
     isCastMenuOpen = false;
-    if (typeof window !== 'undefined') {
-      window.open('/projector', '_blank');
+    if (typeof window === 'undefined') return;
+
+    // Native Tauri: spawn/focus the borderless "Player View" window on the
+    // secondary display via WebviewWindowBuilder (open_projector_window).
+    const win = window as unknown as {
+      __TAURI__?: { core?: { invoke: (cmd: string, args?: unknown) => Promise<unknown> } };
+      __TAURI_INTERNALS__?: { invoke: (cmd: string, args?: unknown) => Promise<unknown> };
+    };
+    const invokeFn = win.__TAURI__?.core?.invoke ?? win.__TAURI_INTERNALS__?.invoke;
+    if (typeof invokeFn === 'function') {
+      invokeFn('open_projector_window', {}).catch((err) => {
+        console.warn('Native projector window failed, opening browser tab:', err);
+        window.open('/projector', '_blank');
+      });
+      return;
     }
+
+    // Browser fallback
+    window.open('/projector', '_blank');
   }
 
   function toggleAudioMixer() {
@@ -212,10 +230,23 @@
       {/if}
     </div>
 
+    <!-- 🎥 Mirror TV Camera Toggle (projectorStore.isCameraLocked) -->
+    <button
+      type="button"
+      onclick={() => projectorStore.toggleCameraLock()}
+      class="px-2.5 py-1 text-xs font-bold rounded-lg border transition-all flex items-center gap-1.5 {projectorStore.isCameraLocked
+        ? 'bg-indigo-950/80 text-indigo-300 border-indigo-700/80 shadow-sm'
+        : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800'}"
+      title="Mirror TV Camera — when ON, /projector follows DM pans & zooms; when OFF the projector camera is decoupled"
+    >
+      <span class={projectorStore.isCameraLocked ? 'text-indigo-400' : 'text-slate-400'}>🎥</span>
+      <span class="hidden md:inline">{projectorStore.isCameraLocked ? 'Mirror TV Camera' : 'TV Decoupled'}</span>
+    </button>
+
     <!-- 🌑 Staging Curtain Toggle ("Blackout Veil" - F9 / Ctrl+B) -->
     <button
       type="button"
-      onclick={() => curtainStore.toggle(canvasStore.mapImageUrl || undefined)}
+      onclick={() => projectorStore.toggleCurtain(canvasStore.mapImageUrl || undefined)}
       class="px-2.5 py-1 text-xs font-bold rounded-lg border transition-all flex items-center gap-1.5 {curtainStore.active
         ? 'bg-rose-950/90 text-rose-300 border-rose-500 shadow-md shadow-rose-900/50 animate-pulse'
         : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-800'}"
@@ -237,6 +268,17 @@
     >
       <span>🏛️</span>
       <span class="hidden md:inline">Compendium</span>
+    </button>
+
+    <!-- ⚔️ Pre-Made Encounters Quick Launcher -->
+    <button
+      type="button"
+      onclick={onOpenEncounters}
+      class="px-2.5 py-1 text-xs font-bold rounded-lg border transition-all flex items-center gap-1.5 bg-slate-950 hover:bg-slate-800 text-rose-300 border-slate-800"
+      title="Pre-Made Tactical Encounters (Triboar Trail & Starter Bosses)"
+    >
+      <span>⚔️</span>
+      <span class="hidden md:inline">Encounters</span>
     </button>
 
     <!-- 📥 Ingestion Quick-Drop Toggle (Ctrl+I) -->

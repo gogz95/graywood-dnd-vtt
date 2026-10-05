@@ -3,7 +3,7 @@
 
 <script lang="ts">
   import { tacticalViewport } from '../../services/canvas/tacticalViewportService.svelte';
-  import ConditionBadgeTooltip from '../combat/ConditionBadgeTooltip.svelte';
+  import ConditionTooltip from '../combat/ConditionTooltip.svelte';
 
   let {
     worldX = 0,
@@ -99,7 +99,7 @@
     <div class="flex flex-wrap justify-center gap-1 max-w-[170px]">
       {#each standardConditions as cond}
         {@const isActive = activeConditions.includes(cond)}
-        <ConditionBadgeTooltip
+        <ConditionTooltip
           condition={cond}
           compact
           active={isActive}

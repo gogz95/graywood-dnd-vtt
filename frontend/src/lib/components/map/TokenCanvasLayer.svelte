@@ -4,6 +4,7 @@
 <script lang="ts">
   import { tacticalViewport } from '../../services/canvas/tacticalViewportService.svelte';
   import TokenRadialMenu from '../canvas/TokenRadialMenu.svelte';
+  import ConditionTooltip from '../combat/ConditionTooltip.svelte';
 
   export interface OverlayToken {
     id: string;
@@ -232,24 +233,26 @@
       <!-- Nameplate Floating Tooltip -->
       {#if token.name}
         <div
-          class="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap bg-slate-900/90 border border-slate-700/80 text-[10px] font-semibold text-slate-200 px-1.5 py-0.5 rounded shadow pointer-events-none"
+          class="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap bg-slate-900/90 border border-slate-700/80 text-[10px] font-semibold text-slate-200 px-1.5 py-0.5 rounded shadow pointer-events-none flex items-center gap-1"
         >
-          {token.name}
+          {#if token.isVisible === false || token.hidden || token.isGmOnly}
+            <span title="Hidden from Players (Stealth Ambush)" class="text-amber-400">👻</span>
+          {/if}
+          <span>{token.name}</span>
         </div>
       {/if}
 
       <!-- Condition Badges -->
       {#if token.conditions && token.conditions.length > 0}
         <div
-          class="absolute -top-1 -right-1 flex flex-row gap-0.5 pointer-events-none"
+          class="absolute -top-1 -right-1 flex flex-row gap-0.5 pointer-events-auto"
         >
-          {#each token.conditions.slice(0, 2) as condition}
-            <span
-              class="w-3.5 h-3.5 rounded-full bg-rose-600 border border-white/80 text-[8px] text-white flex items-center justify-center font-bold"
-              title={condition}
-            >
-              {condition[0]}
-            </span>
+          {#each token.conditions.slice(0, 3) as condition}
+            <ConditionTooltip
+              {condition}
+              compact
+              showIcon={false}
+            />
           {/each}
         </div>
       {/if}

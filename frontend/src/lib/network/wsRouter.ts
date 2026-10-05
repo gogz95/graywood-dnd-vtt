@@ -93,6 +93,16 @@ export function routeInboundWsEvent(event: WsTokenEvent | any): void {
       break;
     }
 
+    case 'PROJECTOR_CURTAIN_TOGGLE':
+    case 'projector_curtain_toggle': {
+      const isCurtained =
+        event.payload?.isCurtained ?? event.payload?.is_curtained ?? event.isCurtained ?? false;
+      const splashUrl =
+        event.payload?.splash_image_url ?? event.splash_image_url ?? event.splashImageUrl;
+      curtainStore.set(Boolean(isCurtained), splashUrl);
+      break;
+    }
+
     case 'PROJECTOR_CURTAIN_STATE':
     case 'projector_curtain_state': {
       const active = event.active ?? event.payload?.active ?? false;

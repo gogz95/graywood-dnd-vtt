@@ -39,6 +39,19 @@ class CompendiumStore {
   packages = $state<PackageSummary[]>([]);
   isLoading = $state(true);
 
+  // Provenance viewer state
+  provenanceModal = $state<{
+    isOpen: boolean;
+    source: string;
+    page: number;
+    exactMatch?: string;
+  }>({
+    isOpen: false,
+    source: '',
+    page: 1,
+    exactMatch: undefined,
+  });
+
   // Reactive counters bound directly to live state
   monsterCount = $derived(this.monsters.length);
   spellCount = $derived(this.spells.length);
@@ -262,6 +275,24 @@ class CompendiumStore {
     deletedFacilities: number;
   }> {
     return await compendiumDb.purgePackage(packageId);
+  }
+
+  openProvenanceModal(source: string, page: number, exactMatch?: string) {
+    this.provenanceModal = {
+      isOpen: true,
+      source,
+      page,
+      exactMatch,
+    };
+  }
+
+  closeProvenanceModal() {
+    this.provenanceModal = {
+      isOpen: false,
+      source: '',
+      page: 1,
+      exactMatch: undefined,
+    };
   }
 
   destroy() {

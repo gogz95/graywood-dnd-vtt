@@ -6,6 +6,12 @@
 import Dexie, { type Table } from 'dexie';
 import type { IngestedTable } from '../types/compendium';
 
+export interface ProvenanceAnchor {
+  source: 'MM' | 'PHB' | 'DMG' | string;
+  page: number;
+  exact_match?: string;
+}
+
 export interface CompendiumSpell {
   id: string;
   name: string;
@@ -23,6 +29,7 @@ export interface CompendiumSpell {
   sourceBook: string;
   packageId: string;
   origin: 'SRD-5.1' | 'USER_IMPORT';
+  provenance?: ProvenanceAnchor;
 }
 
 export interface CompendiumSubclass {
@@ -63,6 +70,7 @@ export interface CompendiumMonster {
   sourceBook: string;
   packageId: string;
   origin: 'SRD-5.1' | 'USER_IMPORT';
+  provenance?: ProvenanceAnchor;
 }
 
 export interface CompendiumFacility {
@@ -103,6 +111,7 @@ export interface CompendiumItem {
   sourceBook: string;
   packageId: string;
   origin: 'SRD-5.1' | 'USER_IMPORT';
+  provenance?: ProvenanceAnchor;
 }
 
 export interface CompendiumJournal {

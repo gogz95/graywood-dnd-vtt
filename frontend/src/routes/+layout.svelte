@@ -19,12 +19,15 @@
   import SettingsModal      from '../lib/components/settings/SettingsModal.svelte';
   import HotkeysModal       from '../lib/components/navigation/HotkeysModal.svelte';
   import SourceViewerModal  from '../lib/components/source/SourceViewerModal.svelte';
+  import PdfProvenanceModal from '../lib/components/compendium/PdfProvenanceModal.svelte';
+  import EncounterQuickLaunchModal from '../lib/components/encounters/EncounterQuickLaunchModal.svelte';
   import FloatingPanel      from '../lib/components/ui/FloatingPanel.svelte';
   import SourceExplorerDrawer from '../lib/components/sources/SourceExplorerDrawer.svelte';
   import TacticalHotbar from '../lib/components/combat/TacticalHotbar.svelte';
   import { floatingWindowsStore } from '../lib/stores/floatingWindowsStore.svelte';
   import { curtainStore } from '../lib/stores/curtainStore.svelte';
-  import { sendWsEvent } from '../stores/websocketStore';
+  import { projectorStore } from '../lib/stores/projectorStore.svelte';
+  import { canvasStore } from '../stores/canvasStore.svelte';
   import { seedDemoEncounter } from '../lib/services/demoEncounterSeeder';
   import { initAutoSaver, type CampaignBundle } from '../lib/utils/campaignPersistence';
   import { registerGlobalDropZone, type DroppedAsset } from '../lib/utils/assetDrop';
@@ -55,6 +58,7 @@
   let quickRefOpen = $state(false);
   let settingsOpen = $state(false);
   let hotkeysOpen  = $state(false);
+  let encountersOpen = $state(false);
 
   // ── Drop zone feedback ─────────────────────────────────────────────────────
   let lastDrop = $state<string | null>(null);
@@ -122,17 +126,15 @@
   });
 
   function toggleProjectorCurtain() {
-    const nextActive = !curtainStore.active;
-    curtainStore.set(nextActive);
-    sendWsEvent({
-      type: 'PROJECTOR_CURTAIN_STATE',
-      payload: { active: nextActive }
-    });
+    // projectorStore owns the canonical toggle: BroadcastChannel + WS
+    // PROJECTOR_CURTAIN_TOGGLE + Tauri event emit + REST fallback.
+    projectorStore.toggleCurtain(canvasStore.mapImageUrl || undefined);
   }
 
   function handleGlobalKeyDown(e: KeyboardEvent) {
-    // F9 toggles projector curtain universally across the DM interface
-    if (e.key === 'F9') {
+    // F9 or Ctrl/Cmd+B toggles the projector privacy curtain universally
+    // across the DM interface (matches projector route + hotkey manager).
+    if (e.key === 'F9' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b' && !e.shiftKey && !e.altKey)) {
       e.preventDefault();
       toggleProjectorCurtain();
       return;
@@ -266,6 +268,14 @@
       <span class="w-px h-4 bg-slate-800 mx-0.5"></span>
 
       <!-- Global Floating Toggles (Exclusively in Top Navigation Bar) -->
+      <button
+        onclick={() => encountersOpen = true}
+        class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {encountersOpen ? 'bg-rose-700 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
+        title="Pre-Made Encounters & Quick Tactical Starter Deployments"
+      >
+        ⚔️ Encounters
+      </button>
+
       <button
         onclick={() => floatingWindowsStore.toggleWindow('sources')}
         class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors {floatingWindowsStore.windows.sources.isOpen ? 'bg-indigo-700 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800 border border-transparent'}"
@@ -497,6 +507,8 @@
   <HotkeysModal bind:isOpen={hotkeysOpen} />
   <PlayerHandoutModal />
   <SourceViewerModal />
+  <PdfProvenanceModal />
+  <EncounterQuickLaunchModal bind:isOpen={encountersOpen} />
 
   <!-- Global Non-Blurring Floating Window Shells -->
   <FloatingPanel id="sources" title="Local Source Engine & Rulebook Explorer" icon="📚">
