@@ -17,10 +17,13 @@ export class LightingAndVisionLayer {
 
   // Render passes & layers
   private activeVisionMaskGraphics: Graphics;
-  private darknessOverlay: Graphics;
+  private darknessContainer: Container;
+  private darknessBaseGraphics: Graphics;
+  private darknessCutoutGraphics: Graphics;
   private lightEmissionContainer: Container;
   private exploredShroudContainer: Container;
-  private exploredSprite: Sprite | null = null;
+  private shroudBaseGraphics: Graphics;
+  private shroudCutoutGraphics: Graphics;
 
   constructor(app: Application, width: number, height: number, isDmView = false) {
     this.app = app;
@@ -32,22 +35,32 @@ export class LightingAndVisionLayer {
     this.container.label = 'VTT_LightingAndVisionLayer';
 
     // 1. Explored Historical Shroud Layer (dimly lit explored areas)
-    this.exploredShroudContainer = new Container();
+    this.exploredShroudContainer = new Container({ isRenderGroup: true });
     this.exploredShroudContainer.label = 'VTT_ExploredShroudLayer';
     this.container.addChild(this.exploredShroudContainer);
 
-    // 2. Active Vision Mask (stencil/erase cutter for active line-of-sight)
+    this.shroudBaseGraphics = new Graphics();
+    this.shroudCutoutGraphics = new Graphics();
+    this.shroudCutoutGraphics.blendMode = 'erase';
+    this.exploredShroudContainer.addChild(this.shroudBaseGraphics);
+    this.exploredShroudContainer.addChild(this.shroudCutoutGraphics);
+
+    // 2. Ambient Darkness Layer (unexplored pitch black)
+    this.darknessContainer = new Container({ isRenderGroup: true });
+    this.darknessContainer.label = 'VTT_DarknessOverlay';
+    this.container.addChild(this.darknessContainer);
+
+    this.darknessBaseGraphics = new Graphics();
+    this.darknessCutoutGraphics = new Graphics();
+    this.darknessCutoutGraphics.blendMode = 'erase';
     this.activeVisionMaskGraphics = new Graphics();
-    this.activeVisionMaskGraphics.label = 'VTT_ActiveVisionMask';
     this.activeVisionMaskGraphics.blendMode = 'erase';
 
-    // 3. Ambient Darkness Layer
-    this.darknessOverlay = new Graphics();
-    this.darknessOverlay.label = 'VTT_DarknessOverlay';
-    this.container.addChild(this.darknessOverlay);
-    this.darknessOverlay.addChild(this.activeVisionMaskGraphics);
+    this.darknessContainer.addChild(this.darknessBaseGraphics);
+    this.darknessContainer.addChild(this.darknessCutoutGraphics);
+    this.darknessContainer.addChild(this.activeVisionMaskGraphics);
 
-    // 4. Light Emission Container (additive blending)
+    // 3. Light Emission Container (additive blending: bright/dim/darkvision)
     this.lightEmissionContainer = new Container();
     this.lightEmissionContainer.label = 'VTT_LightEmissionContainer';
     this.lightEmissionContainer.blendMode = 'add';
@@ -61,7 +74,8 @@ export class LightingAndVisionLayer {
   }
 
   private updateDarknessRect(): void {
-    this.darknessOverlay.clear();
+    this.darknessBaseGraphics.clear();
+    this.shroudBaseGraphics.clear();
 
     if (!lightingStore.dynamicLightingEnabled) {
       return;
@@ -73,32 +87,41 @@ export class LightingAndVisionLayer {
       ? 0.30 // 30% ghost shroud overlay for DM omniscience (Shift+V)
       : lightingStore.ambientDarkness;
 
-    this.darknessOverlay
+    // Pitch black darkness rectangle
+    this.darknessBaseGraphics
       .rect(0, 0, this.width, this.height)
       .fill({ color: colorHex, alpha: darknessAlpha });
+
+    // Semi-transparent dark fog shroud (rgba(10, 15, 30, 0.75))
+    this.shroudBaseGraphics
+      .rect(0, 0, this.width, this.height)
+      .fill({ color: 0x0a0f1e, alpha: 0.75 });
   }
 
   /**
    * Main rendering pass executed on token movement, light changes, or environment cycles.
    */
-  public renderLighting(tokens: CanvasToken[], cellPx = 70): void {
+  public renderLighting(tokens: any[], cellPx = 50): void {
     if (!lightingStore.dynamicLightingEnabled) {
-      this.darknessOverlay.visible = false;
+      this.darknessContainer.visible = false;
+      this.exploredShroudContainer.visible = false;
       this.lightEmissionContainer.visible = false;
       return;
     }
 
-    this.darknessOverlay.visible = true;
+    this.darknessContainer.visible = true;
+    this.exploredShroudContainer.visible = true;
     this.lightEmissionContainer.visible = true;
 
-    // 1. Refresh Darkness Rect
+    // 1. Refresh base rectangles
     this.updateDarknessRect();
 
-    // 2. Clear previous active vision & light graphics
+    // 2. Clear per-frame active masks & light emissions
     this.activeVisionMaskGraphics.clear();
+    this.shroudCutoutGraphics.clear();
     this.lightEmissionContainer.removeChildren();
 
-    // 3. Resolve vision profiles (Party vision for player screen, or active selection/all for DM)
+    // 3. Resolve vision profiles (party vision vs DM omniscience)
     const partyProfiles = tokenVisionResolver.resolvePartyVision(tokens, cellPx, {
       minX: 0,
       minY: 0,
@@ -110,7 +133,7 @@ export class LightingAndVisionLayer {
       ? tokens.map((t) => tokenVisionResolver.resolveTokenVision(t, cellPx))
       : partyProfiles;
 
-    // 4. Draw Active Line-of-Sight Mask Cutouts (Blend mode ERASE)
+    // 4. Cut out active vision polygons and blit to explored buffer
     for (const profile of activeProfiles) {
       if (profile.polygon.length < 3) continue;
 
@@ -119,21 +142,28 @@ export class LightingAndVisionLayer {
         flat.push(x, y);
       }
 
+      // Erase from pitch-black darkness
       this.activeVisionMaskGraphics
         .poly(flat)
         .fill({ color: 0xffffff, alpha: 1.0 });
 
-      // Blit newly revealed polygon into persistent historical explored buffer
+      // Erase from 0.75 shroud (active LoS is 100% visible)
+      this.shroudCutoutGraphics
+        .poly(flat)
+        .fill({ color: 0xffffff, alpha: 1.0 });
+
+      // Record to persistent explored cutout and Dexie manager
+      this.darknessCutoutGraphics
+        .poly(flat)
+        .fill({ color: 0xffffff, alpha: 1.0 });
+
       if (profile.isPlayer) {
         fogOfWarTextureManager.blitExploredPolygon(profile.polygon);
       }
 
-      // 5. Render Light Emission Falloff (Bright, Dim, Darkvision)
+      // 5. Render Bright/Dim/Darkvision light emissions
       this.renderTokenLightEmission(profile);
     }
-
-    // 6. Update Explored Historical Shroud
-    this.renderExploredShroud();
   }
 
   /**
@@ -147,12 +177,12 @@ export class LightingAndVisionLayer {
       .circle(profile.x, profile.y, profile.brightRadius)
       .fill({ color: 0xffbe76, alpha: 0.28 });
 
-    // Dim Light Radial Boundary
+    // Dim Light Radial Boundary (0.5 exposure falloff)
     lightG
       .circle(profile.x, profile.y, profile.dimRadius)
       .fill({ color: 0xffbe76, alpha: 0.12 });
 
-    // 60ft Darkvision in pitch blackness (subtle desaturated cyan tint)
+    // 60ft Darkvision in pitch blackness (subtle desaturated cyan boost)
     if (profile.hasDarkvision && lightingStore.darkvisionEnabled) {
       lightG
         .circle(profile.x, profile.y, profile.darkvisionRadius)
@@ -160,24 +190,6 @@ export class LightingAndVisionLayer {
     }
 
     this.lightEmissionContainer.addChild(lightG);
-  }
-
-  /**
-   * Renders the persistent explored shroud buffer (semi-transparent dark fog).
-   */
-  private renderExploredShroud(): void {
-    const exploredCanvas = fogOfWarTextureManager.getCanvas();
-    if (!exploredCanvas) return;
-
-    this.exploredShroudContainer.removeChildren();
-
-    // Semi-transparent dark shroud (rgba(10, 15, 30, 0.75))
-    const shroudG = new Graphics();
-    shroudG
-      .rect(0, 0, this.width, this.height)
-      .fill({ color: 0x0a0f1e, alpha: 0.75 });
-
-    this.exploredShroudContainer.addChild(shroudG);
   }
 
   public destroy(): void {

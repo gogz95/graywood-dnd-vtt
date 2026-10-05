@@ -18,6 +18,9 @@
   import { pixiLifecycle } from '../services/pixiLifecycle';
   import { tokenTurnRendererManager, updateTokenElevationVisuals } from './tokenRenderer';
   import { attachTokenDisplayObjectWheelListener, handleTokenElevationWheel } from './interaction/tokenPointerHandler';
+  import { LightingAndVisionLayer } from './LightingAndVisionLayer';
+  import { lightingStore } from '../stores/lightingStore';
+  import { raycastEngine } from './RaycastEngine';
 
   let {
     tokens = $bindable([] as Token[]),
@@ -53,10 +56,7 @@
   let layerWalls: Container;
   let tokensContainer: Container;
   let layer1Tokens: Container;
-  let fogContainer: Container;
-  let darknessContainer: Container;
-  let layer2Darkness: Graphics;
-  let layer3FogMask: Graphics;
+  let lightingLayer: LightingAndVisionLayer | null = null;
 
   // Interaction tracking
   let draggedToken: Token | null = null;
@@ -91,8 +91,21 @@
 
     if (typeof window !== 'undefined') {
       window.addEventListener('vtt:purge-vram', handlePurgeVram);
+      window.addEventListener('keydown', handleKeyDown);
     }
   });
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.shiftKey && e.key.toLowerCase() === 'v') {
+      lightingStore.toggleGmVisionOverride();
+      showBanner(
+        lightingStore.gmVisionOverride
+          ? 'GM Vision Override: Omniscient ghost fog active (Shift+V)'
+          : 'GM Vision Override: Standard player fog active (Shift+V)'
+      );
+      renderVision();
+    }
+  }
 
   function handlePurgeVram() {
     if (stageRoot) {
@@ -106,6 +119,11 @@
   onDestroy(() => {
     if (typeof window !== 'undefined') {
       window.removeEventListener('vtt:purge-vram', handlePurgeVram);
+      window.removeEventListener('keydown', handleKeyDown);
+    }
+    if (lightingLayer) {
+      lightingLayer.destroy();
+      lightingLayer = null;
     }
     if (statusBannerTimer) clearTimeout(statusBannerTimer);
     if (pixiApp) {
@@ -160,23 +178,9 @@
     stageRoot.addChild(tokensContainer);
     layer1Tokens = tokensContainer;
 
-    // Semantic Layer 5: Fog & Dynamic Darkness Container
-    fogContainer = new Container({ isRenderGroup: true });
-    fogContainer.label = 'VTT_FogContainer';
-    stageRoot.addChild(fogContainer);
-    darknessContainer = fogContainer;
-
-    // Ambient Darkness
-    layer2Darkness = new Graphics();
-    layer2Darkness
-      .rect(0, 0, mapWidth, mapHeight)
-      .fill({ color: 0x030712, alpha: 0.95 });
-    fogContainer.addChild(layer2Darkness);
-
-    // Dynamic Fog Mask (using ERASE blend mode)
-    layer3FogMask = new Graphics();
-    layer3FogMask.blendMode = 'erase';
-    fogContainer.addChild(layer3FogMask);
+    // Semantic Layer 5: Fog & Dynamic Darkness Container (PixiJS 3-layer light & vision)
+    lightingLayer = new LightingAndVisionLayer(pixiApp, mapWidth, mapHeight, true);
+    stageRoot.addChild(lightingLayer.container);
 
     // Global pointer interaction for drag cancellation
     pixiApp.stage.eventMode = 'static';
@@ -216,6 +220,21 @@
 
   function renderWalls() {
     layerWalls.removeChildren();
+
+    // Sync wall colliders into RaycastEngine for 2D visibility polygon casting
+    raycastEngine.clearWalls();
+    for (let i = 0; i < walls.length; i++) {
+      const w = walls[i];
+      raycastEngine.addWall({
+        id: `wall_${i}`,
+        p1: { x: w.p1[0], y: w.p1[1] },
+        p2: { x: w.p2[0], y: w.p2[1] },
+        sense: w.blocksVision ? 'block' : 'pass',
+        move: w.blocksMovement ? 'block' : 'pass',
+        isDoor: w.isDoor,
+        isOpen: w.isOpen,
+      });
+    }
 
     for (let i = 0; i < walls.length; i++) {
       const wall = walls[i];
@@ -393,44 +412,13 @@
 
   /**
    * Complete raycast visibility rendering pipeline:
-   * 1. Filters active vision walls: excludes open doors.
-   * 2. Runs visibility-polygon compute on each unsealed token.
-   * 3. Draws polygons into layer3FogMask with ERASE blend mode to clear ambient darkness.
+   * Delegated to LightingAndVisionLayer which renders active LoS cutouts,
+   * light emission falloff (bright/dim/darkvision), ambient darkness,
+   * and persistent explored shroud.
    */
   export function renderVision() {
-    if (!layer3FogMask) return;
-
-    layer3FogMask.clear();
-
-    for (const token of tokens) {
-      // Tokens sealed in the Black Orb cast zero vision
-      if (token.isOrbSealed) {
-        continue;
-      }
-
-      const polygon = computeTokenVisibility(
-        token,
-        walls,
-        { width: mapWidth, height: mapHeight }
-      );
-
-      if (polygon.length >= 3) {
-        // Flatten [ [x, y], ... ] into [x0, y0, x1, y1, ...]
-        const flatPoints: number[] = [];
-        for (const [px, py] of polygon) {
-          flatPoints.push(px, py);
-        }
-
-        layer3FogMask
-          .poly(flatPoints)
-          .fill({ color: 0xffffff, alpha: 1.0 });
-
-        // Soft peripheral ambient sight circle around the token
-        layer3FogMask
-          .circle(token.x, token.y, token.radius * 2.5)
-          .fill({ color: 0xffffff, alpha: 1.0 });
-      }
-    }
+    if (!lightingLayer) return;
+    lightingLayer.renderLighting(tokens, gridSize);
   }
 
   function handleDragOver(e: DragEvent) {
