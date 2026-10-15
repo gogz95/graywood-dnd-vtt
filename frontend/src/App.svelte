@@ -6,10 +6,39 @@
   import MobileCompanionView from './routes/mobile/+page.svelte';
   import PlayerPortalReceiver from './routes/portal/+page.svelte';
   import ErrorBoundary from './lib/components/system/ErrorBoundary.svelte';
+  import MapViewportHost from './lib/components/canvas/MapViewportHost.svelte';
+  import { pluginHost } from './lib/services/pluginHost.svelte';
+  import { tactical2dProvider } from './plugins/viewports/tactical-2d';
+  import { tactical3dProvider } from './plugins/viewports/tactical-3d';
+  import type { MapSceneData } from './lib/types/viewport';
 
-  type Route = 'workspace' | 'play' | 'projector' | 'mobile' | 'portal';
+  // Wire standard viewport providers
+  pluginHost.registerViewport(tactical2dProvider);
+  pluginHost.registerViewport(tactical3dProvider);
+
+  type Route = 'workspace' | 'play' | 'projector' | 'mobile' | 'portal' | 'display';
 
   let currentRoute = $state<Route>('workspace');
+  let activeTool = $state('select');
+
+  let activeScene = $state<MapSceneData>({
+    id: 'active-battlemat',
+    name: 'Tactical Battlemat',
+    type: 'tactical_2d',
+    grid: {
+      type: 'square',
+      size: 50,
+      scaleFeet: 5
+    }
+  });
+
+  let isDisplayMode = $derived(
+    currentRoute === 'display' ||
+    (typeof window !== 'undefined' &&
+      (window.location.pathname.startsWith('/display') ||
+        window.location.search.includes('mode=display') ||
+        window.location.hash.startsWith('#/display')))
+  );
 
   function updateRoute() {
     if (typeof window === 'undefined') return;
@@ -17,7 +46,9 @@
     const hash = window.location.hash.toLowerCase();
     const search = window.location.search.toLowerCase();
 
-    if (path.startsWith('/mobile') || hash.startsWith('#/mobile')) {
+    if (path.startsWith('/display') || hash.startsWith('#/display') || search.includes('mode=display')) {
+      currentRoute = 'display';
+    } else if (path.startsWith('/mobile') || hash.startsWith('#/mobile')) {
       currentRoute = 'mobile';
     } else if (path.startsWith('/portal') || hash.startsWith('#/portal')) {
       currentRoute = 'portal';
@@ -43,7 +74,12 @@
 </script>
 
 <ErrorBoundary>
-  {#if currentRoute === 'mobile'}
+  {#if isDisplayMode}
+    <!-- TV Spectator Display: Hides SidebarNav, HeaderBar, and DM drawers, rendering MapViewportHost fullscreen -->
+    <main class="fixed inset-0 w-screen h-screen bg-black overflow-hidden z-50">
+      <MapViewportHost scene={activeScene} isDmView={false} {activeTool} />
+    </main>
+  {:else if currentRoute === 'mobile'}
     <MobileCompanionView />
   {:else if currentRoute === 'portal'}
     <PlayerPortalReceiver />

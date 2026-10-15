@@ -208,6 +208,9 @@ pub enum WsEvent {
         scene_id: String,
         fog: serde_json::Value,
     },
+
+    #[serde(untagged)]
+    Custom(serde_json::Value),
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -409,6 +412,7 @@ pub fn sanitize_event_for_player(event: &WsEvent) -> Option<WsEvent> {
 async fn handle_socket(socket: WebSocket, state: AppState, query: WsQuery) {
     let (mut sender, mut receiver) = socket.split();
     let mut rx = state.ws_sender.subscribe();
+    let (client_tx, mut client_rx) = tokio::sync::mpsc::channel::<Message>(64);
 
     let initial_is_dm = match query.role.as_deref() {
         Some("player") | Some("companion") | Some("spectator") => false,
@@ -458,31 +462,44 @@ async fn handle_socket(socket: WebSocket, state: AppState, query: WsQuery) {
 
 
         loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    let client_is_dm = is_dm_send.load(Ordering::Relaxed);
-                    let outbound = if client_is_dm {
-                        Some(event)
-                    } else {
-                        sanitize_event_for_player(&event)
-                    };
-
-                    if let Some(ev) = outbound {
-                        match serde_json::to_string(&ev) {
-                            Ok(json_str) => {
-                                if sender.send(Message::Text(json_str)).await.is_err() {
-                                    break;
-                                }
-                            }
-                            Err(_) => break,
+            tokio::select! {
+                direct_msg = client_rx.recv() => {
+                    if let Some(msg) = direct_msg {
+                        if sender.send(msg).await.is_err() {
+                            break;
                         }
+                    } else {
+                        break;
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
-                    eprintln!("[ws] WebSocket client lagged, skipped {} messages", count);
-                    continue;
+                res = rx.recv() => {
+                    match res {
+                        Ok(event) => {
+                            let client_is_dm = is_dm_send.load(Ordering::Relaxed);
+                            let outbound = if client_is_dm {
+                                Some(event)
+                            } else {
+                                sanitize_event_for_player(&event)
+                            };
+
+                            if let Some(ev) = outbound {
+                                match serde_json::to_string(&ev) {
+                                    Ok(json_str) => {
+                                        if sender.send(Message::Text(json_str)).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                            eprintln!("[ws] WebSocket client lagged, skipped {} messages", count);
+                            continue;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
     });
@@ -497,15 +514,91 @@ async fn handle_socket(socket: WebSocket, state: AppState, query: WsQuery) {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(text) => {
-                    if let Ok(raw_val) = serde_json::from_str::<serde_json::Value>(&text) {
-                        if raw_val.get("type").and_then(|t| t.as_str()) == Some("AUTH_REQUEST") {
-                            if let Some(pin) = raw_val.get("pin").and_then(|p| p.as_str()) {
+                    let raw_val: Option<serde_json::Value> = serde_json::from_str(&text).ok();
+                    if let Some(ref val) = raw_val {
+                        let msg_type = val.get("type").and_then(|t| t.as_str());
+
+                        if msg_type == Some("CLIENT_HELLO") {
+                            let role = val.get("role").and_then(|r| r.as_str()).unwrap_or("controller");
+                            if role == "display" || role == "player" {
+                                is_dm.store(false, Ordering::Relaxed);
+                            }
+
+                            let (active_scene_id, tokens, combat) = {
+                                let conn = db.lock().await;
+                                let scene_id: String = conn
+                                    .query_row(
+                                        "SELECT id FROM maps WHERE is_active = 1 LIMIT 1",
+                                        [],
+                                        |r| r.get(0),
+                                    )
+                                    .unwrap_or_else(|_| "default-scene".to_string());
+
+                                let mut token_list = Vec::new();
+                                if let Ok(mut stmt) = conn.prepare("SELECT id, name, x, y, elevation FROM tokens WHERE scene_id = ?1") {
+                                    if let Ok(rows) = stmt.query_map([&scene_id], |row| {
+                                        Ok(serde_json::json!({
+                                            "id": row.get::<_, String>(0)?,
+                                            "name": row.get::<_, String>(1)?,
+                                            "x": row.get::<_, f64>(2)?,
+                                            "y": row.get::<_, f64>(3)?,
+                                            "elevation": row.get::<_, i32>(4).unwrap_or(0),
+                                        }))
+                                    }) {
+                                        for t in rows.flatten() {
+                                            token_list.push(t);
+                                        }
+                                    }
+                                }
+
+                                let combat_val: Option<serde_json::Value> = conn
+                                    .query_row(
+                                        "SELECT round, current_turn_index FROM encounters WHERE is_active = 1 LIMIT 1",
+                                        [],
+                                        |r| Ok(serde_json::json!({
+                                            "round": r.get::<_, i32>(0)?,
+                                            "current_turn_index": r.get::<_, i32>(1)?
+                                        })),
+                                    )
+                                    .ok();
+
+                                (scene_id, token_list, combat_val)
+                            };
+
+                            let snapshot_msg = serde_json::json!({
+                                "type": "STATE_SNAPSHOT",
+                                "payload": {
+                                    "activeSceneId": active_scene_id,
+                                    "scene_id": active_scene_id,
+                                    "tokens": tokens,
+                                    "combat": combat,
+                                    "time": std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_secs()
+                                }
+                            });
+
+                            if let Ok(json_str) = serde_json::to_string(&snapshot_msg) {
+                                let _ = client_tx.send(Message::Text(json_str)).await;
+                            }
+                            continue;
+                        }
+
+                        if msg_type == Some("AUTH_REQUEST") {
+                            if let Some(pin) = val.get("pin").and_then(|p| p.as_str()) {
                                 if pin != "1337" && pin != "dm" {
                                     is_dm.store(false, Ordering::Relaxed);
                                 }
                             }
                         }
                     }
+
+                    let is_ephemeral = raw_val
+                        .as_ref()
+                        .and_then(|v| v.get("ephemeral"))
+                        .and_then(|e| e.as_bool())
+                        .unwrap_or(false);
 
                     let mut parsed_event = serde_json::from_str::<WsEvent>(&text).ok();
                     if parsed_event.is_none() {
@@ -525,11 +618,18 @@ async fn handle_socket(socket: WebSocket, state: AppState, query: WsQuery) {
                                     splash_image_url: splash,
                                     payload: None,
                                 });
+                            } else {
+                                parsed_event = Some(WsEvent::Custom(raw_val));
                             }
                         }
                     }
 
                     if let Some(event) = parsed_event {
+                        if is_ephemeral {
+                            let _ = broadcast_tx.send(event);
+                            continue;
+                        }
+
                         // If the event affects persisted state, update SQLite asynchronously
                         match &event {
                             WsEvent::ProjectorCurtainState { active, payload, .. } => {

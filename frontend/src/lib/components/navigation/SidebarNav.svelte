@@ -38,6 +38,29 @@
     asOverlay?: boolean;
   } = $props();
 
+  import { pluginHost, type ActiveSlotBinding } from '../../services/pluginHost.svelte';
+  import type { Action } from 'svelte/action';
+
+  let pluginTabs = $derived(pluginHost.getSlotBindings('sidebar_tab'));
+  let activePluginTab = $state<string | null>(null);
+
+  const mountPluginSlot: Action<HTMLElement, ActiveSlotBinding | null> = (node, binding) => {
+    let instance: { destroy?: () => void } | void;
+
+    $effect(() => {
+      if (binding) {
+        node.innerHTML = '';
+        instance = binding.mount(node, pluginHost.getContext());
+      }
+      return () => {
+        if (instance && typeof instance.destroy === 'function') {
+          instance.destroy();
+        }
+        node.innerHTML = '';
+      };
+    });
+  };
+
   // Screen Real Estate: Docked icon-rail mode vs. fully expanded navigation panel
   let isCollapsed = $state(false);
 
@@ -400,7 +423,61 @@
         onSelectChild={(child, g) => handleSelectChild(child, g)}
       />
     {/each}
+    {#if pluginTabs.length > 0}
+      <div class="pt-2 pb-1 border-t border-slate-800/80">
+        {#if !isCollapsed}
+          <div class="px-2 pb-1 text-[10px] font-mono uppercase tracking-wider text-slate-500">
+            Plugins
+          </div>
+        {/if}
+        <div class="space-y-1">
+          {#each pluginTabs as tab (tab.pluginId)}
+            <button
+              type="button"
+              onclick={() => activePluginTab = activePluginTab === tab.pluginId ? null : tab.pluginId}
+              class="w-full text-left px-3 py-2 rounded-xl flex items-center gap-2.5 text-xs font-semibold transition-all {activePluginTab === tab.pluginId ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40' : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/40'}"
+              title={tab.title}
+            >
+              <span class="text-base leading-none select-none">{tab.icon}</span>
+              {#if !isCollapsed}
+                <span class="truncate">{tab.title}</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
   </nav>
+
+  {#if activePluginTab}
+    {@const activeBinding = pluginTabs.find(t => t.pluginId === activePluginTab)}
+    {#if activeBinding}
+      <div class="border-t border-slate-800 bg-slate-950/90 p-3 max-h-72 overflow-y-auto">
+        <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-800/80 text-xs">
+          <span class="font-bold text-slate-200 flex items-center gap-1.5">
+            <span>{activeBinding.icon}</span>
+            <span>{activeBinding.title}</span>
+          </span>
+          <button
+            type="button"
+            onclick={() => activePluginTab = null}
+            class="text-slate-400 hover:text-slate-200 text-xs px-1.5 py-0.5 rounded hover:bg-slate-800"
+          >
+            ✕
+          </button>
+        </div>
+        <svelte:boundary>
+          <div use:mountPluginSlot={activeBinding}></div>
+          {#snippet failed(error, reset)}
+            <div class="p-4 text-xs text-rose-400 bg-rose-950/40 rounded border border-rose-800">
+              <p class="font-bold">Plugin render failed</p>
+              <button class="mt-2 text-slate-200 underline" onclick={reset}>Try Reload</button>
+            </div>
+          {/snippet}
+        </svelte:boundary>
+      </div>
+    {/if}
+  {/if}
 
   <!-- ═════════════════════════════════════════════════════════════════════════
        BOTTOM UTILITY DOCK

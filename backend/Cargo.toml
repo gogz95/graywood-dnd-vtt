@@ -1,0 +1,47 @@
+[package]
+name = "graywood-vtt"
+version = "1.0.0"
+default-run = "graywood-vtt"
+description = "Graywood VTT DM Desktop backend"
+edition = "2021"
+
+[lib]
+name = "graywood_vtt_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+rusqlite = { version = "0.31", features = ["bundled", "bundled-full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+axum = { version = "0.7", features = ["ws", "multipart"] }
+tokio = { version = "1.38", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
+futures-util = "0.3"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+mime_guess = "2.0"
+flate2 = "1.0"
+zip = { version = "2.1", default-features = false, features = ["deflate"] }
+rfd = "0.14"
+tauri = { version = "2.0", features = [] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
+walkdir = "2.5.0"
+
+[features]
+default = []
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

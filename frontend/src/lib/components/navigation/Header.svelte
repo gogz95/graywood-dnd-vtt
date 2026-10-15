@@ -9,8 +9,25 @@
   import { curtainStore } from '../../stores/curtainStore.svelte';
   import { canvasStore } from '../../../stores/canvasStore.svelte';
   import { broadcaster } from '../../services/broadcaster';
-  import CalendarDisplayWidget from './CalendarDisplayWidget.svelte';
-  import WorldClockPill from './WorldClockPill.svelte';
+  import { pluginHost, type ActiveSlotBinding } from '../../services/pluginHost.svelte';
+  import type { Action } from 'svelte/action';
+
+  let headerActions = $derived(pluginHost.getSlotBindings('header_action'));
+
+  const mountPluginSlot: Action<HTMLElement, ActiveSlotBinding> = (node, binding) => {
+    let instance: { destroy?: () => void } | void;
+
+    $effect(() => {
+      node.innerHTML = '';
+      instance = binding.mount(node, pluginHost.getContext());
+      return () => {
+        if (instance && typeof instance.destroy === 'function') {
+          instance.destroy();
+        }
+        node.innerHTML = '';
+      };
+    });
+  };
 
   let {
     campaignName = 'Default Campaign',
@@ -126,15 +143,14 @@
        RIGHT: UTILITY TRAY & MODAL CONTROLS (Part 1)
   ══════════════════════════════════════════════════════════════════════════ -->
   <div class="flex items-center gap-1.5 shrink-0 relative">
-    <!-- Calendar Pill -->
-    <div class="hidden xl:block">
-      <CalendarDisplayWidget />
-    </div>
-
-    <!-- World Clock Pill -->
-    <div class="hidden lg:block">
-      <WorldClockPill />
-    </div>
+    <!-- Dynamic Plugin Header Actions -->
+    {#each headerActions as action (action.pluginId + action.title)}
+      <div
+        class="flex items-center"
+        title={action.title}
+        use:mountPluginSlot={action}
+      ></div>
+    {/each}
 
     <!-- Compact Projector / Cast Dropdown Menu (Part 1.2) -->
     <div class="relative">

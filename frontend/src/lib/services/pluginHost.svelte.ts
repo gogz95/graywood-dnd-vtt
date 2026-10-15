@@ -1,394 +1,346 @@
-// frontend/src/lib/services/pluginHost.ts
-// Sandboxed Plugin Engine & Asynchronous PostMessage Bridge with Svelte 5 Store Integration
+import type {
+  PluginContext,
+  PluginInstance,
+  PluginSlot,
+  PluginSlotBinding,
+  VttPlugin
+} from '$lib/types/plugin';
+import type { ViewportProvider } from '$lib/types/viewport';
+import { sendWsEvent } from '../../stores/websocketStore';
+import { tokenStore } from '$lib/stores/tokenStore.svelte';
+import { mapStore } from '$lib/stores/mapStore.svelte';
 
-import { tokenStore } from '../stores/tokenStore.svelte';
-import { audioEngine } from '../audio/AudioEngine';
+const STORAGE_KEY = 'vtt_enabled_plugins';
 
-export interface PluginManifest {
-  id: string;
-  name: string;
-  version: string;
-  entrypoint: string;
-  permissions: string[];
-  description?: string;
-  author?: string;
+export interface ActiveSlotBinding {
+  pluginId: string;
+  title: string;
+  icon: string;
+  mount: (container: HTMLElement, context: PluginContext) => PluginInstance | void;
 }
 
-export interface PluginErrorLog {
-  timestamp: number;
-  message: string;
-  stack?: string;
-}
+export class PluginRegistry {
+  registeredPlugins = $state<Map<string, VttPlugin>>(new Map());
+  enabledIds = $state<Set<string>>(new Set());
+  viewportProviders = $state<Map<string, ViewportProvider>>(new Map());
 
-export interface PluginInstance {
-  manifest: PluginManifest;
-  code: string;
-  enabled: boolean;
-  status: 'active' | 'disabled' | 'error';
-  worker: Worker | null;
-  errors: PluginErrorLog[];
-  mutationCount: number;
-  lastMutationReset: number;
-}
-
-const STORAGE_KEY = 'vtt_plugin_configs_v1';
-const MAX_MUTATIONS_PER_SEC = 30;
-
-class PluginHostService {
-  plugins = $state<PluginInstance[]>([]);
-  activePluginCount = $derived(this.plugins.filter((p) => p.status === 'active').length);
-
-  private enabledConfig: Record<string, boolean> = this.loadConfig();
+  private persistedIds: Set<string> | null = null;
+  private listeners = new Map<string, Set<(payload: any) => void>>();
+  private blackboard = new Map<string, Record<string, any>>();
 
   constructor() {
+    this.loadPersistedState();
     if (typeof window !== 'undefined') {
-      // Wire up global listeners to forward into sandboxed plugins
-      this.initGlobalListeners();
-    }
-  }
-
-  // ── Discovery & Registry ───────────────────────────────────────────────────
-  async discoverPlugins(): Promise<void> {
-    try {
-      const res = await fetch('/api/plugins');
-      if (!res.ok) return;
-
-      const discovered: Array<{
-        manifest: PluginManifest;
-        dir_name: string;
-        code: string;
-        folder_path: string;
-      }> = await res.json();
-
-      const updated: PluginInstance[] = [];
-
-      for (const item of discovered) {
-        const existing = this.plugins.find((p) => p.manifest.id === item.manifest.id);
-        const shouldEnable = this.enabledConfig[item.manifest.id] ?? true;
-
-        if (existing) {
-          existing.code = item.code;
-          existing.manifest = item.manifest;
-          if (shouldEnable && existing.status !== 'active') {
-            this.startSandbox(existing);
-          }
-          updated.push(existing);
-        } else {
-          const inst: PluginInstance = {
-            manifest: item.manifest,
-            code: item.code,
-            enabled: shouldEnable,
-            status: 'disabled',
-            worker: null,
-            errors: [],
-            mutationCount: 0,
-            lastMutationReset: Date.now(),
-          };
-          if (shouldEnable) {
-            this.startSandbox(inst);
-          }
-          updated.push(inst);
+      window.addEventListener('vtt:plugin-event', (ev: any) => {
+        const detail = ev.detail;
+        if (detail && detail.event) {
+          this.emit(detail.event, detail.payload, false);
         }
-      }
-
-      this.plugins = updated;
-    } catch (err) {
-      console.warn('[PluginHost] Failed to discover plugins from /api/plugins:', err);
-    }
-  }
-
-  // ── Sandboxed Web Worker Lifecycle ─────────────────────────────────────────
-  private startSandbox(plugin: PluginInstance): void {
-    if (typeof window === 'undefined' || typeof Worker === 'undefined') return;
-
-    if (plugin.worker) {
-      plugin.worker.terminate();
-      plugin.worker = null;
-    }
-
-    try {
-      const workerScript = this.createWorkerBootstrap(plugin.code);
-      const blob = new Blob([workerScript], { type: 'application/javascript' });
-      const blobUrl = URL.createObjectURL(blob);
-      const worker = new Worker(blobUrl);
-
-      worker.onmessage = (e) => this.handleWorkerMessage(plugin, e.data);
-      worker.onerror = (e) => {
-        plugin.status = 'error';
-        plugin.errors.push({
-          timestamp: Date.now(),
-          message: e.message || 'Unhandled worker error',
-          stack: `${e.filename}:${e.lineno}:${e.colno}`,
-        });
-      };
-
-      plugin.worker = worker;
-      plugin.status = 'active';
-      plugin.enabled = true;
-      this.saveConfig();
-    } catch (err: any) {
-      plugin.status = 'error';
-      plugin.errors.push({
-        timestamp: Date.now(),
-        message: err?.message || 'Failed to spawn worker sandbox',
-        stack: err?.stack,
       });
     }
   }
 
-  private stopSandbox(plugin: PluginInstance): void {
-    if (plugin.worker) {
-      plugin.worker.terminate();
-      plugin.worker = null;
-    }
-    plugin.status = 'disabled';
-    plugin.enabled = false;
-    this.saveConfig();
-  }
-
-  togglePlugin(id: string): void {
-    const plugin = this.plugins.find((p) => p.manifest.id === id);
-    if (!plugin) return;
-
-    if (plugin.status === 'active') {
-      this.stopSandbox(plugin);
-    } else {
-      this.startSandbox(plugin);
-    }
-  }
-
-  clearPluginErrors(id: string): void {
-    const plugin = this.plugins.find((p) => p.manifest.id === id);
-    if (plugin) {
-      plugin.errors = [];
-      if (plugin.status === 'error' && plugin.enabled) {
-        this.startSandbox(plugin);
-      }
-    }
-  }
-
-  // ── Worker Message Handler, Rate-Limiting & Validation ─────────────────────
-  private handleWorkerMessage(plugin: PluginInstance, msg: any): void {
-    if (!msg || typeof msg !== 'object') return;
-
-    if (msg.type === 'ERROR') {
-      plugin.errors.push({
-        timestamp: Date.now(),
-        message: msg.message || 'Worker runtime error',
-        stack: msg.stack,
-      });
-      return;
-    }
-
-    if (msg.type === 'READY') {
-      plugin.status = 'active';
-      return;
-    }
-
-    if (msg.type === 'MUTATION') {
-      const now = Date.now();
-      if (now - plugin.lastMutationReset > 1000) {
-        plugin.mutationCount = 0;
-        plugin.lastMutationReset = now;
-      }
-      plugin.mutationCount++;
-
-      // Strict Rate-Limiting Guard
-      if (plugin.mutationCount > MAX_MUTATIONS_PER_SEC) {
-        plugin.errors.push({
-          timestamp: now,
-          message: `Mutation throttled: Exceeded rate limit of ${MAX_MUTATIONS_PER_SEC} actions/sec.`,
-        });
-        return;
-      }
-
-      this.executeMutation(plugin, msg.action, msg.payload);
-    }
-  }
-
-  private executeMutation(plugin: PluginInstance, action: string, payload: any): void {
-    const perms = plugin.manifest.permissions || [];
-
-    // 1. Tokens Mutate
-    if (action === 'tokens:update') {
-      if (!perms.includes('tokens:mutate')) {
-        plugin.errors.push({
-          timestamp: Date.now(),
-          message: 'Permission denied: tokens:mutate required for api.tokens.update',
-        });
-        return;
-      }
-
-      const { tokenId, updates } = payload || {};
-      if (typeof tokenId !== 'string' || !updates || typeof updates !== 'object') {
-        plugin.errors.push({
-          timestamp: Date.now(),
-          message: 'Invalid payload for tokens:update: must provide string tokenId and object updates',
-        });
-        return;
-      }
-
-      // Sanitize safe subset of fields to prevent store corruption
-      const sanitized: Record<string, any> = {};
-      if (typeof updates.x === 'number' && !isNaN(updates.x)) sanitized.x = updates.x;
-      if (typeof updates.y === 'number' && !isNaN(updates.y)) sanitized.y = updates.y;
-      if (typeof updates.hp === 'number' && !isNaN(updates.hp)) sanitized.hp = Math.max(0, updates.hp);
-      if (typeof updates.elevation === 'number' && !isNaN(updates.elevation)) sanitized.elevation = updates.elevation;
-      if (typeof updates.rotation === 'number' && !isNaN(updates.rotation)) sanitized.rotation = updates.rotation;
-      if (typeof updates.color === 'string') sanitized.color = updates.color.slice(0, 16);
-
-      tokenStore.updateToken(tokenId, sanitized);
-    }
-
-    // 2. Notification Toast
-    else if (action === 'notifications:toast') {
-      const msg = typeof payload?.message === 'string' ? payload.message.slice(0, 200) : '';
-      if (msg && typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('vtt:plugin-toast', {
-            detail: { pluginName: plugin.manifest.name, message: msg },
-          })
-        );
-      }
-    }
-
-    // 3. Audio Trigger
-    else if (action === 'audio:trigger') {
-      if (!perms.includes('audio:trigger')) {
-        plugin.errors.push({
-          timestamp: Date.now(),
-          message: 'Permission denied: audio:trigger required for api.audio.trigger',
-        });
-        return;
-      }
-      const sfx = typeof payload?.sfxId === 'string' ? payload.sfxId : 'sfx-dice';
-      audioEngine.triggerSfx(sfx);
-    }
-  }
-
-  // ── Outbound Event Bridge ──────────────────────────────────────────────────
-  broadcast(event: string, data: any): void {
-    for (const plugin of this.plugins) {
-      if (plugin.status === 'active' && plugin.worker) {
-        plugin.worker.postMessage({ event, data });
-      }
-    }
-  }
-
-  // ── Global Event Integration ───────────────────────────────────────────────
-  private initGlobalListeners(): void {
-    // 1. Dice roll events
-    window.addEventListener('vtt:dice-roll', (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      this.broadcast('dice:roll', detail);
-    });
-
-    // 2. Turn change events
-    window.addEventListener('vtt:turn-advanced', (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      this.broadcast('turn:change', detail);
-    });
-  }
-
-  // ── Isolated Zero-DOM Web Worker Wrapper ───────────────────────────────────
-  private createWorkerBootstrap(userCode: string): string {
-    return `
-      // Sandboxed Zero-DOM Plugin Execution Wrapper
-      (function() {
-        const listeners = new Map();
-
-        const api = {
-          on(event, handler) {
-            if (typeof event !== 'string' || typeof handler !== 'function') return;
-            if (!listeners.has(event)) listeners.set(event, []);
-            listeners.get(event).push(handler);
-          },
-          tokens: {
-            update(tokenId, updates) {
-              self.postMessage({
-                type: 'MUTATION',
-                action: 'tokens:update',
-                payload: { tokenId, updates }
-              });
-            }
-          },
-          notifications: {
-            toast(message) {
-              self.postMessage({
-                type: 'MUTATION',
-                action: 'notifications:toast',
-                payload: { message }
-              });
-            }
-          },
-          audio: {
-            trigger(sfxId) {
-              self.postMessage({
-                type: 'MUTATION',
-                action: 'audio:trigger',
-                payload: { sfxId }
-              });
-            }
-          }
-        };
-
-        self.onmessage = function(e) {
-          const payload = e.data;
-          if (!payload || !payload.event) return;
-          const handlers = listeners.get(payload.event);
-          if (handlers && handlers.length > 0) {
-            for (let i = 0; i < handlers.length; i++) {
-              try {
-                handlers[i](payload.data);
-              } catch (err) {
-                self.postMessage({
-                  type: 'ERROR',
-                  message: err && err.message ? err.message : String(err),
-                  stack: err && err.stack ? err.stack : undefined
-                });
-              }
-            }
-          }
-        };
-
-        try {
-          // Strict user-code sandbox execution with 'api' exposed
-          (function(api) {
-            ${userCode}
-          })(api);
-
-          self.postMessage({ type: 'READY' });
-        } catch (err) {
-          self.postMessage({
-            type: 'ERROR',
-            message: err && err.message ? err.message : String(err),
-            stack: err && err.stack ? err.stack : undefined
-          });
-        }
-      })();
-    `;
-  }
-
-  private loadConfig(): Record<string, boolean> {
-    if (typeof localStorage === 'undefined') return {};
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  }
-
-  private saveConfig(): void {
+  private loadPersistedState(): void {
     if (typeof localStorage === 'undefined') return;
     try {
-      const cfg: Record<string, boolean> = {};
-      for (const p of this.plugins) {
-        cfg[p.manifest.id] = p.enabled;
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw !== null) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          this.persistedIds = new Set(parsed);
+          this.enabledIds = new Set(parsed);
+        }
       }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
-    } catch {}
+    } catch {
+      this.persistedIds = null;
+    }
+  }
+
+  private savePersistedState(): void {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(this.enabledIds)));
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  // ── Viewport Provider Registry ──────────────────────────────────────────
+
+  registerViewport(provider: ViewportProvider): void {
+    const nextMap = new Map(this.viewportProviders);
+    nextMap.set(provider.id, provider);
+    this.viewportProviders = nextMap;
+  }
+
+  getViewportForScene(sceneType: string): ViewportProvider | undefined {
+    for (const provider of this.viewportProviders.values()) {
+      if (provider.supportedSceneTypes.includes(sceneType)) {
+        return provider;
+      }
+    }
+    return undefined;
+  }
+
+  // ── Pub/Sub Event Message Bus ───────────────────────────────────────────
+
+  on<T = unknown>(event: string, handler: (payload: T) => void): () => void {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+    const set = this.listeners.get(event)!;
+    set.add(handler as (payload: any) => void);
+    return () => {
+      set.delete(handler as (payload: any) => void);
+    };
+  }
+
+  emit<T = unknown>(event: string, payload: T, broadcastLan = false): void {
+    const set = this.listeners.get(event);
+    if (set) {
+      for (const handler of Array.from(set)) {
+        try {
+          handler(payload);
+        } catch (err) {
+          console.error(`[PluginRegistry] Error handling event "${event}":`, err);
+        }
+      }
+    }
+    if (broadcastLan) {
+      sendWsEvent('PLUGIN_EVENT', { event, payload });
+    }
+  }
+
+  // ── Entity Blackboard API ────────────────────────────────────────────────
+
+  getMeta<T = unknown>(
+    entityType: 'token' | 'actor' | 'scene',
+    entityId: string,
+    pluginId: string
+  ): T | undefined {
+    if (entityType === 'token') {
+      const token = tokenStore.get(entityId);
+      if (token?.metadata && pluginId in token.metadata) {
+        return token.metadata[pluginId] as T;
+      }
+    }
+    const key = `${entityType}:${entityId}`;
+    return this.blackboard.get(key)?.[pluginId] as T | undefined;
+  }
+
+  setMeta<T = unknown>(
+    entityType: 'token' | 'actor' | 'scene',
+    entityId: string,
+    pluginId: string,
+    value: T,
+    ephemeral = false
+  ): void {
+    const key = `${entityType}:${entityId}`;
+    if (!this.blackboard.has(key)) {
+      this.blackboard.set(key, {});
+    }
+    this.blackboard.get(key)![pluginId] = value;
+
+    if (entityType === 'token') {
+      const token = tokenStore.get(entityId);
+      if (token) {
+        if (!token.metadata) {
+          token.metadata = {};
+        }
+        token.metadata[pluginId] = value;
+        tokenStore.updateTokenLocally(entityId, { metadata: token.metadata });
+      }
+    }
+
+    sendWsEvent(
+      'META_PATCH',
+      { entityType, entityId, pluginId, value },
+      ephemeral
+    );
+  }
+
+  hasCapability(pluginId: string): boolean {
+    return this.isEnabled(pluginId) || this.registeredPlugins.has(pluginId);
+  }
+
+  // ── Context Factory ──────────────────────────────────────────────────────
+
+  createContext(pluginId: string): PluginContext {
+    return {
+      activeSceneId: () => mapStore.activeMapId || null,
+      activeTurnActorId: () => null,
+      rollDice: (formula: string, label?: string) => {
+        sendWsEvent('DICE_ROLL', { formula, label });
+      },
+      sendWsEvent: (type: string, payload: unknown, ephemeral = false) => {
+        sendWsEvent(type, payload, ephemeral);
+      },
+      on: <T = unknown>(event: string, handler: (payload: T) => void) => {
+        return this.on(event, handler);
+      },
+      emit: <T = unknown>(event: string, payload: T, broadcastLan = false) => {
+        this.emit(event, payload, broadcastLan);
+      },
+      getMeta: <T = unknown>(
+        entityType: 'token' | 'actor' | 'scene',
+        entityId: string,
+        metaPluginId: string = pluginId
+      ) => {
+        return this.getMeta<T>(entityType, entityId, metaPluginId);
+      },
+      setMeta: <T = unknown>(
+        entityType: 'token' | 'actor' | 'scene',
+        entityId: string,
+        metaPluginId: string = pluginId,
+        value: T,
+        ephemeral = false
+      ) => {
+        this.setMeta<T>(entityType, entityId, metaPluginId, value, ephemeral);
+      },
+      hasCapability: (capPluginId: string) => {
+        return this.hasCapability(capPluginId);
+      }
+    };
+  }
+
+  // ── Plugin Lifecycle ─────────────────────────────────────────────────────
+
+  register(plugin: VttPlugin): void {
+    const nextMap = new Map(this.registeredPlugins);
+    nextMap.set(plugin.id, plugin);
+    this.registeredPlugins = nextMap;
+
+    let shouldEnable = false;
+    if (this.persistedIds !== null) {
+      shouldEnable = this.persistedIds.has(plugin.id);
+    } else {
+      shouldEnable = plugin.enabledByDefault ?? false;
+    }
+
+    if (shouldEnable && !this.enabledIds.has(plugin.id)) {
+      void this.enable(plugin.id);
+    }
+  }
+
+  async enable(id: string): Promise<void> {
+    const plugin = this.registeredPlugins.get(id);
+    if (!plugin) return;
+
+    if (!this.enabledIds.has(id)) {
+      const nextSet = new Set(this.enabledIds);
+      nextSet.add(id);
+      this.enabledIds = nextSet;
+      this.savePersistedState();
+
+      if (plugin.onInit) {
+        await plugin.onInit(this.createContext(plugin.id));
+      }
+    }
+  }
+
+  disable(id: string): void {
+    const plugin = this.registeredPlugins.get(id);
+    if (!plugin) return;
+
+    if (this.enabledIds.has(id)) {
+      const nextSet = new Set(this.enabledIds);
+      nextSet.delete(id);
+      this.enabledIds = nextSet;
+      this.savePersistedState();
+
+      if (plugin.onDestroy) {
+        plugin.onDestroy();
+      }
+    }
+  }
+
+  isEnabled(id: string): boolean {
+    return this.enabledIds.has(id);
+  }
+
+  getSlotBindings(slot: PluginSlot): ActiveSlotBinding[] {
+    const bindings: ActiveSlotBinding[] = [];
+
+    for (const pluginId of this.enabledIds) {
+      const plugin = this.registeredPlugins.get(pluginId);
+      if (!plugin) continue;
+
+      for (const slotBinding of plugin.slots) {
+        if (slotBinding.slot === slot) {
+          bindings.push({
+            pluginId: plugin.id,
+            title: slotBinding.title,
+            icon: slotBinding.icon,
+            mount: (container: HTMLElement) =>
+              slotBinding.mount(container, this.createContext(plugin.id))
+          });
+        }
+      }
+    }
+
+    return bindings;
+  }
+
+  // ── Dynamic External Plugin Runtime Sideloading ──────────────────────────
+
+  async loadExternalPlugins(): Promise<void> {
+    try {
+      const res = await fetch('/api/plugins/external');
+      if (!res.ok) return;
+      const manifests: Array<{ id: string; scriptUrl?: string; script_url?: string }> =
+        await res.json();
+
+      for (const manifest of manifests) {
+        const url = manifest.scriptUrl || manifest.script_url;
+        if (!url) continue;
+
+        try {
+          const mod = await import(/* @vite-ignore */ url);
+          const plugin: VttPlugin = mod.default || mod.plugin || mod;
+          if (plugin && plugin.id) {
+            this.register(plugin);
+          }
+        } catch (err) {
+          console.warn(`[pluginHost] Failed dynamically importing ${url}:`, err);
+        }
+      }
+    } catch (err) {
+      console.warn('[pluginHost] Failed fetching external plugin manifests:', err);
+    }
+  }
+
+  async sideloadZip(file: File): Promise<VttPlugin> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch('/api/plugins/sideload', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Sideload failed HTTP ${res.status}: ${errText}`);
+    }
+
+    const manifest = await res.json();
+    const scriptUrl = manifest.scriptUrl || manifest.script_url;
+    if (!scriptUrl) {
+      throw new Error('Server returned invalid plugin manifest without scriptUrl.');
+    }
+
+    const versionedUrl = `${scriptUrl}?t=${Date.now()}`;
+    const mod = await import(/* @vite-ignore */ versionedUrl);
+    const plugin: VttPlugin = mod.default || mod.plugin || mod;
+
+    if (!plugin || !plugin.id) {
+      throw new Error('Imported module does not export a valid VttPlugin.');
+    }
+
+    this.register(plugin);
+    await this.enable(plugin.id);
+    return plugin;
   }
 }
 
-export const pluginHost = new PluginHostService();
+export const pluginHost = new PluginRegistry();

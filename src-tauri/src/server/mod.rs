@@ -8,7 +8,7 @@ pub use routes::ws::WsEvent;
 pub use state::AppState;
 
 use axum::{
-    extract::DefaultBodyLimit,
+    extract::{DefaultBodyLimit, State},
     routing::{get, patch, post},
     Router,
 };
@@ -28,6 +28,14 @@ pub fn create_router(state: AppState) -> Router {
         // 1. Static Assets & PWA Delivery
         .route("/", get(routes::assets::serve_index))
         .route("/assets/*path", get(routes::assets::serve_assets))
+        .route(
+            "/api/assets/upload",
+            post(upload_asset_handler).layer(DefaultBodyLimit::max(100 * 1024 * 1024)),
+        )
+        .route(
+            "/api/proxy/llm",
+            post(ollama_proxy_handler),
+        )
         // 2. Compendium Query Endpoints
         .route(
             "/api/compendium/classes",
@@ -137,6 +145,18 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/compendium/items", post(routes::lore::save_item))
         // 4d. Community Plugin Discovery & Sandbox Registry
         .route("/api/plugins", get(routes::plugins::list_plugins_route))
+        .route(
+            "/api/plugins/external",
+            get(routes::plugins::list_external_plugins_route),
+        )
+        .route(
+            "/api/plugins/sideload",
+            post(routes::plugins::sideload_plugin_route),
+        )
+        .route(
+            "/plugins/*path",
+            get(routes::plugins::serve_plugin_static),
+        )
         // 5. DM Encounter Tracker & Monster Spawning Endpoints
         .route("/api/encounter/active", get(routes::encounter::get_active))
         .route(
@@ -290,6 +310,175 @@ pub async fn run_server(
     let _ = std::fs::remove_file(&port_file);
     res?;
     Ok(())
+}
+
+async fn upload_asset_handler(
+    State(state): State<AppState>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<axum::Json<serde_json::Value>, (axum::http::StatusCode, String)> {
+    let mut category = "maps".to_string();
+    let mut file_ext = "png".to_string();
+    let mut file_bytes = Vec::new();
+
+    while let Some(mut field) = multipart.next_field().await.map_err(|e| {
+        (axum::http::StatusCode::BAD_REQUEST, format!("Multipart error: {}", e))
+    })? {
+        let field_name = field.name().map(|s| s.to_string());
+        if field_name.as_deref() == Some("category") {
+            if let Ok(text) = field.text().await {
+                let trimmed = text.trim().to_lowercase();
+                if ["maps", "tokens", "audio", "models"].contains(&trimmed.as_str()) {
+                    category = trimmed;
+                }
+            }
+            continue;
+        }
+
+        let fname = field.file_name().map(|s| s.to_string());
+        if fname.is_some() || field_name.as_deref() == Some("file") || field_name.as_deref() == Some("asset") {
+            if let Some(ref name) = fname {
+                if let Some(ext) = std::path::Path::new(name).extension().and_then(|e| e.to_str()) {
+                    file_ext = ext.trim_start_matches('.').to_lowercase();
+                }
+            }
+            while let Some(chunk) = field.chunk().await.map_err(|e| {
+                (axum::http::StatusCode::BAD_REQUEST, format!("Chunk read error: {}", e))
+            })? {
+                file_bytes.extend_from_slice(&chunk);
+            }
+        }
+    }
+
+    if file_bytes.is_empty() {
+        return Err((axum::http::StatusCode::BAD_REQUEST, "File is empty".to_string()));
+    }
+
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(&file_bytes);
+    let hash_hex = hex::encode(hasher.finalize());
+    let filename = format!("{}.{}", &hash_hex[..16], file_ext);
+
+    let app_data_dir = std::path::PathBuf::from("./app_data/assets").join(&category);
+    let _ = tokio::fs::create_dir_all(&app_data_dir).await;
+    let _ = tokio::fs::write(app_data_dir.join(&filename), &file_bytes).await;
+
+    let dist_assets_dir = state.assets_dir.join("assets").join(&category);
+    let _ = tokio::fs::create_dir_all(&dist_assets_dir).await;
+    let _ = tokio::fs::write(dist_assets_dir.join(&filename), &file_bytes).await;
+
+    let url = format!("/assets/{}/{}", category, filename);
+    Ok(axum::Json(serde_json::json!({ "url": url })))
+}
+
+async fn ollama_proxy_handler(
+    axum::Json(payload): axum::Json<serde_json::Value>,
+) -> Result<axum::response::Response, (axum::http::StatusCode, String)> {
+    let body_str = serde_json::to_string(&payload).map_err(|e| {
+        (axum::http::StatusCode::BAD_REQUEST, format!("Invalid JSON payload: {}", e))
+    })?;
+
+    let endpoint = if payload.get("messages").is_some() {
+        "/api/chat"
+    } else {
+        "/api/generate"
+    };
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = tokio::net::TcpStream::connect("127.0.0.1:11434").await.map_err(|e| {
+        (
+            axum::http::StatusCode::BAD_GATEWAY,
+            format!("Failed to connect to Ollama at 127.0.0.1:11434: {}", e),
+        )
+    })?;
+
+    let req = format!(
+        "POST {} HTTP/1.1\r\nHost: 127.0.0.1:11434\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        endpoint,
+        body_str.len(),
+        body_str
+    );
+
+    stream.write_all(req.as_bytes()).await.map_err(|e| {
+        (
+            axum::http::StatusCode::BAD_GATEWAY,
+            format!("Failed to send request to Ollama: {}", e),
+        )
+    })?;
+
+    let mut resp_bytes = Vec::new();
+    stream.read_to_end(&mut resp_bytes).await.map_err(|e| {
+        (
+            axum::http::StatusCode::BAD_GATEWAY,
+            format!("Failed to read response from Ollama: {}", e),
+        )
+    })?;
+
+    if let Some(pos) = resp_bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+        let headers_part = &resp_bytes[..pos];
+        let body_part = &resp_bytes[pos + 4..];
+
+        let is_chunked = String::from_utf8_lossy(headers_part)
+            .to_lowercase()
+            .contains("transfer-encoding: chunked");
+
+        let body_bytes = if is_chunked {
+            decode_chunked_body(body_part)
+        } else {
+            body_part.to_vec()
+        };
+
+        let mut response = axum::response::Response::new(axum::body::Body::from(body_bytes));
+        *response.status_mut() = axum::http::StatusCode::OK;
+        response.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static("application/json"),
+        );
+        Ok(response)
+    } else {
+        let mut response = axum::response::Response::new(axum::body::Body::from(resp_bytes));
+        *response.status_mut() = axum::http::StatusCode::OK;
+        Ok(response)
+    }
+}
+
+fn decode_chunked_body(mut data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    while !data.is_empty() {
+        if let Some(idx) = data.windows(2).position(|w| w == b"\r\n") {
+            let len_str = match std::str::from_utf8(&data[..idx]) {
+                Ok(s) => s.trim(),
+                Err(_) => break,
+            };
+            let chunk_len = match usize::from_str_radix(len_str, 16) {
+                Ok(l) => l,
+                Err(_) => break,
+            };
+            if chunk_len == 0 {
+                break;
+            }
+            let chunk_start = idx + 2;
+            let chunk_end = chunk_start + chunk_len;
+            if chunk_end <= data.len() {
+                out.extend_from_slice(&data[chunk_start..chunk_end]);
+                data = if chunk_end + 2 <= data.len() {
+                    &data[chunk_end + 2..]
+                } else {
+                    &data[chunk_end..]
+                };
+            } else {
+                out.extend_from_slice(&data[chunk_start..]);
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    if out.is_empty() {
+        data.to_vec()
+    } else {
+        out
+    }
 }
 
 #[cfg(test)]

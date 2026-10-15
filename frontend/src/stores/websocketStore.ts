@@ -16,6 +16,8 @@ import {
   applyHpUpdateFromWs,
   applyBlackOrbToggleFromWs,
 } from './characterStore';
+import { mapStore } from '../lib/stores/mapStore.svelte';
+import { tokenStore } from '../lib/stores/tokenStore.svelte';
 
 export interface WhisperMessage {
   id: string;
@@ -82,6 +84,12 @@ let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
 let currentConnectedPin: string | undefined = undefined;
+
+class WebSocketSyncState {
+  isHydrated = $state(false);
+}
+export const syncState = new WebSocketSyncState();
+export let isHydrated = $state(false);
 
 // ── Cross-Tab Auth Synchronization (BroadcastChannel 'vtt_companion_sync') ────
 
@@ -211,6 +219,12 @@ export function initWebSocket(pin?: string): void {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
         }
+        if (typeof window !== 'undefined') {
+          socket?.send(JSON.stringify({
+            type: 'CLIENT_HELLO',
+            role: window.location.pathname.includes('display') ? 'display' : 'controller'
+          }));
+        }
         if (currentConnectedPin) {
           sendWsEvent({ type: 'AUTH_REQUEST', pin: currentConnectedPin });
         }
@@ -270,6 +284,12 @@ export function initWebSocket(pin?: string): void {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
         }
+        if (typeof window !== 'undefined') {
+          socket?.send(JSON.stringify({
+            type: 'CLIENT_HELLO',
+            role: window.location.pathname.includes('display') ? 'display' : 'controller'
+          }));
+        }
         if (currentConnectedPin) {
           sendWsEvent({ type: 'AUTH_REQUEST', pin: currentConnectedPin });
         }
@@ -325,8 +345,51 @@ function scheduleReconnect(): void {
   }, delay);
 }
 
-function handleIncomingWsEvent(event: WsEvent): void {
+function handleIncomingWsEvent(event: WsEvent | any): void {
   switch (event.type) {
+    case 'STATE_SNAPSHOT': {
+      const payload = event.payload ?? event;
+      const sceneId = payload.scene_id ?? payload.active_scene_id ?? payload.sceneId ?? payload.activeSceneId;
+      if (sceneId && typeof sceneId === 'string') {
+        mapStore.activeMapId = sceneId;
+      }
+      const combatData = payload.combat ?? payload.combat_turn ?? payload.combatTurn;
+      if (combatData) {
+        combatTurnStore.set(combatData);
+      }
+      const tokensData = payload.tokens;
+      if (Array.isArray(tokensData)) {
+        tokenStore.handleStateSnapshot(tokensData);
+      }
+      isHydrated = true;
+      syncState.isHydrated = true;
+      break;
+    }
+
+    case 'PLUGIN_EVENT':
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vtt:plugin-event', { detail: event.payload ?? event }));
+      }
+      break;
+
+    case 'EPHEMERAL_UPDATE':
+    case 'LIVE_DRAG_PREVIEW':
+    case 'CAMERA_SYNC': {
+      const p = event.payload ?? event;
+      if (event.type === 'LIVE_DRAG_PREVIEW' || p.type === 'LIVE_DRAG_PREVIEW') {
+        if (p.tokenId && p.x !== undefined && p.y !== undefined) {
+          tokenStore.handleTokenMoved(p.tokenId, p.x, p.y, p.elevation);
+        }
+      } else if (event.type === 'CAMERA_SYNC' || p.type === 'CAMERA_SYNC') {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('vtt:camera-sync', { detail: p }));
+        }
+      } else if (p.tokenId && p.x !== undefined && p.y !== undefined) {
+        tokenStore.handleTokenMoved(p.tokenId, p.x, p.y, p.elevation);
+      }
+      break;
+    }
+
     case 'HP_UPDATE':
       applyHpUpdateFromWs(event.character_id, event.current_hp, event.temp_hp);
       break;
@@ -522,10 +585,30 @@ function handleIncomingWsEvent(event: WsEvent): void {
   }
 }
 
-export function sendWsEvent(event: WsEvent | any): void {
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(event));
+export function sendWsEvent(
+  typeOrEvent: string | (WsEvent | any),
+  payload?: unknown,
+  ephemeral = false
+): void {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+  if (typeof typeOrEvent === 'string') {
+    socket.send(JSON.stringify({
+      type: typeOrEvent,
+      payload,
+      ephemeral,
+      timestamp: Date.now()
+    }));
+    return;
   }
+
+  const event = typeOrEvent;
+  socket.send(JSON.stringify({
+    ...event,
+    ephemeral: event.ephemeral ?? false,
+    timestamp: event.timestamp ?? Date.now()
+  }));
+
   // Local event dispatch for same-window / LAN fallback
   if (typeof window !== 'undefined') {
     if (event?.type === 'TOGGLE_BLACK_ORB' || event?.type === 'BLACK_ORB_TOGGLE') {

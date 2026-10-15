@@ -1,8 +1,23 @@
 <script lang="ts">
   import { uiTheme, type ThemeMode, type DisplayMode } from '../../stores/uiTheme.svelte';
+  import { pluginHost } from '$lib/services/pluginHost.svelte';
   import Icons from '../../../components/Icons.svelte';
 
   let { isOpen = $bindable(false) }: { isOpen?: boolean } = $props();
+
+  let activeViewportEngine = $state(
+    typeof localStorage !== 'undefined'
+      ? localStorage.getItem('vtt_active_viewport_engine') || 'viewport-pixi-2d'
+      : 'viewport-pixi-2d'
+  );
+
+  function selectViewportEngine(id: string) {
+    activeViewportEngine = id;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('vtt_active_viewport_engine', id);
+      window.dispatchEvent(new CustomEvent('vtt:viewport-engine-changed', { detail: { id } }));
+    }
+  }
 
   function selectTheme(mode: ThemeMode) {
     uiTheme.setTheme(mode);
@@ -19,6 +34,48 @@
 
   function selectDisplayMode(mode: DisplayMode) {
     uiTheme.setDisplayMode(mode);
+  }
+
+  let isSideloading = $state(false);
+  let sideloadToast = $state<string | null>(null);
+  let isDragOverZip = $state(false);
+  let zipInputRef = $state<HTMLInputElement | null>(null);
+
+  async function handleSideloadFile(file: File) {
+    if (!file.name.endsWith('.zip')) {
+      sideloadToast = 'Please upload a .zip plugin bundle.';
+      setTimeout(() => { sideloadToast = null; }, 3000);
+      return;
+    }
+
+    isSideloading = true;
+    sideloadToast = `Unpacking and mounting ${file.name}...`;
+
+    try {
+      const plugin = await pluginHost.sideloadZip(file);
+      sideloadToast = `Successfully mounted "${plugin.name}" v${plugin.version}!`;
+      setTimeout(() => { sideloadToast = null; }, 4000);
+    } catch (err) {
+      console.error('[SettingsDrawer] Sideload failed:', err);
+      sideloadToast = err instanceof Error ? err.message : 'Plugin sideload failed.';
+      setTimeout(() => { sideloadToast = null; }, 5000);
+    } finally {
+      isSideloading = false;
+      if (zipInputRef) zipInputRef.value = '';
+    }
+  }
+
+  function handleZipDrop(e: DragEvent) {
+    e.preventDefault();
+    isDragOverZip = false;
+    const file = e.dataTransfer?.files?.[0];
+    if (file) handleSideloadFile(file);
+  }
+
+  function handleZipSelect(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const file = target.files?.[0];
+    if (file) handleSideloadFile(file);
   }
 
   function close() {
@@ -232,6 +289,132 @@
               <span class="text-[10px] text-slate-400">Maximizes tactical battle map canvas area with collapsed toolbars</span>
             </div>
           </button>
+        </div>
+      </div>
+
+      <!-- Sideload External Plugin Dropzone -->
+      <div class="space-y-2 pt-2 border-t border-slate-800">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-300">
+            Sideload External Plugin (.zip)
+          </span>
+          {#if isSideloading}
+            <span class="text-[10px] text-indigo-400 font-mono animate-pulse">Unpacking...</span>
+          {/if}
+        </div>
+
+        <div
+          role="button"
+          tabindex="0"
+          onclick={() => zipInputRef?.click()}
+          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') zipInputRef?.click(); }}
+          ondragover={(e) => { e.preventDefault(); isDragOverZip = true; }}
+          ondragleave={() => { isDragOverZip = false; }}
+          ondrop={handleZipDrop}
+          class="p-4 rounded-xl border-2 border-dashed transition-all cursor-pointer text-center flex flex-col items-center justify-center gap-1.5 {
+            isDragOverZip
+              ? 'border-indigo-500 bg-indigo-950/30'
+              : 'border-slate-800 hover:border-slate-700 bg-slate-950/40'
+          }"
+        >
+          <input
+            bind:this={zipInputRef}
+            type="file"
+            accept=".zip"
+            onchange={handleZipSelect}
+            class="hidden"
+          />
+          <span class="text-xl">📦</span>
+          <span class="text-xs font-semibold text-slate-200">
+            Drop .zip plugin archive here
+          </span>
+          <span class="text-[10px] text-slate-500">
+            Extracts plugin.json & index.js directly into runtime
+          </span>
+        </div>
+
+        {#if sideloadToast}
+          <div class="p-2.5 rounded-lg bg-indigo-950/80 border border-indigo-700 text-indigo-200 text-xs font-medium">
+            {sideloadToast}
+          </div>
+        {/if}
+      </div>
+
+      <!-- 4. Modular Plugins Checklist -->
+      <div class="space-y-3 pt-2 border-t border-slate-800">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-300">
+            Modular Plugins
+          </span>
+          <span class="text-[10px] text-slate-500 font-mono">
+            {pluginHost.enabledIds.size} active
+          </span>
+        </div>
+
+        <div class="space-y-2">
+          {#each Array.from(pluginHost.registeredPlugins.values()) as plugin}
+            <div class="p-3 rounded-xl border border-slate-800 bg-slate-950/40 flex items-start justify-between gap-3 transition-colors hover:border-slate-700">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-semibold text-slate-200 truncate">{plugin.name}</span>
+                  <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">v{plugin.version}</span>
+                </div>
+                {#if plugin.description}
+                  <p class="text-[10px] text-slate-400 mt-1 leading-relaxed">{plugin.description}</p>
+                {/if}
+              </div>
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={pluginHost.isEnabled(plugin.id)}
+                onclick={() => {
+                  if (pluginHost.isEnabled(plugin.id)) {
+                    pluginHost.disable(plugin.id);
+                  } else {
+                    void pluginHost.enable(plugin.id);
+                  }
+                }}
+                class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none {
+                  pluginHost.isEnabled(plugin.id) ? 'bg-indigo-600' : 'bg-slate-700'
+                }"
+              >
+                <span
+                  class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out {
+                    pluginHost.isEnabled(plugin.id) ? 'translate-x-4' : 'translate-x-0'
+                  }"
+                ></span>
+              </button>
+            </div>
+          {/each}
+        </div>
+      </div>
+
+      <!-- 5. Viewport Engine Selector -->
+      <div class="space-y-2.5 pt-2 border-t border-slate-800">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-300 block">
+          Viewport Engine
+        </span>
+        <div class="grid grid-cols-1 gap-2">
+          {#each [
+            { id: 'viewport-pixi-2d', name: '2D Tactical Battlemat', icon: '🗺️', desc: 'Hardware-accelerated PixiJS 2D canvas with full fog and lighting' },
+            { id: 'viewport-threlte-3d', name: '3D Spectator Display', icon: '🧊', desc: 'Isometric perspective 3D miniature renderer for TV & table displays' }
+          ] as engine}
+            <button
+              onclick={() => selectViewportEngine(engine.id)}
+              class="p-3 rounded-xl border text-left flex items-start gap-3 transition-all {
+                activeViewportEngine === engine.id
+                  ? 'bg-slate-950 border-indigo-500 text-white shadow-md shadow-indigo-600/10'
+                  : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700'
+              }"
+            >
+              <span class="text-lg">{engine.icon}</span>
+              <div>
+                <span class="text-xs font-semibold block text-slate-200">{engine.name}</span>
+                <span class="text-[10px] text-slate-400">{engine.desc}</span>
+              </div>
+            </button>
+          {/each}
         </div>
       </div>
     </div>

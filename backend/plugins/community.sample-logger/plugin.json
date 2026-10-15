@@ -1,0 +1,12 @@
+{
+  "id": "community.sample-logger",
+  "name": "Combat Roll Notifier",
+  "version": "1.0.0",
+  "entrypoint": "index.js",
+  "permissions": [
+    "dice:listen",
+    "notifications:toast"
+  ],
+  "description": "Logs live rolls and notifies on natural 20s",
+  "author": "Graywood Community"
+}
